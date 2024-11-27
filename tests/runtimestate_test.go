@@ -516,9 +516,25 @@ func Test_DuplicateEvents(t *testing.T) {
 	}
 
 	// TODO: Add other types of duplicate events (task completion, external events, sub-orchestration, etc.)
-
-	if err := s.AddEvent(helpers.NewExecutionCompletedEvent(-1, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, nil, nil)); assert.NoError(t, err) {
-		err = s.AddEvent(helpers.NewExecutionCompletedEvent(-1, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, nil, nil))
+	err = s.AddEvent(&protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_ExecutionCompleted{
+			ExecutionCompleted: &protos.ExecutionCompletedEvent{
+				OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+			},
+		},
+	})
+	if assert.NoError(t, err) {
+		err = s.AddEvent(&protos.HistoryEvent{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionCompleted{
+				ExecutionCompleted: &protos.ExecutionCompletedEvent{
+					OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+				},
+			},
+		})
 		assert.ErrorIs(t, err, backend.ErrDuplicateEvent)
 	} else {
 		return

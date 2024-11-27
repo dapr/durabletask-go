@@ -12,20 +12,6 @@ import (
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
-func NewExecutionCompletedEvent(eventID int32, status protos.OrchestrationStatus, result *wrapperspb.StringValue, failureDetails *protos.TaskFailureDetails) *protos.HistoryEvent {
-	return &protos.HistoryEvent{
-		EventId:   eventID,
-		Timestamp: timestamppb.Now(),
-		EventType: &protos.HistoryEvent_ExecutionCompleted{
-			ExecutionCompleted: &protos.ExecutionCompletedEvent{
-				OrchestrationStatus: status,
-				Result:              result,
-				FailureDetails:      failureDetails,
-			},
-		},
-	}
-}
-
 func NewExecutionTerminatedEvent(rawReason *wrapperspb.StringValue, recurse bool) *protos.HistoryEvent {
 	return &protos.HistoryEvent{
 		EventId:   -1,

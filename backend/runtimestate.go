@@ -147,7 +147,17 @@ func (s *OrchestrationRuntimeState) ApplyActions(actions []*protos.OrchestratorA
 				// ignore all remaining actions
 				return true, nil
 			} else {
-				s.AddEvent(helpers.NewExecutionCompletedEvent(action.Id, completedAction.OrchestrationStatus, completedAction.Result, completedAction.FailureDetails))
+				s.AddEvent(&protos.HistoryEvent{
+					EventId:   action.Id,
+					Timestamp: timestamppb.Now(),
+					EventType: &protos.HistoryEvent_ExecutionCompleted{
+						ExecutionCompleted: &protos.ExecutionCompletedEvent{
+							OrchestrationStatus: completedAction.OrchestrationStatus,
+							Result:              completedAction.Result,
+							FailureDetails:      completedAction.FailureDetails,
+						},
+					},
+				})
 				if s.startEvent.GetParentInstance() != nil {
 					msg := OrchestratorMessage{
 						HistoryEvent:     &protos.HistoryEvent{EventId: -1, Timestamp: timestamppb.Now()},
