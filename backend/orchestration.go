@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api"
@@ -155,7 +156,13 @@ func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *Orchestra
 
 	// The orchestrator started event is used primarily for updating the current time as reported
 	// by the orchestration context APIs.
-	wi.State.AddEvent(helpers.NewOrchestratorStartedEvent())
+	wi.State.AddEvent(&protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_OrchestratorStarted{
+			OrchestratorStarted: &protos.OrchestratorStartedEvent{},
+		},
+	})
 
 	// Each orchestration instance gets its own distributed tracing span. However, the implementation of
 	// endOrchestratorSpan will "cancel" the span mark the span as "unsampled" if the orchestration isn't

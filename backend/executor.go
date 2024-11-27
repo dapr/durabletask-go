@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -430,7 +431,22 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 	ctx, span := helpers.StartNewCreateOrchestrationSpan(ctx, req.Name, req.Version.GetValue(), instanceID)
 	defer span.End()
 
-	e := helpers.NewExecutionStartedEvent(req.Name, instanceID, req.Input, nil, helpers.TraceContextFromSpan(span), req.ScheduledStartTimestamp)
+	e := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ExecutionStarted{
+			ExecutionStarted: &protos.ExecutionStartedEvent{
+				Name:  req.Name,
+				Input: req.Input,
+				OrchestrationInstance: &protos.OrchestrationInstance{
+					InstanceId:  instanceID,
+					ExecutionId: wrapperspb.String(uuid.New().String()),
+				},
+				ParentTraceContext:      helpers.TraceContextFromSpan(span),
+				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
+			},
+		},
+	}
 	if err := g.backend.CreateOrchestrationInstance(ctx, e, WithOrchestrationIdReusePolicy(req.OrchestrationIdReusePolicy)); err != nil {
 		return nil, err
 	}

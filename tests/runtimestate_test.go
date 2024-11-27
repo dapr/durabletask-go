@@ -8,6 +8,7 @@ import (
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -114,9 +115,25 @@ func Test_CompletedSubOrchestration(t *testing.T) {
 	// TODO: Loop through different completion status values
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
 
-	parentInfo := helpers.NewParentInfo(expectedTaskID, "Parent", "parent_id")
 	s := backend.NewOrchestrationRuntimeState("abc", []*protos.HistoryEvent{
-		helpers.NewExecutionStartedEvent("Child", "child_id", nil, parentInfo, nil, nil),
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Child",
+					OrchestrationInstance: &protos.OrchestrationInstance{
+						InstanceId:  "child_id",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+					ParentInstance: &protos.ParentInstanceInfo{
+						TaskScheduledId:       expectedTaskID,
+						Name:                  wrapperspb.String("Parent"),
+						OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: "parent_id"},
+					},
+				},
+			},
+		},
 	})
 
 	actions := []*protos.OrchestratorAction{
@@ -160,7 +177,19 @@ func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 	eventPayload := "MyEventPayload"
 
 	state := backend.NewOrchestrationRuntimeState(api.InstanceID(iid), []*protos.HistoryEvent{
-		helpers.NewExecutionStartedEvent(expectedName, iid, nil, nil, nil, nil),
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: expectedName,
+					OrchestrationInstance: &protos.OrchestrationInstance{
+						InstanceId:  iid,
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
 	})
 
 	carryoverEvents := []*protos.HistoryEvent{helpers.NewEventRaisedEvent(eventName, wrapperspb.String(eventPayload))}
@@ -207,7 +236,19 @@ func Test_CreateTimer(t *testing.T) {
 	expectedFireAt := time.Now().UTC().Add(72 * time.Hour)
 
 	s := backend.NewOrchestrationRuntimeState(iid, []*protos.HistoryEvent{
-		helpers.NewExecutionStartedEvent("MyOrchestration", iid, nil, nil, nil, nil),
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "MyOrchestration",
+					OrchestrationInstance: &protos.OrchestrationInstance{
+						InstanceId:  iid,
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
 	})
 
 	var actions []*protos.OrchestratorAction
@@ -246,7 +287,20 @@ func Test_ScheduleTask(t *testing.T) {
 	expectedInput := "{\"Foo\":5}"
 
 	state := backend.NewOrchestrationRuntimeState(iid, []*protos.HistoryEvent{
-		helpers.NewExecutionStartedEvent("MyOrchestration", iid, wrapperspb.String(expectedInput), nil, nil, nil),
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "MyOrchestration",
+					OrchestrationInstance: &protos.OrchestrationInstance{
+						InstanceId:  iid,
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+					Input: wrapperspb.String(expectedInput),
+				},
+			},
+		},
 	})
 
 	actions := []*protos.OrchestratorAction{
@@ -293,7 +347,19 @@ func Test_CreateSubOrchestration(t *testing.T) {
 	expectedTraceState := "trace_state"
 
 	state := backend.NewOrchestrationRuntimeState(api.InstanceID(iid), []*protos.HistoryEvent{
-		helpers.NewExecutionStartedEvent("Parent", iid, nil, nil, nil, nil),
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Parent",
+					OrchestrationInstance: &protos.OrchestrationInstance{
+						InstanceId:  iid,
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
 	})
 
 	actions := []*protos.OrchestratorAction{
@@ -349,7 +415,20 @@ func Test_SendEvent(t *testing.T) {
 	expectedInput := "foo"
 
 	s := backend.NewOrchestrationRuntimeState("abc", []*protos.HistoryEvent{
-		helpers.NewExecutionStartedEvent("MyOrchestration", "abc", wrapperspb.String(expectedInput), nil, nil, nil),
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "MyOrchestration",
+					OrchestrationInstance: &protos.OrchestrationInstance{
+						InstanceId:  "abc",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+					Input: wrapperspb.String(expectedInput),
+				},
+			},
+		},
 	})
 
 	actions := []*protos.OrchestratorAction{
@@ -381,7 +460,19 @@ func Test_StateIsValid(t *testing.T) {
 	s := backend.NewOrchestrationRuntimeState("abc", []*protos.HistoryEvent{})
 	assert.True(t, s.IsValid())
 	s = backend.NewOrchestrationRuntimeState("abc", []*protos.HistoryEvent{
-		helpers.NewExecutionStartedEvent("MyOrchestration", "abc", nil, nil, nil, nil),
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "MyOrchestration",
+					OrchestrationInstance: &protos.OrchestrationInstance{
+						InstanceId:  "abc",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
 	})
 	assert.True(t, s.IsValid())
 	s = backend.NewOrchestrationRuntimeState("abc", []*protos.HistoryEvent{
@@ -392,8 +483,33 @@ func Test_StateIsValid(t *testing.T) {
 
 func Test_DuplicateEvents(t *testing.T) {
 	s := backend.NewOrchestrationRuntimeState("abc", []*protos.HistoryEvent{})
-	if err := s.AddEvent(helpers.NewExecutionStartedEvent("MyOrchestration", "abc", nil, nil, nil, nil)); assert.NoError(t, err) {
-		err = s.AddEvent(helpers.NewExecutionStartedEvent("MyOrchestration", "abc", nil, nil, nil, nil))
+	err := s.AddEvent(&protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ExecutionStarted{
+			ExecutionStarted: &protos.ExecutionStartedEvent{
+				Name: "MyOrchestration",
+				OrchestrationInstance: &protos.OrchestrationInstance{
+					InstanceId:  "abc",
+					ExecutionId: wrapperspb.String(uuid.New().String()),
+				},
+			},
+		},
+	})
+	if assert.NoError(t, err) {
+		err = s.AddEvent(&protos.HistoryEvent{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "MyOrchestration",
+					OrchestrationInstance: &protos.OrchestrationInstance{
+						InstanceId:  "abc",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		})
 		assert.ErrorIs(t, err, backend.ErrDuplicateEvent)
 	} else {
 		return

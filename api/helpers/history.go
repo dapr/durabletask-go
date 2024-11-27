@@ -6,39 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api/protos"
 )
-
-func NewExecutionStartedEvent(
-	name string,
-	instanceId string,
-	input *wrapperspb.StringValue,
-	parent *protos.ParentInstanceInfo,
-	parentTraceContext *protos.TraceContext,
-	scheduledStartTimeStamp *timestamppb.Timestamp,
-) *protos.HistoryEvent {
-	return &protos.HistoryEvent{
-		EventId:   -1,
-		Timestamp: timestamppb.New(time.Now()),
-		EventType: &protos.HistoryEvent_ExecutionStarted{
-			ExecutionStarted: &protos.ExecutionStartedEvent{
-				Name:           name,
-				ParentInstance: parent,
-				Input:          input,
-				OrchestrationInstance: &protos.OrchestrationInstance{
-					InstanceId:  instanceId,
-					ExecutionId: wrapperspb.String(uuid.New().String()),
-				},
-				ParentTraceContext:      parentTraceContext,
-				ScheduledStartTimestamp: scheduledStartTimeStamp,
-			},
-		},
-	}
-}
 
 func NewExecutionCompletedEvent(eventID int32, status protos.OrchestrationStatus, result *wrapperspb.StringValue, failureDetails *protos.TaskFailureDetails) *protos.HistoryEvent {
 	return &protos.HistoryEvent{
@@ -63,16 +35,6 @@ func NewExecutionTerminatedEvent(rawReason *wrapperspb.StringValue, recurse bool
 				Input:   rawReason,
 				Recurse: recurse,
 			},
-		},
-	}
-}
-
-func NewOrchestratorStartedEvent() *protos.HistoryEvent {
-	return &protos.HistoryEvent{
-		EventId:   -1,
-		Timestamp: timestamppb.Now(),
-		EventType: &protos.HistoryEvent_OrchestratorStarted{
-			OrchestratorStarted: &protos.OrchestratorStartedEvent{},
 		},
 	}
 }
