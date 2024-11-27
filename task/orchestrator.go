@@ -12,8 +12,8 @@ import (
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
+	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
-	"github.com/dapr/durabletask-go/internal/protos"
 )
 
 // Orchestrator is the functional interface for orchestrator functions.

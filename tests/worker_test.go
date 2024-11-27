@@ -8,8 +8,8 @@ import (
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
+	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
-	"github.com/dapr/durabletask-go/internal/protos"
 	"github.com/dapr/durabletask-go/tests/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"

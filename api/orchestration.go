@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/dapr/durabletask-go/api/helpers"
-	"github.com/dapr/durabletask-go/internal/protos"
+	"github.com/dapr/durabletask-go/api/protos"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
