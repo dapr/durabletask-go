@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api"
-	"github.com/dapr/durabletask-go/internal/helpers"
+	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/internal/protos"
 )
 
@@ -313,6 +313,14 @@ func (s *OrchestrationRuntimeState) PendingMessages() []OrchestratorMessage {
 
 func (s *OrchestrationRuntimeState) ContinuedAsNew() bool {
 	return s.continuedAsNew
+}
+
+// useful for abruptly stopping any execution of an orchestration from the backend
+func (s *OrchestrationRuntimeState) CancelPending() {
+	s.newEvents = []*protos.HistoryEvent{}
+	s.pendingMessages = []OrchestratorMessage{}
+	s.pendingTasks = []*protos.HistoryEvent{}
+	s.pendingTimers = []*protos.HistoryEvent{}
 }
 
 func (s *OrchestrationRuntimeState) String() string {

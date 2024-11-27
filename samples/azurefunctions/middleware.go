@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/dapr/durabletask-go/api"
-	"github.com/dapr/durabletask-go/internal/helpers"
+	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/internal/protos"
 	"github.com/dapr/durabletask-go/task"
 	"google.golang.org/protobuf/proto"

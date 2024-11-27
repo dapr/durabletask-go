@@ -9,8 +9,8 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/dapr/durabletask-go/api"
+	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/backend"
-	"github.com/dapr/durabletask-go/internal/helpers"
 	"github.com/dapr/durabletask-go/internal/protos"
 	"github.com/dapr/durabletask-go/task"
 	"google.golang.org/grpc/codes"
