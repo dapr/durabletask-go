@@ -191,7 +191,16 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 
 	var responseEvent *protos.HistoryEvent
 	if failureDetails := result.response.GetFailureDetails(); failureDetails != nil {
-		responseEvent = helpers.NewTaskFailedEvent(result.response.TaskId, result.response.FailureDetails)
+		responseEvent = &protos.HistoryEvent{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_TaskFailed{
+				TaskFailed: &protos.TaskFailedEvent{
+					TaskScheduledId: result.response.TaskId,
+					FailureDetails:  failureDetails,
+				},
+			},
+		}
 	} else {
 		responseEvent = helpers.NewTaskCompletedEvent(result.response.TaskId, result.response.Result)
 	}

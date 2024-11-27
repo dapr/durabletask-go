@@ -69,19 +69,6 @@ func NewTaskCompletedEvent(taskID int32, result *wrapperspb.StringValue) *protos
 	}
 }
 
-func NewTaskFailedEvent(taskID int32, failureDetails *protos.TaskFailureDetails) *protos.HistoryEvent {
-	return &protos.HistoryEvent{
-		EventId:   -1,
-		Timestamp: timestamppb.Now(),
-		EventType: &protos.HistoryEvent_TaskFailed{
-			TaskFailed: &protos.TaskFailedEvent{
-				TaskScheduledId: taskID,
-				FailureDetails:  failureDetails,
-			},
-		},
-	}
-}
-
 func NewTimerCreatedEvent(eventID int32, fireAt *timestamppb.Timestamp) *protos.HistoryEvent {
 	return &protos.HistoryEvent{
 		EventId:   eventID,
