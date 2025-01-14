@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dapr/durabletask-go/api"
+	"github.com/dapr/durabletask-go/api/protos"
 )
 
 var ErrNoWorkItems = errors.New("no work items were found")
@@ -20,7 +21,7 @@ type OrchestrationWorkItem struct {
 	NewEvents  []*HistoryEvent
 	LockedBy   string
 	RetryCount int32
-	State      *OrchestrationRuntimeState
+	State      *protos.OrchestrationRuntimeState
 	Properties map[string]interface{}
 }
 
