@@ -173,7 +173,7 @@ func Test_TaskWorker(t *testing.T) {
 	}
 	tp.AddWorkItems(first, second)
 
-	worker := backend.NewTaskWorker[*backend.ActivityWorkItem](tp, logger)
+	worker := backend.NewTaskWorker[*backend.ActivityWorkItem](tp, logger, backend.WithMaxParallelism(1))
 
 	worker.Start(ctx)
 
@@ -220,7 +220,7 @@ func Test_StartAndStop(t *testing.T) {
 	}
 	tp.AddWorkItems(&first, &second)
 
-	worker := backend.NewTaskWorker[*backend.ActivityWorkItem](tp, logger)
+	worker := backend.NewTaskWorker[*backend.ActivityWorkItem](tp, logger, backend.WithMaxParallelism(1))
 
 	worker.Start(ctx)
 
