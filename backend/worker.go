@@ -34,31 +34,35 @@ type worker[T WorkItem] struct {
 type NewTaskWorkerOptions func(*WorkerOptions)
 
 type WorkerOptions struct {
-	MaxParallelWorkItems int32
+	MaxParallelWorkItems *int32
 }
 
 func NewWorkerOptions() *WorkerOptions {
-	return &WorkerOptions{
-		MaxParallelWorkItems: 1,
-	}
+	return &WorkerOptions{}
 }
 
 func WithMaxParallelism(n int32) NewTaskWorkerOptions {
 	return func(o *WorkerOptions) {
-		o.MaxParallelWorkItems = n
+		o.MaxParallelWorkItems = &n
 	}
 }
 
 func NewTaskWorker[T WorkItem](p TaskProcessor[T], logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[T] {
-	options := &WorkerOptions{MaxParallelWorkItems: 1}
+	options := &WorkerOptions{}
 	for _, configure := range opts {
 		configure(options)
 	}
+
+	var parallelLock chan struct{}
+	if options.MaxParallelWorkItems != nil {
+		parallelLock = make(chan struct{}, *options.MaxParallelWorkItems)
+	}
+
 	return &worker[T]{
 		processor:    p,
 		logger:       logger,
 		workItems:    make(chan T),
-		parallelLock: make(chan struct{}, options.MaxParallelWorkItems),
+		parallelLock: parallelLock,
 		closeCh:      make(chan struct{}),
 	}
 }
@@ -87,15 +91,20 @@ func (w *worker[T]) Start(ctx context.Context) {
 		defer w.logger.Infof("%v: worker stopped", w.Name())
 
 		for {
-			select {
-			case w.parallelLock <- struct{}{}:
-			case <-ctx.Done():
-				return
+
+			if w.parallelLock != nil {
+				select {
+				case w.parallelLock <- struct{}{}:
+				case <-ctx.Done():
+					return
+				}
 			}
 
 			wi, err := w.processor.NextWorkItem(ctx)
 			if err != nil {
-				<-w.parallelLock
+				if w.parallelLock != nil {
+					<-w.parallelLock
+				}
 
 				if ctx.Err() != nil {
 					return
@@ -108,7 +117,9 @@ func (w *worker[T]) Start(ctx context.Context) {
 			w.wg.Add(1)
 			go func() {
 				defer func() {
-					<-w.parallelLock
+					if w.parallelLock != nil {
+						<-w.parallelLock
+					}
 					w.wg.Done()
 				}()
 				w.processWorkItem(ctx, wi)
