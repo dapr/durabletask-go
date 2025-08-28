@@ -378,8 +378,7 @@ func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkI
 ) error {
 	select {
 	case <-stream.Context().Done():
-		g.logger.Errorf("timed out while sending work item")
-		return fmt.Errorf("timed out while sending work item: %w", stream.Context().Err())
+		return stream.Context().Err()
 	case ch <- wi:
 	}
 
