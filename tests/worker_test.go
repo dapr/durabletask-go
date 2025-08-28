@@ -232,7 +232,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 	require.Len(t, state.NewEvents, 3)
 	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
 	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
-	require.NotNil(t, wi.State.NewEvents[2].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[2].GetExecutionCompleted())
 }
 
 func Test_TaskWorker(t *testing.T) {
