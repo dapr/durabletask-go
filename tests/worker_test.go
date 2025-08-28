@@ -136,11 +136,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 	worker := backend.NewOrchestrationWorker(be, ex, logger, backend.WithMaxParallelism(1))
 	worker.Start(ctx)
 
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		if !completed.Load() {
-			collect.Errorf("process next not called CompleteOrchestrationWorkItem yet")
-		}
-	}, 2*time.Second, 100*time.Millisecond)
+	require.Eventually(t, completed.Load, 2*time.Second, 10*time.Millisecond)
 
 	worker.StopAndDrain()
 
