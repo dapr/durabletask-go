@@ -376,18 +376,18 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkItemsServer, wi *protos.WorkItem,
 	ch chan *protos.WorkItem, errCh chan error,
 ) error {
+	select {
+	case <-stream.Context().Done():
+		g.logger.Errorf("timed out while sending work item")
+		return fmt.Errorf("timed out while sending work item: %w", stream.Context().Err())
+	case ch <- wi:
+	}
+
 	ctx := stream.Context()
 	if g.streamSendTimeout != nil {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, *g.streamSendTimeout)
 		defer cancel()
-	}
-
-	select {
-	case <-ctx.Done():
-		g.logger.Errorf("timed out while sending work item")
-		return fmt.Errorf("timed out while sending work item: %w", ctx.Err())
-	case ch <- wi:
 	}
 
 	select {
