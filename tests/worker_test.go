@@ -111,13 +111,15 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 	ex := mocks.NewExecutor(t)
 
 	callNumber := 0
-	ex.EXPECT().ExecuteOrchestrator(anyContext, wi.InstanceID, wi.State.OldEvents, mock.Anything).RunAndReturn(func(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.OrchestratorResponse, error) {
+	ex.EXPECT().ExecuteOrchestrator(anyContext, wi.InstanceID, wi.State.OldEvents, mock.Anything).RunAndReturn(func(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*backend.ExecutionResults, error) {
 		callNumber++
 		logger.Debugf("execute orchestrator called %d times", callNumber)
 		if callNumber == 1 {
 			return nil, errors.New("dummy error")
 		}
-		return &protos.OrchestratorResponse{}, nil
+		return &backend.ExecutionResults{
+			Response: new(protos.OrchestratorResponse),
+		}, nil
 	}).Times(2)
 
 	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(wi, nil).Once()
@@ -234,7 +236,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 	require.Len(t, state.NewEvents, 3)
 	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
 	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
-	require.NotNil(t, wi.State.NewEvents[2].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[2].GetExecutionCompleted())
 }
 
 func Test_TaskWorker(t *testing.T) {
