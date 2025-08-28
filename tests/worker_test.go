@@ -82,7 +82,6 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 }
 
 func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
-	ctx := context.Background()
 	workflowID := "test123"
 	wi := &backend.OrchestrationWorkItem{
 		InstanceID: api.InstanceID(workflowID),
