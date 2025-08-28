@@ -103,7 +103,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 		State: runtimestate.NewOrchestrationRuntimeState(workflowID, nil, []*protos.HistoryEvent{}),
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	completed := atomic.Bool{}
