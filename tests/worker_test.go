@@ -229,6 +229,12 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 	}, 1*time.Second, 100*time.Millisecond)
 
 	worker.StopAndDrain()
+
+	t.Logf("state.NewEvents: %v", state.NewEvents)
+	require.Len(t, state.NewEvents, 3)
+	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
+	require.NotNil(t, wi.State.NewEvents[2].GetOrchestratorStarted())
 }
 
 func Test_TaskWorker(t *testing.T) {
