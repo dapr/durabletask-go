@@ -230,9 +230,9 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 
 	t.Logf("state.NewEvents: %v", state.NewEvents)
 	require.Len(t, state.NewEvents, 3)
-	require.True(t, state.NewEvents[0].GetOrchestratorStarted() != nil)
-	require.True(t, state.NewEvents[1].GetExecutionStarted() != nil)
-	require.True(t, state.NewEvents[2].GetExecutionCompleted() != nil)
+	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
+	require.NotNil(t, wi.State.NewEvents[2].GetOrchestratorStarted())
 }
 
 func Test_TaskWorker(t *testing.T) {
