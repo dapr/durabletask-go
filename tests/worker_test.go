@@ -76,6 +76,63 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 	worker.StopAndDrain()
 }
 
+func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
+	ctx := context.Background()
+	workflowID := "test123"
+	wi := &backend.OrchestrationWorkItem{
+		InstanceID: api.InstanceID(workflowID),
+		NewEvents: []*protos.HistoryEvent{
+			{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_ExecutionStarted{
+					ExecutionStarted: &protos.ExecutionStartedEvent{
+						Name: "MyOrch",
+						OrchestrationInstance: &protos.OrchestrationInstance{
+							InstanceId:  workflowID,
+							ExecutionId: wrapperspb.String(uuid.New().String()),
+						},
+					},
+				},
+			},
+		},
+		State: runtimestate.NewOrchestrationRuntimeState(workflowID, nil, []*protos.HistoryEvent{}),
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+
+	completed := atomic.Bool{}
+	be := mocks.NewBackend(t)
+	ex := mocks.NewExecutor(t)
+
+	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(wi, nil).Once()
+	ex.EXPECT().ExecuteOrchestrator(anyContext, wi.InstanceID, wi.State.OldEvents, mock.Anything).Return(nil, errors.New("dummy error")).Once()
+	be.EXPECT().AbandonOrchestrationWorkItem(anyContext, wi).Return(nil).Once()
+
+	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(wi, nil).Once()
+	ex.EXPECT().ExecuteOrchestrator(anyContext, wi.InstanceID, wi.State.OldEvents, mock.Anything).Return(&protos.OrchestratorResponse{}, nil).Once()
+	be.EXPECT().CompleteOrchestrationWorkItem(anyContext, wi).RunAndReturn(func(ctx context.Context, owi *backend.OrchestrationWorkItem) error {
+		completed.Store(true)
+		return nil
+	}).Once()
+
+	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(nil, errors.New("")).Once().Run(func(mock.Arguments) {
+		cancel()
+	})
+
+	worker := backend.NewOrchestrationWorker(be, ex, logger, backend.WithMaxParallelism(1))
+	worker.Start(ctx)
+
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		if !completed.Load() {
+			collect.Errorf("process next not called CompleteOrchestrationWorkItem yet")
+		}
+	}, 2*time.Second, 100*time.Millisecond)
+
+	worker.StopAndDrain()
+}
+
 func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *testing.T) {
 	ctx := context.Background()
 	iid := api.InstanceID("test123")
