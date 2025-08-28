@@ -194,8 +194,8 @@ func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *Orchestra
 		}
 	}
 
-	if added == 0 {
-		w.logger.Warnf("%v: all new events were dropped", wi.InstanceID)
+	if len(wi.State.NewEvents) == 0 {
+		w.logger.Warnf("%v: no new events to process", wi.InstanceID)
 		return ctx, span, false
 	}
 
