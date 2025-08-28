@@ -321,6 +321,19 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 		}
 	}()
 
+	ch := make(chan *protos.WorkItem)
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stream.Context().Done():
+				return
+			case wi := <-ch:
+				errCh <- stream.Send(wi)
+			}
+		}
+	}()
+
 	// The worker client invokes this method, which streams back work-items as they arrive.
 	for {
 		select {
@@ -349,7 +362,7 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 				}
 			}
 
-			if err := g.sendWorkItem(stream, wi); err != nil {
+			if err := g.sendWorkItem(stream, wi, ch, errCh); err != nil {
 				g.logger.Errorf("encountered an error while sending work item: %v", err)
 				return err
 			}
@@ -360,7 +373,15 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 	}
 }
 
-func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkItemsServer, wi *protos.WorkItem) error {
+func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkItemsServer, wi *protos.WorkItem,
+	ch chan *protos.WorkItem, errCh chan error,
+) error {
+	select {
+	case <-stream.Context().Done():
+		return stream.Context().Err()
+	case ch <- wi:
+	}
+
 	ctx := stream.Context()
 	if g.streamSendTimeout != nil {
 		var cancel context.CancelFunc
@@ -368,17 +389,13 @@ func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkI
 		defer cancel()
 	}
 
-	errCh := make(chan error, 2)
-	go func() {
-		select {
-		case errCh <- stream.Send(wi):
-		case <-ctx.Done():
-			g.logger.Errorf("timed out while sending work item")
-			errCh <- fmt.Errorf("timed out while sending work item: %w", ctx.Err())
-		}
-	}()
-
-	return <-errCh
+	select {
+	case <-ctx.Done():
+		g.logger.Errorf("timed out while sending work item")
+		return fmt.Errorf("timed out while sending work item: %w", ctx.Err())
+	case err := <-errCh:
+		return err
+	}
 }
 
 // CompleteOrchestratorTask implements protos.TaskHubSidecarServiceServer
