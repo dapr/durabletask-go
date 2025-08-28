@@ -142,9 +142,9 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 
 	t.Logf("state.NewEvents: %v", wi.State.NewEvents)
 	require.Len(t, wi.State.NewEvents, 3)
-	require.True(t, wi.State.NewEvents[0].GetOrchestratorStarted() != nil)
-	require.True(t, wi.State.NewEvents[1].GetExecutionStarted() != nil)
-	require.True(t, wi.State.NewEvents[2].GetOrchestratorStarted() != nil)
+	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
+	require.NotNil(t, wi.State.NewEvents[2].GetOrchestratorStarted())
 }
 
 func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *testing.T) {
