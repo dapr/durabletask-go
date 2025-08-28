@@ -87,7 +87,7 @@ func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.
 			if completedAction.OrchestrationStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
 				newState := NewOrchestrationRuntimeState(s.InstanceId, customStatus, []*protos.HistoryEvent{})
 				newState.ContinuedAsNew = true
-				AddEvent(newState, &protos.HistoryEvent{
+				_ = AddEvent(newState, &protos.HistoryEvent{
 					EventId:   -1,
 					Timestamp: timestamppb.Now(),
 					EventType: &protos.HistoryEvent_OrchestratorStarted{
@@ -97,7 +97,7 @@ func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.
 				})
 
 				// Duplicate the start event info, updating just the input
-				AddEvent(newState,
+				_ = AddEvent(newState,
 					&protos.HistoryEvent{
 						EventId:   -1,
 						Timestamp: timestamppb.New(time.Now()),
@@ -119,7 +119,7 @@ func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.
 
 				// Unprocessed "carryover" events
 				for _, e := range completedAction.CarryoverEvents {
-					AddEvent(newState, e)
+					_ = AddEvent(newState, e)
 				}
 
 				// Overwrite the current state object with a new one
@@ -180,7 +180,7 @@ func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.
 				}
 			}
 		} else if createtimer := action.GetCreateTimer(); createtimer != nil {
-			AddEvent(s, &protos.HistoryEvent{
+			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,
 				Timestamp: timestamppb.New(time.Now()),
 				EventType: &protos.HistoryEvent_TimerCreated{
@@ -217,7 +217,7 @@ func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.
 				},
 				Router: action.Router,
 			}
-			AddEvent(s, scheduledEvent)
+			_ = AddEvent(s, scheduledEvent)
 			s.PendingTasks = append(s.PendingTasks, scheduledEvent)
 		} else if createSO := action.GetCreateSubOrchestration(); createSO != nil {
 			// Autogenerate an instance ID for the sub-orchestration if none is provided, using a
@@ -225,7 +225,7 @@ func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.
 			if createSO.InstanceId == "" {
 				createSO.InstanceId = fmt.Sprintf("%s:%04x", s.InstanceId, action.Id)
 			}
-			AddEvent(s, &protos.HistoryEvent{
+			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,
 				Timestamp: timestamppb.New(time.Now()),
 				EventType: &protos.HistoryEvent_SubOrchestrationInstanceCreated{
@@ -276,7 +276,7 @@ func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.
 				},
 				Router: action.Router,
 			}
-			AddEvent(s, e)
+			_ = AddEvent(s, e)
 			s.PendingMessages = append(s.PendingMessages, &protos.OrchestrationRuntimeStateMessage{HistoryEvent: e, TargetInstanceID: sendEvent.Instance.InstanceId})
 		} else if terminate := action.GetTerminateOrchestration(); terminate != nil {
 			// Send a message to terminate the target orchestration

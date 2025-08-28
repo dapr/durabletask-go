@@ -153,7 +153,7 @@ func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *Orchestra
 
 	// The orchestrator started event is used primarily for updating the current time as reported
 	// by the orchestration context APIs.
-	runtimestate.AddEvent(wi.State, &protos.HistoryEvent{
+	_ = runtimestate.AddEvent(wi.State, &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
 		EventType: &protos.HistoryEvent_OrchestratorStarted{
