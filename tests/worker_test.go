@@ -77,8 +77,8 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 
 	t.Logf("state.NewEvents: %v", state.NewEvents)
 	require.Len(t, state.NewEvents, 2)
-	require.True(t, state.NewEvents[0].GetOrchestratorStarted() != nil)
-	require.True(t, state.NewEvents[1].GetExecutionStarted() != nil)
+	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
 }
 
 func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
