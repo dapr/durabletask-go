@@ -322,7 +322,7 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 	}()
 
 	ch := make(chan *protos.WorkItem)
-	errCh := make(chan error)
+	errCh := make(chan error, 1)
 	go func() {
 		for {
 			select {
