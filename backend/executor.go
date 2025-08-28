@@ -369,14 +369,12 @@ func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkI
 	}
 
 	errCh := make(chan error, 2)
-	go func() {
-		select {
-		case errCh <- stream.Send(wi):
-		case <-ctx.Done():
-			g.logger.Errorf("timed out while sending work item")
-			errCh <- fmt.Errorf("timed out while sending work item: %w", ctx.Err())
-		}
-	}()
+	select {
+	case errCh <- stream.Send(wi):
+	case <-ctx.Done():
+		g.logger.Errorf("timed out while sending work item")
+		errCh <- fmt.Errorf("timed out while sending work item: %w", ctx.Err())
+	}
 
 	return <-errCh
 }
