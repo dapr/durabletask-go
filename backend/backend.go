@@ -87,8 +87,9 @@ type Backend interface {
 
 	// WatchOrchestrationRuntimeStatus is a streaming API to watch for changes to
 	// the OrchestrtionMetadata, receiving events as and when the state changes.
+	// When the given condition is true, returns.
 	// Used over polling the metadata.
-	WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, ch chan<- *OrchestrationMetadata) error
+	WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, condition func(*OrchestrationMetadata) bool) error
 
 	// GetOrchestrationMetadata gets the metadata associated with the given orchestration instance ID.
 	//

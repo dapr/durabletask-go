@@ -155,7 +155,7 @@ func (be *postgresBackend) NextOrchestrationWorkItem(ctx context.Context) (*back
 	}
 }
 
-func (be *postgresBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, ch chan<- *backend.OrchestrationMetadata) error {
+func (be *postgresBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, fn func(*backend.OrchestrationMetadata) bool) error {
 	b := backoff.ExponentialBackOff{
 		InitialInterval:     100 * time.Millisecond,
 		MaxInterval:         10 * time.Second,
@@ -181,10 +181,8 @@ func (be *postgresBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, 
 				return err
 			}
 
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case ch <- meta:
+			if fn(meta) {
+				return nil
 			}
 		}
 	}

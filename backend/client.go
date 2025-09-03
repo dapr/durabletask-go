@@ -2,7 +2,6 @@ package backend
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
-	"github.com/dapr/kit/concurrency"
 )
 
 type TaskHubClient interface {
@@ -116,31 +114,13 @@ func (c *backendClient) WaitForOrchestrationCompletion(ctx context.Context, id a
 }
 
 func (c *backendClient) waitForOrchestrationCondition(ctx context.Context, id api.InstanceID, condition func(metadata *OrchestrationMetadata) bool) (*OrchestrationMetadata, error) {
-	ch := make(chan *protos.OrchestrationMetadata)
 	var metadata *protos.OrchestrationMetadata
-	err := concurrency.NewRunnerManager(
-		func(ctx context.Context) error {
-			return c.be.WatchOrchestrationRuntimeStatus(ctx, id, ch)
-		},
-		func(ctx context.Context) error {
-			for {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case metadata = <-ch:
-					if condition(metadata) {
-						return nil
-					}
-				}
-			}
-		},
-	).Run(ctx)
+	err := c.be.WatchOrchestrationRuntimeStatus(ctx, id, func(m *OrchestrationMetadata) bool {
+		metadata = m
+		return condition(m)
+	})
 
-	if err != nil || ctx.Err() != nil {
-		return nil, errors.Join(err, ctx.Err())
-	}
-
-	return metadata, nil
+	return metadata, err
 }
 
 // TerminateOrchestration enqueues a message to terminate a running orchestration, causing it to stop receiving new events and
