@@ -644,7 +644,7 @@ func (be *sqliteBackend) AddNewOrchestrationEvent(ctx context.Context, iid api.I
 	return nil
 }
 
-func (be *sqliteBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, ch chan<- *backend.OrchestrationMetadata) error {
+func (be *sqliteBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, fn func(*backend.OrchestrationMetadata) bool) error {
 	b := backoff.ExponentialBackOff{
 		InitialInterval:     100 * time.Millisecond,
 		MaxInterval:         10 * time.Second,
@@ -670,10 +670,8 @@ func (be *sqliteBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, id
 				return err
 			}
 
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case ch <- meta:
+			if fn(meta) {
+				return nil
 			}
 		}
 	}

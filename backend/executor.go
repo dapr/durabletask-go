@@ -21,7 +21,6 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
-	"github.com/dapr/kit/concurrency"
 )
 
 var emptyCompleteTaskResponse = &protos.CompleteTaskResponse{}
@@ -622,28 +621,13 @@ func (g *grpcExecutor) WaitForInstanceStart(ctx context.Context, req *protos.Get
 func (g *grpcExecutor) waitForInstance(ctx context.Context, req *protos.GetInstanceRequest, condition func(*OrchestrationMetadata) bool) (*protos.GetInstanceResponse, error) {
 	iid := api.InstanceID(req.InstanceId)
 
-	ch := make(chan *protos.OrchestrationMetadata)
 	var metadata *protos.OrchestrationMetadata
-	err := concurrency.NewRunnerManager(
-		func(ctx context.Context) error {
-			return g.backend.WatchOrchestrationRuntimeStatus(ctx, iid, ch)
-		},
-		func(ctx context.Context) error {
-			for {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case metadata = <-ch:
-					if condition(metadata) {
-						return nil
-					}
-				}
-			}
-		},
-	).Run(ctx)
-
-	if err != nil || ctx.Err() != nil {
-		return nil, errors.Join(err, ctx.Err())
+	err := g.backend.WatchOrchestrationRuntimeStatus(ctx, iid, func(m *OrchestrationMetadata) bool {
+		metadata = m
+		return condition(m)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	if metadata == nil {
