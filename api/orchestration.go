@@ -80,6 +80,7 @@ func WithInstanceID(id InstanceID) NewOrchestrationOptions {
 }
 
 // WithOrchestrationIdReusePolicy configures Orchestration ID reuse policy.
+// Deprecated.
 func WithOrchestrationIdReusePolicy(policy *protos.OrchestrationIdReusePolicy) NewOrchestrationOptions {
 	return func(req *protos.CreateInstanceRequest) error {
 		// initialize CreateInstanceOption
