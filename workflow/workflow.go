@@ -28,6 +28,22 @@ func (w *WorkflowContext) GetInput(v any) error {
 	return w.oc.GetInput(v)
 }
 
+func (w *WorkflowContext) ID() string {
+	return string(w.oc.ID)
+}
+
+func (w *WorkflowContext) Name() string {
+	return w.oc.Name
+}
+
+func (w *WorkflowContext) CurrentTimeUTC() time.Time {
+	return w.oc.CurrentTimeUtc
+}
+
+func (w *WorkflowContext) IsReplaying() bool {
+	return w.oc.IsReplaying
+}
+
 // CallActivity schedules an asynchronous invocation of an activity function.
 // The [activity] parameter can be either the name of an activity as a string
 // or can be a pointer to the function that implements the activity, in which
