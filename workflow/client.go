@@ -30,9 +30,9 @@ func (c *Client) StartWorker(ctx context.Context, r *TaskRegistry) error {
 	return c.thgc.StartWorkItemListener(ctx, r.registry)
 }
 
-// ScheduleNewWorkflow schedules a new workflow instance with a specified set
-// of options for execution.
-func (c *Client) ScheduleNewWorkflow(ctx context.Context, orchestrator string, opts ...NewWorkflowOptions) (string, error) {
+// StartWorkflow schedules a new workflow instance with a specified set of
+// options for execution.
+func (c *Client) StartWorkflow(ctx context.Context, orchestrator string, opts ...NewWorkflowOptions) (string, error) {
 	oopts := make([]api.NewOrchestrationOptions, len(opts))
 	for i, o := range opts {
 		oopts[i] = api.NewOrchestrationOptions(o)
