@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/task"
 )
 
@@ -20,9 +21,7 @@ func NewRegistry() *Registry {
 // AddWorkflow adds an orchestrator function to the registry. The name of the orchestrator
 // function is determined using reflection.
 func (r *Registry) AddWorkflow(w Workflow) error {
-	return r.registry.AddOrchestrator(func(ctx *task.OrchestrationContext) (any, error) {
-		return w(&WorkflowContext{ctx})
-	})
+	return r.AddWorkflowN(helpers.GetTaskFunctionName(w), w)
 }
 
 // AddWorkflowN adds an orchestrator function to the registry with a
@@ -36,9 +35,7 @@ func (r *Registry) AddWorkflowN(name string, w Workflow) error {
 // AddActivity adds an activity function to the registry. The name of the
 // activity function is determined using reflection.
 func (r *Registry) AddActivity(a Activity) error {
-	return r.registry.AddActivity(func(ctx task.ActivityContext) (any, error) {
-		return a(ctx.(ActivityContext))
-	})
+	return r.AddActivityN(helpers.GetTaskFunctionName(a), a)
 }
 
 // AddActivityN adds an activity function to the registry with a specified
