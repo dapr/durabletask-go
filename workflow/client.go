@@ -26,7 +26,7 @@ func NewClientWithLogger(cc grpc.ClientConnInterface, logger backend.Logger) *Cl
 }
 
 // StartWorker starts the workflow runtime to process workflows.
-func (c *Client) StartWorker(ctx context.Context, r *TaskRegistry) error {
+func (c *Client) StartWorker(ctx context.Context, r *Registry) error {
 	return c.thgc.StartWorkItemListener(ctx, r.registry)
 }
 
