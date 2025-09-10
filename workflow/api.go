@@ -4,8 +4,6 @@ import (
 	"time"
 
 	"github.com/dapr/durabletask-go/api"
-	"github.com/dapr/durabletask-go/api/protos"
-	"github.com/dapr/kit/ptr"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -16,7 +14,7 @@ type TerminateOptions api.TerminateOptions
 type PurgeOptions api.PurgeOptions
 type RerunOptions api.RerunOptions
 
-type WorkflowMetadata protos.OrchestrationMetadata
+type WorkflowMetadata WorkflowState
 
 // WithInstanceID configures an explicit workflow instance ID. If not
 // specified, a random UUID value will be used for the workflow instance ID.
@@ -87,11 +85,11 @@ func WithRecursivePurge(recursive bool) PurgeOptions {
 }
 
 func WorkflowMetadataIsRunning(o *WorkflowMetadata) bool {
-	return api.OrchestrationMetadataIsComplete(ptr.Of(protos.OrchestrationMetadata(*o)))
+	return api.OrchestrationMetadataIsComplete(o.Metadata)
 }
 
 func WorkflowMetadataIsComplete(o *WorkflowMetadata) bool {
-	return api.OrchestrationMetadataIsComplete(ptr.Of(protos.OrchestrationMetadata(*o)))
+	return api.OrchestrationMetadataIsComplete(o.Metadata)
 }
 
 func WithRerunInput(input any) RerunOptions {

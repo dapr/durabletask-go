@@ -2,7 +2,7 @@ package workflow
 
 import (
 	"github.com/dapr/durabletask-go/api"
-	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend"
 )
 
 type Status int
@@ -60,7 +60,7 @@ func (s Status) RuntimeStatus() api.OrchestrationStatus {
 }
 
 type WorkflowState struct {
-	Metadata protos.OrchestrationMetadata
+	Metadata *backend.OrchestrationMetadata
 }
 
 // RuntimeStatus returns the status from a workflow state.
