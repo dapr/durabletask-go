@@ -62,7 +62,7 @@ func (c *Client) FetchWorkflowMetadata(ctx context.Context, id string, opts ...F
 //
 // api.ErrInstanceNotFound is returned when the specified workflow doesn't
 // exist.
-func (c *Client) WaitForWorkfowStart(ctx context.Context, id string, opts ...FetchWorkflowMetadataOptions) (*WorkflowMetadata, error) {
+func (c *Client) WaitForWorkflowStart(ctx context.Context, id string, opts ...FetchWorkflowMetadataOptions) (*WorkflowMetadata, error) {
 	oops := make([]api.FetchOrchestrationMetadataOptions, len(opts))
 	for i, o := range opts {
 		oops[i] = api.FetchOrchestrationMetadataOptions(o)
