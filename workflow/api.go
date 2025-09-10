@@ -14,8 +14,6 @@ type TerminateOptions api.TerminateOptions
 type PurgeOptions api.PurgeOptions
 type RerunOptions api.RerunOptions
 
-type WorkflowMetadata WorkflowState
-
 // WithInstanceID configures an explicit workflow instance ID. If not
 // specified, a random UUID value will be used for the workflow instance ID.
 func WithInstanceID(id string) NewWorkflowOptions {
@@ -85,11 +83,11 @@ func WithRecursivePurge(recursive bool) PurgeOptions {
 }
 
 func WorkflowMetadataIsRunning(o *WorkflowMetadata) bool {
-	return api.OrchestrationMetadataIsComplete(o.Metadata)
+	return api.OrchestrationMetadataIsComplete(o.metadata)
 }
 
 func WorkflowMetadataIsComplete(o *WorkflowMetadata) bool {
-	return api.OrchestrationMetadataIsComplete(o.Metadata)
+	return api.OrchestrationMetadataIsComplete(o.metadata)
 }
 
 func WithRerunInput(input any) RerunOptions {

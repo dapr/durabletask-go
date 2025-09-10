@@ -59,14 +59,18 @@ func (s Status) RuntimeStatus() api.OrchestrationStatus {
 	return -1
 }
 
-type WorkflowState struct {
-	Metadata *backend.OrchestrationMetadata
+type WorkflowMetadata struct {
+	metadata *backend.OrchestrationMetadata
 }
 
 // RuntimeStatus returns the status from a workflow state.
-func (wfs *WorkflowState) RuntimeStatus() Status {
-	s := Status(wfs.Metadata.GetRuntimeStatus().Number())
+func (w *WorkflowMetadata) RuntimeStatus() Status {
+	s := Status(w.metadata.GetRuntimeStatus().Number())
 	return s
+}
+
+func (w *WorkflowMetadata) Metadata() *backend.OrchestrationMetadata {
+	return w.metadata
 }
 
 func convertStatusSlice(ss []Status) []api.OrchestrationStatus {

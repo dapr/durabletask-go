@@ -53,7 +53,7 @@ func (c *Client) FetchWorkflowMetadata(ctx context.Context, id string, opts ...F
 		oops[i] = api.FetchOrchestrationMetadataOptions(o)
 	}
 	meta, err := c.thgc.FetchOrchestrationMetadata(ctx, api.InstanceID(id), oops...)
-	return &WorkflowMetadata{Metadata: meta}, err
+	return &WorkflowMetadata{metadata: meta}, err
 }
 
 // WaitForWorkflowStart waits for an workflow to start running and returns an
