@@ -2,81 +2,41 @@ package workflow
 
 import (
 	"github.com/dapr/durabletask-go/api"
-	"github.com/dapr/durabletask-go/backend"
+	"github.com/dapr/durabletask-go/api/protos"
 )
-
-type Status int
 
 const (
-	StatusRunning Status = iota
-	StatusCompleted
-	StatusContinuedAsNew
-	StatusFailed
-	StatusCanceled
-	StatusTerminated
-	StatusPending
-	StatusSuspended
-	StatusUnknown
+	StatusRunning        = api.RUNTIME_STATUS_RUNNING
+	StatusCompleted      = api.RUNTIME_STATUS_COMPLETED
+	StatusContinuedAsNew = api.RUNTIME_STATUS_CONTINUED_AS_NEW
+	StatusFailed         = api.RUNTIME_STATUS_FAILED
+	StatusCanceled       = api.RUNTIME_STATUS_CANCELED
+	StatusTerminated     = api.RUNTIME_STATUS_TERMINATED
+	StatusPending        = api.RUNTIME_STATUS_PENDING
+	StatusSuspended      = api.RUNTIME_STATUS_SUSPENDED
 )
 
-// String returns the runtime status as a string.
-func (s Status) String() string {
-	status := [...]string{
-		"RUNNING",
-		"COMPLETED",
-		"CONTINUED_AS_NEW",
-		"FAILED",
-		"CANCELED",
-		"TERMINATED",
-		"PENDING",
-		"SUSPENDED",
+type WorkflowMetadata protos.OrchestrationMetadata
+
+func (w WorkflowMetadata) String() string {
+	switch w.RuntimeStatus {
+	case api.RUNTIME_STATUS_RUNNING:
+		return "RUNNING"
+	case api.RUNTIME_STATUS_COMPLETED:
+		return "COMPLETED"
+	case api.RUNTIME_STATUS_CONTINUED_AS_NEW:
+		return "CONTINUED_AS_NEW"
+	case api.RUNTIME_STATUS_FAILED:
+		return "FAILED"
+	case api.RUNTIME_STATUS_CANCELED:
+		return "CANCELED"
+	case api.RUNTIME_STATUS_TERMINATED:
+		return "TERMINATED"
+	case api.RUNTIME_STATUS_PENDING:
+		return "PENDING"
+	case api.RUNTIME_STATUS_SUSPENDED:
+		return "SUSPENDED"
+	default:
+		return ""
 	}
-	if s > StatusSuspended || s < StatusRunning {
-		return "UNKNOWN"
-	}
-	return status[s]
-}
-
-func (s Status) RuntimeStatus() api.OrchestrationStatus {
-	switch s {
-	case StatusRunning:
-		return api.RUNTIME_STATUS_RUNNING
-	case StatusCompleted:
-		return api.RUNTIME_STATUS_COMPLETED
-	case StatusContinuedAsNew:
-		return api.RUNTIME_STATUS_CONTINUED_AS_NEW
-	case StatusFailed:
-		return api.RUNTIME_STATUS_FAILED
-	case StatusCanceled:
-		return api.RUNTIME_STATUS_CANCELED
-	case StatusTerminated:
-		return api.RUNTIME_STATUS_TERMINATED
-	case StatusPending:
-		return api.RUNTIME_STATUS_PENDING
-	case StatusSuspended:
-		return api.RUNTIME_STATUS_SUSPENDED
-	}
-	return -1
-}
-
-type WorkflowMetadata struct {
-	metadata *backend.OrchestrationMetadata
-}
-
-// RuntimeStatus returns the status from a workflow state.
-func (w *WorkflowMetadata) RuntimeStatus() Status {
-	s := Status(w.metadata.GetRuntimeStatus().Number())
-	return s
-}
-
-func (w *WorkflowMetadata) Metadata() *backend.OrchestrationMetadata {
-	return w.metadata
-}
-
-func convertStatusSlice(ss []Status) []api.OrchestrationStatus {
-	out := []api.OrchestrationStatus{}
-	for _, s := range ss {
-		out = append(out, s.RuntimeStatus())
-	}
-	return out
 }

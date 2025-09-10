@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/dapr/durabletask-go/api"
+	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/kit/ptr"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -83,11 +85,11 @@ func WithRecursivePurge(recursive bool) PurgeOptions {
 }
 
 func WorkflowMetadataIsRunning(o *WorkflowMetadata) bool {
-	return api.OrchestrationMetadataIsComplete(o.metadata)
+	return api.OrchestrationMetadataIsComplete(ptr.Of(protos.OrchestrationMetadata(*o)))
 }
 
 func WorkflowMetadataIsComplete(o *WorkflowMetadata) bool {
-	return api.OrchestrationMetadataIsComplete(o.metadata)
+	return api.OrchestrationMetadataIsComplete(ptr.Of(protos.OrchestrationMetadata(*o)))
 }
 
 func WithRerunInput(input any) RerunOptions {
