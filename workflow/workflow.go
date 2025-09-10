@@ -74,9 +74,9 @@ func (w *WorkflowContext) CreateTimer(delay time.Duration, opts ...CreateTimerOp
 	return w.oc.CreateTimer(delay, oopts...)
 }
 
-// WaitForSingleEvent creates a task that is completed only after an event
-// named [eventName] is received by this workflow or when the specified
-// timeout expires.
+// WaitForExternalEvent creates a task that is completed only after an event
+// named [eventName] is received by this workflow or when the specified timeout
+// expires.
 //
 // The [timeout] parameter can be used to define a timeout for receiving the
 // event. If the timeout expires before the named event is received, the task
@@ -91,7 +91,7 @@ func (w *WorkflowContext) CreateTimer(delay time.Duration, opts ...CreateTimerOp
 // workflow will complete just one task returned by this method.
 //
 // Note that event names are case-insensitive.
-func (w *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Duration) Task {
+func (w *WorkflowContext) WaitForExternalEvent(eventName string, timeout time.Duration) Task {
 	return w.oc.WaitForSingleEvent(eventName, timeout)
 }
 
