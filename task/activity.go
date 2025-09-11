@@ -11,7 +11,7 @@ import (
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
-type callActivityOption func(*callActivityOptions) error
+type CallActivityOption func(*callActivityOptions) error
 
 type callActivityOptions struct {
 	rawInput    *wrapperspb.StringValue
@@ -59,7 +59,7 @@ func (policy *RetryPolicy) Validate() error {
 	return nil
 }
 
-func WithActivityAppID(targetAppID string) callActivityOption {
+func WithActivityAppID(targetAppID string) CallActivityOption {
 	return func(opt *callActivityOptions) error {
 		opt.targetAppID = &targetAppID
 		return nil
@@ -68,7 +68,7 @@ func WithActivityAppID(targetAppID string) callActivityOption {
 
 // WithActivityInput configures an input for an activity invocation.
 // The specified input must be JSON serializable.
-func WithActivityInput(input any) callActivityOption {
+func WithActivityInput(input any) CallActivityOption {
 	return func(opt *callActivityOptions) error {
 		data, err := marshalData(input)
 		if err != nil {
@@ -80,14 +80,14 @@ func WithActivityInput(input any) callActivityOption {
 }
 
 // WithRawActivityInput configures a raw input for an activity invocation.
-func WithRawActivityInput(input *wrapperspb.StringValue) callActivityOption {
+func WithRawActivityInput(input *wrapperspb.StringValue) CallActivityOption {
 	return func(opt *callActivityOptions) error {
 		opt.rawInput = input
 		return nil
 	}
 }
 
-func WithActivityRetryPolicy(policy *RetryPolicy) callActivityOption {
+func WithActivityRetryPolicy(policy *RetryPolicy) CallActivityOption {
 	return func(opt *callActivityOptions) error {
 		if policy == nil {
 			return nil

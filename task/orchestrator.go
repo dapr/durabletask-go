@@ -58,14 +58,14 @@ type callSubOrchestratorOptions struct {
 	retryPolicy *RetryPolicy
 }
 
-// subOrchestratorOption is a functional option type for the CallSubOrchestrator orchestrator method.
-type subOrchestratorOption func(*callSubOrchestratorOptions) error
+// SubOrchestratorOption is a functional option type for the CallSubOrchestrator orchestrator method.
+type SubOrchestratorOption func(*callSubOrchestratorOptions) error
 
 // ContinueAsNewOption is a functional option type for the ContinueAsNew orchestrator method.
 type ContinueAsNewOption func(*OrchestrationContext)
 
 // WithSubOrchestratorAppID is a functional option type for the CallSubOrchestrator orchestrator method that specifies the app ID of the target activity.
-func WithSubOrchestratorAppID(appID string) subOrchestratorOption {
+func WithSubOrchestratorAppID(appID string) SubOrchestratorOption {
 	return func(opts *callSubOrchestratorOptions) error {
 		opts.targetAppID = &appID
 		return nil
@@ -82,7 +82,7 @@ func WithKeepUnprocessedEvents() ContinueAsNewOption {
 
 // WithSubOrchestratorInput is a functional option type for the CallSubOrchestrator
 // orchestrator method that takes an input value and marshals it to JSON.
-func WithSubOrchestratorInput(input any) subOrchestratorOption {
+func WithSubOrchestratorInput(input any) SubOrchestratorOption {
 	return func(opts *callSubOrchestratorOptions) error {
 		bytes, err := marshalData(input)
 		if err != nil {
@@ -95,7 +95,7 @@ func WithSubOrchestratorInput(input any) subOrchestratorOption {
 
 // WithRawSubOrchestratorInput is a functional option type for the CallSubOrchestrator
 // orchestrator method that takes a raw input value.
-func WithRawSubOrchestratorInput(input *wrapperspb.StringValue) subOrchestratorOption {
+func WithRawSubOrchestratorInput(input *wrapperspb.StringValue) SubOrchestratorOption {
 	return func(opts *callSubOrchestratorOptions) error {
 		opts.rawInput = input
 		return nil
@@ -104,14 +104,14 @@ func WithRawSubOrchestratorInput(input *wrapperspb.StringValue) subOrchestratorO
 
 // WithSubOrchestrationInstanceID is a functional option type for the CallSubOrchestrator
 // orchestrator method that specifies the instance ID of the sub-orchestration.
-func WithSubOrchestrationInstanceID(instanceID string) subOrchestratorOption {
+func WithSubOrchestrationInstanceID(instanceID string) SubOrchestratorOption {
 	return func(opts *callSubOrchestratorOptions) error {
 		opts.instanceID = instanceID
 		return nil
 	}
 }
 
-func WithSubOrchestrationRetryPolicy(policy *RetryPolicy) subOrchestratorOption {
+func WithSubOrchestrationRetryPolicy(policy *RetryPolicy) SubOrchestratorOption {
 	return func(opt *callSubOrchestratorOptions) error {
 		if policy == nil {
 			return nil
@@ -267,7 +267,7 @@ func (octx *OrchestrationContext) GetInput(v any) error {
 // CallActivity schedules an asynchronous invocation of an activity function. The [activity]
 // parameter can be either the name of an activity as a string or can be a pointer to the function
 // that implements the activity, in which case the name is obtained via reflection.
-func (ctx *OrchestrationContext) CallActivity(activity interface{}, opts ...callActivityOption) Task {
+func (ctx *OrchestrationContext) CallActivity(activity interface{}, opts ...CallActivityOption) Task {
 	options := new(callActivityOptions)
 	for _, configure := range opts {
 		if err := configure(options); err != nil {
@@ -317,8 +317,7 @@ func (ctx *OrchestrationContext) internalScheduleActivity(activityName, taskExec
 	return task
 }
 
-// TODO: cassie wire appID into suborchestration options too for cross app wf
-func (ctx *OrchestrationContext) CallSubOrchestrator(orchestrator interface{}, opts ...subOrchestratorOption) Task {
+func (ctx *OrchestrationContext) CallSubOrchestrator(orchestrator interface{}, opts ...SubOrchestratorOption) Task {
 	options := new(callSubOrchestratorOptions)
 	for _, configure := range opts {
 		if err := configure(options); err != nil {
@@ -421,7 +420,7 @@ func computeNextDelay(currentTimeUtc time.Time, policy RetryPolicy, attempt int,
 }
 
 // CreateTimer schedules a durable timer that expires after the specified delay.
-func (ctx *OrchestrationContext) CreateTimer(delay time.Duration, opts ...createTimerOption) Task {
+func (ctx *OrchestrationContext) CreateTimer(delay time.Duration, opts ...CreateTimerOption) Task {
 	options := new(createTimerOptions)
 	for _, configure := range opts {
 		if err := configure(options); err != nil {
