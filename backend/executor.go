@@ -281,13 +281,15 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 
 	// There are some cases where the app may need to be notified when a client connects to fetch work items, like
 	// for auto-starting the worker. The app also has an opportunity to set itself as unavailable by returning an error.
-	callback := g.onWorkItemConnection
-	if callback != nil {
-		if err := callback(stream.Context()); err != nil {
-			message := "unable to establish work item stream at this time: " + err.Error()
-			g.logger.Warn(message)
-			return status.Errorf(codes.Unavailable, message)
+	if err := g.executeOnWorkItemConnection(stream.Context()); err != nil {
+		message := "unable to establish work item stream at this time: " + err.Error()
+		g.logger.Warn(message)
+
+		if derr := g.executeOnWorkItemDisconnect(stream.Context()); derr != nil {
+			g.logger.Warnf("error while disconnecting work item stream: %v", derr)
 		}
+
+		return status.Errorf(codes.Unavailable, message)
 	}
 
 	defer func() {
@@ -313,10 +315,8 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 			}
 			return true
 		})
-		if callback := g.onWorkItemDisconnect; callback != nil {
-			if err := callback(stream.Context()); err != nil {
-				g.logger.Warnf("error while disconnecting work item stream: %v", err)
-			}
+		if err := g.executeOnWorkItemDisconnect(stream.Context()); err != nil {
+			g.logger.Warnf("error while disconnecting work item stream: %v", err)
 		}
 	}()
 
@@ -395,6 +395,24 @@ func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkI
 	case err := <-errCh:
 		return err
 	}
+}
+
+func (g *grpcExecutor) executeOnWorkItemConnection(ctx context.Context) error {
+	if callback := g.onWorkItemConnection; callback != nil {
+		if err := callback(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (g *grpcExecutor) executeOnWorkItemDisconnect(ctx context.Context) error {
+	if callback := g.onWorkItemDisconnect; callback != nil {
+		if err := callback(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CompleteOrchestratorTask implements protos.TaskHubSidecarServiceServer
