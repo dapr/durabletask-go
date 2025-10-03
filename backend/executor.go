@@ -281,7 +281,7 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 
 	// There are some cases where the app may need to be notified when a client connects to fetch work items, like
 	// for auto-starting the worker. The app also has an opportunity to set itself as unavailable by returning an error.
-	if err := g.executeOoWorkItemConnection(stream.Context()); err != nil {
+	if err := g.executeOnWorkItemConnection(stream.Context()); err != nil {
 		message := "unable to establish work item stream at this time: " + err.Error()
 		g.logger.Warn(message)
 
@@ -397,7 +397,7 @@ func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkI
 	}
 }
 
-func (g *grpcExecutor) executeOoWorkItemConnection(ctx context.Context) error {
+func (g *grpcExecutor) executeOnWorkItemConnection(ctx context.Context) error {
 	if callback := g.onWorkItemConnection; callback != nil {
 		if err := callback(ctx); err != nil {
 			return err
