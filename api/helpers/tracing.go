@@ -68,6 +68,15 @@ func StartAndEndNewTimerSpan(ctx context.Context, tf *protos.TimerFiredEvent, cr
 	return nil
 }
 
+func StartAndEndNewPatchSpan(ctx context.Context, patchName string, createdTime time.Time) error {
+	attributes := []attribute.KeyValue{
+		{Key: "durabletask.patch_check", Value: attribute.StringValue(patchName)},
+	}
+	_, span := startNewSpan(ctx, "patch", patchName, "", attributes, trace.SpanKindInternal, createdTime)
+	span.End()
+	return nil
+}
+
 func startNewSpan(
 	ctx context.Context,
 	taskType string,

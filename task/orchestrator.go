@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,6 +49,9 @@ type OrchestrationContext struct {
 	bufferedExternalEvents     map[string]*list.List
 	pendingExternalEventTasks  map[string]*list.List
 	saveBufferedExternalEvents bool
+	patches                    []string
+	newPatches                 []string
+	patchMismatch              bool
 }
 
 // callSubOrchestratorOptions is a struct that holds the options for the CallSubOrchestrator orchestrator method.
@@ -134,6 +138,8 @@ func NewOrchestrationContext(registry *TaskRegistry, id api.InstanceID, oldEvent
 		newEvents:                 newEvents,
 		bufferedExternalEvents:    make(map[string]*list.List),
 		pendingExternalEventTasks: make(map[string]*list.List),
+		patches:                   make([]string, 0),
+		newPatches:                make([]string, 0),
 	}
 }
 
@@ -148,6 +154,8 @@ func (ctx *OrchestrationContext) start() (actions []*protos.OrchestratorAction) 
 		if result == ErrTaskBlocked {
 			// Expected, normal part of execution
 			actions = ctx.actions()
+		} else if result == ErrPatchMismatch {
+			ctx.patchMismatch = true
 		} else if result != nil {
 			// Unexpected panic!
 			panic(result)
@@ -208,8 +216,11 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 
 	var err error = nil
 	if os := e.GetOrchestratorStarted(); os != nil {
-		// OrchestratorStarted is only used to update the current orchestration time
+		// OrchestratorStarted is only used to update the current orchestration time and patches
 		ctx.CurrentTimeUtc = e.Timestamp.AsTime()
+		if patches := os.GetPatches(); patches != nil {
+			ctx.patches = patches.GetPatches()
+		}
 	} else if es := e.GetExecutionStarted(); es != nil {
 		// Extract source AppID from HistoryEvent Router if this is ExecutionStartedEvent
 		if e.GetRouter() != nil {
@@ -247,6 +258,8 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 		err = ctx.onExecutionResumed(er)
 	} else if et := e.GetExecutionTerminated(); et != nil {
 		err = ctx.onExecutionTerminated(et)
+	} else if e.GetExecutionPendingVersion() != nil {
+		// Nothing to do
 	} else if oc := e.GetOrchestratorCompleted(); oc != nil {
 		// Nothing to do
 	} else {
@@ -514,6 +527,27 @@ func (ctx *OrchestrationContext) ContinueAsNew(newInput any, options ...Continue
 	}
 }
 
+func (ctx *OrchestrationContext) IsPatched(patchName string) bool {
+	isPatched := slices.Contains(ctx.patches, patchName)
+	if isPatched {
+		return true
+	}
+	isPatched = slices.Contains(ctx.newPatches, patchName)
+	if isPatched {
+		return true
+	}
+
+	totalEvents := len(ctx.oldEvents) + len(ctx.newEvents)
+	if ctx.historyIndex < totalEvents {
+		// We're not at the end of the history stream, we assume the previous used the unpatched version
+		return false
+	}
+
+	// We're at the end of the history stream, we can run the patched version and save the decision for next rerun
+	ctx.newPatches = append(ctx.newPatches, patchName)
+	return true
+}
+
 func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
 	orchestrator, ok := ctx.registry.orchestrators[es.Name]
 	if !ok {
@@ -549,7 +583,19 @@ func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedE
 }
 
 func (ctx *OrchestrationContext) onTaskScheduled(taskID int32, ts *protos.TaskScheduledEvent) error {
-	if a, ok := ctx.pendingActions[taskID]; !ok || a.GetScheduleTask() == nil {
+	a, ok := ctx.pendingActions[taskID]
+	if !ok || a.GetScheduleTask() == nil {
+		return fmt.Errorf(
+			"a previous execution called CallActivity for '%s' and sequence number %d at this point in the orchestration logic, but the current execution doesn't have this action with this sequence number",
+			ts.Name,
+			taskID,
+		)
+	}
+	scheduleTask := a.GetScheduleTask()
+	if scheduleTask.GetName() != ts.GetName() {
+		if len(ctx.patches) > 0 {
+			panic(ErrPatchMismatch)
+		}
 		return fmt.Errorf(
 			"a previous execution called CallActivity for '%s' and sequence number %d at this point in the orchestration logic, but the current execution doesn't have this action with this sequence number",
 			ts.Name,

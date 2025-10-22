@@ -12,6 +12,9 @@ import (
 // and commit its current execution progress to durable storage.
 var ErrTaskBlocked = errors.New("the current task is blocked")
 
+// ErrPatchMismatch is not an error, but rather a control flow signal indicating that a patch mismatch has been detected.
+var ErrPatchMismatch = errors.New("a patch mismatch has been detected")
+
 // ErrTaskCanceled is used to indicate that a task was canceled. Tasks can be canceled, for example,
 // when configured timeouts expire.
 var ErrTaskCanceled = errors.New("the task was canceled") // CONSIDER: More specific info about the task

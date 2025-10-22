@@ -132,11 +132,33 @@ func (te *taskExecutor) ExecuteOrchestrator(ctx context.Context, id api.Instance
 	orchestrationCtx := NewOrchestrationContext(te.Registry, id, oldEvents, newEvents)
 	actions := orchestrationCtx.start()
 
-	return &protos.OrchestratorResponse{
+	if orchestrationCtx.patchMismatch {
+		// Indicate a patch mismatch so the backend can freeze the instance.
+		return &protos.OrchestratorResponse{
+			InstanceId:    string(id),
+			Actions:       nil,
+			CustomStatus:  wrapperspb.String(orchestrationCtx.customStatus),
+			PatchMismatch: true,
+		}, nil
+	}
+
+	response := &protos.OrchestratorResponse{
 		InstanceId:   string(id),
 		Actions:      actions,
 		CustomStatus: wrapperspb.String(orchestrationCtx.customStatus),
-	}, nil
+	}
+
+	if len(orchestrationCtx.newPatches) > 0 {
+		patches := &protos.Patches{
+			Patches: []string{},
+		}
+		for _, patchName := range orchestrationCtx.newPatches {
+			patches.Patches = append(patches.Patches, patchName)
+		}
+		response.Patches = patches
+	}
+
+	return response, nil
 }
 
 func (te taskExecutor) Shutdown(ctx context.Context) error {

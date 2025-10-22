@@ -54,6 +54,8 @@ func addEvent(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent, isNew
 		s.IsSuspended = true
 	} else if e.GetExecutionResumed() != nil {
 		s.IsSuspended = false
+	} else if e.GetExecutionPendingVersion() != nil {
+		s.IsPendingVersion = true
 	} else {
 		// TODO: Check for other possible duplicates using task IDs
 	}
@@ -82,6 +84,7 @@ func IsValid(s *protos.OrchestrationRuntimeState) bool {
 // ApplyActions takes a set of actions and updates its internal state, including populating the outbox.
 func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.StringValue, actions []*protos.OrchestratorAction, currentTraceContext *protos.TraceContext) (bool, error) {
 	s.CustomStatus = customStatus
+	s.IsPendingVersion = false
 	for _, action := range actions {
 		if completedAction := action.GetCompleteOrchestration(); completedAction != nil {
 			if completedAction.OrchestrationStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
@@ -332,10 +335,12 @@ func Output(s *protos.OrchestrationRuntimeState) (*wrapperspb.StringValue, error
 func RuntimeStatus(s *protos.OrchestrationRuntimeState) protos.OrchestrationStatus {
 	if s.StartEvent == nil {
 		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
-	} else if s.IsSuspended {
-		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED
 	} else if s.CompletedEvent != nil {
 		return s.CompletedEvent.GetOrchestrationStatus()
+	} else if s.IsPendingVersion {
+		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING_VERSION
+	} else if s.IsSuspended {
+		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED
 	}
 
 	return protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING
