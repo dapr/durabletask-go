@@ -1153,7 +1153,7 @@ func (be *sqliteBackend) ListInstanceIDs(ctx context.Context, wi *backend.ListIn
 		return nil, err
 	}
 
-	rows, err := be.db.QueryContext(ctx, "SELECT [InstanceID] FROM Instances ORDER BY [SequenceNumber] ASC")
+	rows, err := be.db.QueryContext(ctx, "SELECT [InstanceID] FROM Instances")
 	if err != nil {
 		return nil, err
 	}
