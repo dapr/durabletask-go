@@ -33,6 +33,10 @@ type (
 	OrchestrationRuntimeState        = protos.OrchestrationRuntimeState
 	OrchestrationRuntimeStateMessage = protos.OrchestrationRuntimeStateMessage
 	RerunWorkflowFromEventRequest    = protos.RerunWorkflowFromEventRequest
+	ListInstanceIDsRequest           = protos.ListInstanceIDsRequest
+	ListInstanceIDsResponse          = protos.ListInstanceIDsResponse
+	GetInstanceHistoryRequest        = protos.GetInstanceHistoryRequest
+	GetInstanceHistoryResponse       = protos.GetInstanceHistoryResponse
 )
 
 type OrchestrationIdReusePolicyOptions func(*protos.OrchestrationIdReusePolicy) error
@@ -149,6 +153,13 @@ type Backend interface {
 	//
 	// [api.ErrTaskCancelled] is returned if the task was cancelled.
 	WaitForActivityCompletion(context.Context, *protos.ActivityRequest) (*protos.ActivityResponse, error)
+
+	// ListInstanceIDs lists orchestration instance IDs based on the provided
+	// query parameters.
+	ListInstanceIDs(ctx context.Context, req *protos.ListInstanceIDsRequest) (*protos.ListInstanceIDsResponse, error)
+
+	// GetInstanceHistory returns the full current history of a workflow instance.
+	GetInstanceHistory(ctx context.Context, req *protos.GetInstanceHistoryRequest) (*protos.GetInstanceHistoryResponse, error)
 }
 
 // MarshalHistoryEvent serializes the [HistoryEvent] into a protobuf byte array.

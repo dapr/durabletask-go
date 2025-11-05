@@ -545,6 +545,14 @@ func (g *grpcExecutor) RerunWorkflowFromEvent(ctx context.Context, req *protos.R
 	return &protos.RerunWorkflowFromEventResponse{NewInstanceID: newInstanceID.String()}, nil
 }
 
+func (g *grpcExecutor) ListInstanceIDs(ctx context.Context, req *protos.ListInstanceIDsRequest) (*protos.ListInstanceIDsResponse, error) {
+	return g.backend.ListInstanceIDs(ctx, req)
+}
+
+func (g *grpcExecutor) GetInstanceHistory(ctx context.Context, req *protos.GetInstanceHistoryRequest) (*protos.GetInstanceHistoryResponse, error) {
+	return g.backend.GetInstanceHistory(ctx, req)
+}
+
 // TerminateInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.TerminateRequest) (*protos.TerminateResponse, error) {
 	e := &protos.HistoryEvent{
@@ -674,4 +682,42 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Orchest
 	return &protos.GetInstanceResponse{Exists: true, OrchestrationState: state}
 }
 
-func (grpcExecutor) mustEmbedUnimplementedTaskHubSidecarServiceServer() {}
+func (executor *grpcExecutor) AbandonTaskActivityWorkItem(ctx context.Context, in *protos.AbandonActivityTaskRequest) (*protos.AbandonActivityTaskResponse, error) {
+	return nil, nil
+}
+
+func (*grpcExecutor) AbandonTaskEntityWorkItem(ctx context.Context, in *protos.AbandonEntityTaskRequest) (*protos.AbandonEntityTaskResponse, error) {
+	return nil, nil
+}
+
+func (*grpcExecutor) AbandonTaskOrchestratorWorkItem(ctx context.Context, in *protos.AbandonOrchestrationTaskRequest) (*protos.AbandonOrchestrationTaskResponse, error) {
+	return nil, nil
+}
+
+func (*grpcExecutor) CleanEntityStorage(ctx context.Context, in *protos.CleanEntityStorageRequest) (*protos.CleanEntityStorageResponse, error) {
+	return nil, nil
+}
+
+func (*grpcExecutor) CompleteEntityTask(ctx context.Context, in *protos.EntityBatchResult) (*protos.CompleteTaskResponse, error) {
+	return nil, nil
+}
+
+func (*grpcExecutor) GetEntity(ctx context.Context, in *protos.GetEntityRequest) (*protos.GetEntityResponse, error) {
+	return nil, nil
+}
+
+func (*grpcExecutor) QueryEntities(ctx context.Context, in *protos.QueryEntitiesRequest) (*protos.QueryEntitiesResponse, error) {
+	return nil, nil
+}
+
+func (*grpcExecutor) RewindInstance(ctx context.Context, in *protos.RewindInstanceRequest) (*protos.RewindInstanceResponse, error) {
+	return nil, nil
+}
+
+func (*grpcExecutor) SignalEntity(ctx context.Context, in *protos.SignalEntityRequest) (*protos.SignalEntityResponse, error) {
+	return nil, nil
+}
+
+func (*grpcExecutor) StreamInstanceHistory(in *protos.StreamInstanceHistoryRequest, srv protos.TaskHubSidecarService_StreamInstanceHistoryServer) error {
+	return nil
+}

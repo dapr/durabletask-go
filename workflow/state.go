@@ -17,6 +17,8 @@ const (
 )
 
 type WorkflowMetadata protos.OrchestrationMetadata
+type ListInstanceIDsResponse protos.ListInstanceIDsResponse
+type GetInstanceHistoryResponse protos.GetInstanceHistoryResponse
 
 func (w WorkflowMetadata) String() string {
 	switch w.RuntimeStatus {

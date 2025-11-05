@@ -874,6 +874,67 @@ func (be *postgresBackend) GetOrchestrationRuntimeState(ctx context.Context, wi 
 	return state, nil
 }
 
+func (be *postgresBackend) GetInstanceHistory(ctx context.Context, wi *backend.GetInstanceHistoryRequest) (*backend.GetInstanceHistoryResponse, error) {
+	if err := be.ensureDB(); err != nil {
+		return nil, err
+	}
+
+	rows, err := be.db.Query(
+		ctx,
+		"SELECT EventPayload FROM History WHERE InstanceID = $1 ORDER BY SequenceNumber ASC",
+		string(wi.InstanceId),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := make([]*protos.HistoryEvent, 0, 50)
+	for rows.Next() {
+		var eventPayload []byte
+		if err := rows.Scan(&eventPayload); err != nil {
+			return nil, fmt.Errorf("failed to read history event: %w", err)
+		}
+
+		e, err := backend.UnmarshalHistoryEvent(eventPayload)
+		if err != nil {
+			return nil, err
+		}
+
+		events = append(events, e)
+	}
+
+	return &backend.GetInstanceHistoryResponse{
+		Events: events,
+	}, nil
+}
+
+func (be *postgresBackend) ListInstanceIDs(ctx context.Context, wi *backend.ListInstanceIDsRequest) (*backend.ListInstanceIDsResponse, error) {
+	if err := be.ensureDB(); err != nil {
+		return nil, err
+	}
+
+	rows, err := be.db.Query(ctx, "SELECT InstanceID FROM Instances ORDER BY SequenceNumber ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0, 50)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to read instance ID: %w", err)
+		}
+
+		ids = append(ids, id)
+	}
+
+	return &backend.ListInstanceIDsResponse{
+		InstanceIds: ids,
+	}, nil
+}
+
 // GetOrchestrationWorkItem implements backend.Backend
 func (be *postgresBackend) GetOrchestrationWorkItem(ctx context.Context) (*backend.OrchestrationWorkItem, error) {
 	if err := be.ensureDB(); err != nil {

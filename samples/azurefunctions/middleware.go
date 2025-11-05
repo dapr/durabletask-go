@@ -68,9 +68,9 @@ func MapOrchestrator(o task.Orchestrator) func(http.ResponseWriter, *http.Reques
 			fmt.Printf("ERROR: Unexpected failure executing the orchestrator function: %v\n", err)
 			return
 		}
-		fmt.Printf("Orchestrator returned a response: %v\n", results.Response)
+		fmt.Printf("Orchestrator returned a response: %v\n", results)
 
-		respBytes, err := proto.Marshal(results.Response)
+		respBytes, err := proto.Marshal(results)
 		if err != nil {
 			fmt.Printf("ERROR: Failed to marshal orchestrator results to protobuf: %v\n", err)
 			return
