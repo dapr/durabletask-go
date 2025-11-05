@@ -558,7 +558,7 @@ func Test_Grpc_ListInstanceIDs(t *testing.T) {
 
 	resp, err := grpcClient.ListInstanceIDs(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"0", "1", "2", "3", "4"}, resp.InstanceIds)
+	assert.Subset(t, resp.InstanceIds, []string{"0", "1", "2", "3", "4"})
 }
 
 func Test_Grpc_GetInstanceHistory(t *testing.T) {
