@@ -845,32 +845,14 @@ func (be *postgresBackend) GetOrchestrationRuntimeState(ctx context.Context, wi 
 		return nil, err
 	}
 
-	rows, err := be.db.Query(
-		ctx,
-		"SELECT EventPayload FROM History WHERE InstanceID = $1 ORDER BY SequenceNumber ASC",
-		string(wi.InstanceID),
-	)
+	resp, err := be.GetInstanceHistory(ctx, &backend.GetInstanceHistoryRequest{
+		InstanceId: wi.InstanceID.String(),
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	existingEvents := make([]*protos.HistoryEvent, 0, 50)
-	for rows.Next() {
-		var eventPayload []byte
-		if err := rows.Scan(&eventPayload); err != nil {
-			return nil, fmt.Errorf("failed to read history event: %w", err)
-		}
-
-		e, err := backend.UnmarshalHistoryEvent(eventPayload)
-		if err != nil {
-			return nil, err
-		}
-
-		existingEvents = append(existingEvents, e)
-	}
-
-	state := runtimestate.NewOrchestrationRuntimeState(string(wi.InstanceID), nil, existingEvents)
+	state := runtimestate.NewOrchestrationRuntimeState(string(wi.InstanceID), nil, resp.GetEvents())
 	return state, nil
 }
 
