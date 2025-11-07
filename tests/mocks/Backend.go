@@ -605,6 +605,65 @@ func (_c *Backend_DeleteTaskHub_Call) RunAndReturn(run func(context.Context) err
 	return _c
 }
 
+// GetInstanceHistory provides a mock function with given fields: ctx, req
+func (_m *Backend) GetInstanceHistory(ctx context.Context, req *protos.GetInstanceHistoryRequest) (*protos.GetInstanceHistoryResponse, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetInstanceHistory")
+	}
+
+	var r0 *protos.GetInstanceHistoryResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *protos.GetInstanceHistoryRequest) (*protos.GetInstanceHistoryResponse, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *protos.GetInstanceHistoryRequest) *protos.GetInstanceHistoryResponse); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*protos.GetInstanceHistoryResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *protos.GetInstanceHistoryRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Backend_GetInstanceHistory_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetInstanceHistory'
+type Backend_GetInstanceHistory_Call struct {
+	*mock.Call
+}
+
+// GetInstanceHistory is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *protos.GetInstanceHistoryRequest
+func (_e *Backend_Expecter) GetInstanceHistory(ctx interface{}, req interface{}) *Backend_GetInstanceHistory_Call {
+	return &Backend_GetInstanceHistory_Call{Call: _e.mock.On("GetInstanceHistory", ctx, req)}
+}
+
+func (_c *Backend_GetInstanceHistory_Call) Run(run func(ctx context.Context, req *protos.GetInstanceHistoryRequest)) *Backend_GetInstanceHistory_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*protos.GetInstanceHistoryRequest))
+	})
+	return _c
+}
+
+func (_c *Backend_GetInstanceHistory_Call) Return(_a0 *protos.GetInstanceHistoryResponse, _a1 error) *Backend_GetInstanceHistory_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Backend_GetInstanceHistory_Call) RunAndReturn(run func(context.Context, *protos.GetInstanceHistoryRequest) (*protos.GetInstanceHistoryResponse, error)) *Backend_GetInstanceHistory_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetOrchestrationMetadata provides a mock function with given fields: _a0, _a1
 func (_m *Backend) GetOrchestrationMetadata(_a0 context.Context, _a1 api.InstanceID) (*protos.OrchestrationMetadata, error) {
 	ret := _m.Called(_a0, _a1)
@@ -719,6 +778,65 @@ func (_c *Backend_GetOrchestrationRuntimeState_Call) Return(_a0 *protos.Orchestr
 }
 
 func (_c *Backend_GetOrchestrationRuntimeState_Call) RunAndReturn(run func(context.Context, *backend.OrchestrationWorkItem) (*protos.OrchestrationRuntimeState, error)) *Backend_GetOrchestrationRuntimeState_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListInstanceIDs provides a mock function with given fields: ctx, req
+func (_m *Backend) ListInstanceIDs(ctx context.Context, req *protos.ListInstanceIDsRequest) (*protos.ListInstanceIDsResponse, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListInstanceIDs")
+	}
+
+	var r0 *protos.ListInstanceIDsResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *protos.ListInstanceIDsRequest) (*protos.ListInstanceIDsResponse, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *protos.ListInstanceIDsRequest) *protos.ListInstanceIDsResponse); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*protos.ListInstanceIDsResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *protos.ListInstanceIDsRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Backend_ListInstanceIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListInstanceIDs'
+type Backend_ListInstanceIDs_Call struct {
+	*mock.Call
+}
+
+// ListInstanceIDs is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *protos.ListInstanceIDsRequest
+func (_e *Backend_Expecter) ListInstanceIDs(ctx interface{}, req interface{}) *Backend_ListInstanceIDs_Call {
+	return &Backend_ListInstanceIDs_Call{Call: _e.mock.On("ListInstanceIDs", ctx, req)}
+}
+
+func (_c *Backend_ListInstanceIDs_Call) Run(run func(ctx context.Context, req *protos.ListInstanceIDsRequest)) *Backend_ListInstanceIDs_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*protos.ListInstanceIDsRequest))
+	})
+	return _c
+}
+
+func (_c *Backend_ListInstanceIDs_Call) Return(_a0 *protos.ListInstanceIDsResponse, _a1 error) *Backend_ListInstanceIDs_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Backend_ListInstanceIDs_Call) RunAndReturn(run func(context.Context, *protos.ListInstanceIDsRequest) (*protos.ListInstanceIDsResponse, error)) *Backend_ListInstanceIDs_Call {
 	_c.Call.Return(run)
 	return _c
 }

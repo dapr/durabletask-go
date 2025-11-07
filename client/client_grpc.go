@@ -12,6 +12,7 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
+	"github.com/dapr/kit/ptr"
 )
 
 // REVIEW: Can this be merged with backend/client.go somehow?
@@ -234,6 +235,46 @@ func (c *TaskHubGrpcClient) RerunWorkflowFromEvent(ctx context.Context, id api.I
 	}
 
 	return api.InstanceID(resp.GetNewInstanceID()), nil
+}
+
+func (c *TaskHubGrpcClient) ListInstanceIDs(ctx context.Context, opts ...api.ListInstanceIDsOptions) (*backend.ListInstanceIDsResponse, error) {
+	req := protos.ListInstanceIDsRequest{
+		PageSize: ptr.Of(uint32(1024)),
+	}
+
+	for _, configure := range opts {
+		configure(&req)
+	}
+
+	resp, err := c.client.ListInstanceIDs(ctx, &req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("failed to list instance IDs: %w", err)
+	}
+
+	return resp, nil
+}
+
+func (c *TaskHubGrpcClient) GetInstanceHistory(ctx context.Context, id api.InstanceID, opts ...api.GetInstanceHistoryOptions) (*backend.GetInstanceHistoryResponse, error) {
+	req := protos.GetInstanceHistoryRequest{
+		InstanceId: id.String(),
+	}
+
+	for _, configure := range opts {
+		configure(&req)
+	}
+
+	resp, err := c.client.GetInstanceHistory(ctx, &req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("failed to get instance history: %w", err)
+	}
+
+	return resp, nil
 }
 
 func makeGetInstanceRequest(id api.InstanceID, opts []api.FetchOrchestrationMetadataOptions) *protos.GetInstanceRequest {

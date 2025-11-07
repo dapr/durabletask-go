@@ -144,3 +144,29 @@ func (c *Client) RerunWorkflowFromEvent(ctx context.Context, id string, eventID 
 	newID, err := c.thgc.RerunWorkflowFromEvent(ctx, api.InstanceID(id), eventID, oops...)
 	return string(newID), err
 }
+
+func (c *Client) ListInstanceIDs(ctx context.Context, opts ...ListInstanceIDsOptions) (*ListInstanceIDsResponse, error) {
+	oops := make([]api.ListInstanceIDsOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.ListInstanceIDsOptions(o)
+	}
+	resp, err := c.thgc.ListInstanceIDs(ctx, oops...)
+	if err != nil {
+		return nil, err
+	}
+
+	return (*ListInstanceIDsResponse)(resp), nil
+}
+
+func (c *Client) GetInstanceHistory(ctx context.Context, id string, opts ...GetInstanceHistoryOptions) (*GetInstanceHistoryResponse, error) {
+	oops := make([]api.GetInstanceHistoryOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.GetInstanceHistoryOptions(o)
+	}
+	resp, err := c.thgc.GetInstanceHistory(ctx, api.InstanceID(id), oops...)
+	if err != nil {
+		return nil, err
+	}
+
+	return (*GetInstanceHistoryResponse)(resp), nil
+}

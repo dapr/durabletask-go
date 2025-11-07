@@ -70,6 +70,10 @@ type PurgeOptions func(*protos.PurgeInstancesRequest) error
 
 type RerunOptions func(*protos.RerunWorkflowFromEventRequest) error
 
+type ListInstanceIDsOptions func(*protos.ListInstanceIDsRequest) error
+
+type GetInstanceHistoryOptions func(*protos.GetInstanceHistoryRequest) error
+
 // WithInstanceID configures an explicit orchestration instance ID. If not specified,
 // a random UUID value will be used for the orchestration instance ID.
 func WithInstanceID(id InstanceID) NewOrchestrationOptions {
@@ -218,6 +222,20 @@ func WithRerunInput(input any) RerunOptions {
 func WithRerunNewInstanceID(id InstanceID) RerunOptions {
 	return func(req *protos.RerunWorkflowFromEventRequest) error {
 		req.NewInstanceID = ptr.Of(id.String())
+		return nil
+	}
+}
+
+func WithListInstanceIDsPageSize(pageSize uint32) ListInstanceIDsOptions {
+	return func(req *protos.ListInstanceIDsRequest) error {
+		req.PageSize = &pageSize
+		return nil
+	}
+}
+
+func WithListInstanceIDsContinuationToken(token string) ListInstanceIDsOptions {
+	return func(req *protos.ListInstanceIDsRequest) error {
+		req.ContinuationToken = &token
 		return nil
 	}
 }

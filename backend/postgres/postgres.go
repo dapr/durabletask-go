@@ -845,17 +845,33 @@ func (be *postgresBackend) GetOrchestrationRuntimeState(ctx context.Context, wi 
 		return nil, err
 	}
 
+	resp, err := be.GetInstanceHistory(ctx, &backend.GetInstanceHistoryRequest{
+		InstanceId: wi.InstanceID.String(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	state := runtimestate.NewOrchestrationRuntimeState(string(wi.InstanceID), nil, resp.GetEvents())
+	return state, nil
+}
+
+func (be *postgresBackend) GetInstanceHistory(ctx context.Context, wi *backend.GetInstanceHistoryRequest) (*backend.GetInstanceHistoryResponse, error) {
+	if err := be.ensureDB(); err != nil {
+		return nil, err
+	}
+
 	rows, err := be.db.Query(
 		ctx,
 		"SELECT EventPayload FROM History WHERE InstanceID = $1 ORDER BY SequenceNumber ASC",
-		string(wi.InstanceID),
+		string(wi.InstanceId),
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	existingEvents := make([]*protos.HistoryEvent, 0, 50)
+	events := make([]*protos.HistoryEvent, 0, 50)
 	for rows.Next() {
 		var eventPayload []byte
 		if err := rows.Scan(&eventPayload); err != nil {
@@ -867,11 +883,38 @@ func (be *postgresBackend) GetOrchestrationRuntimeState(ctx context.Context, wi 
 			return nil, err
 		}
 
-		existingEvents = append(existingEvents, e)
+		events = append(events, e)
 	}
 
-	state := runtimestate.NewOrchestrationRuntimeState(string(wi.InstanceID), nil, existingEvents)
-	return state, nil
+	return &backend.GetInstanceHistoryResponse{
+		Events: events,
+	}, nil
+}
+
+func (be *postgresBackend) ListInstanceIDs(ctx context.Context, wi *backend.ListInstanceIDsRequest) (*backend.ListInstanceIDsResponse, error) {
+	if err := be.ensureDB(); err != nil {
+		return nil, err
+	}
+
+	rows, err := be.db.Query(ctx, "SELECT InstanceID FROM Instances ORDER BY SequenceNumber ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0, 50)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to read instance ID: %w", err)
+		}
+
+		ids = append(ids, id)
+	}
+
+	return &backend.ListInstanceIDsResponse{
+		InstanceIds: ids,
+	}, nil
 }
 
 // GetOrchestrationWorkItem implements backend.Backend

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -539,4 +540,52 @@ func Test_SingleActivity_TaskSpan(t *testing.T) {
 	)
 	// assert child-parent relationship
 	assert.Equal(t, spans[1].Parent().SpanID(), spans[2].SpanContext().SpanID())
+}
+
+func Test_Grpc_ListInstanceIDs(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddOrchestratorN("foo", func(ctx *task.OrchestrationContext) (any, error) {
+		return 42, nil
+	})
+
+	cancelListener := startGrpcListener(t, r)
+	defer cancelListener()
+
+	for i := range 5 {
+		_, err := grpcClient.ScheduleNewOrchestration(ctx, "foo", api.WithInstanceID(api.InstanceID(strconv.Itoa(i))))
+		require.NoError(t, err)
+	}
+
+	resp, err := grpcClient.ListInstanceIDs(ctx)
+	require.NoError(t, err)
+	assert.Subset(t, resp.InstanceIds, []string{"0", "1", "2", "3", "4"})
+}
+
+func Test_Grpc_GetInstanceHistory(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddOrchestratorN("foo", func(ctx *task.OrchestrationContext) (any, error) {
+		if err := ctx.CallActivity("bar").Await(nil); err != nil {
+			return nil, err
+		}
+		if err := ctx.CallActivity("bar").Await(nil); err != nil {
+			return nil, err
+		}
+		if err := ctx.CallActivity("bar").Await(nil); err != nil {
+			return nil, err
+		}
+		return 42, nil
+	})
+	r.AddActivityN("bar", func(ctx task.ActivityContext) (any, error) {
+		return 42, nil
+	})
+
+	cancelListener := startGrpcListener(t, r)
+	defer cancelListener()
+
+	id, err := grpcClient.ScheduleNewOrchestration(ctx, "foo")
+	require.NoError(t, err)
+
+	resp, err := grpcClient.GetInstanceHistory(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, resp.Events, 12)
 }

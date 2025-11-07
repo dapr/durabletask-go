@@ -15,6 +15,8 @@ type RaiseEventOptions api.RaiseEventOptions
 type TerminateOptions api.TerminateOptions
 type PurgeOptions api.PurgeOptions
 type RerunOptions api.RerunOptions
+type ListInstanceIDsOptions api.ListInstanceIDsOptions
+type GetInstanceHistoryOptions api.GetInstanceHistoryOptions
 
 // WithInstanceID configures an explicit workflow instance ID. If not
 // specified, a random UUID value will be used for the workflow instance ID.
@@ -98,4 +100,12 @@ func WithRerunInput(input any) RerunOptions {
 
 func WithRerunNewInstanceID(id string) RerunOptions {
 	return RerunOptions(api.WithRerunNewInstanceID(api.InstanceID(id)))
+}
+
+func WithListInstanceIDsPageSize(pageSize uint32) ListInstanceIDsOptions {
+	return ListInstanceIDsOptions(api.WithListInstanceIDsPageSize(pageSize))
+}
+
+func WithListInstanceIDsContinuationToken(token string) ListInstanceIDsOptions {
+	return ListInstanceIDsOptions(api.WithListInstanceIDsContinuationToken(token))
 }
