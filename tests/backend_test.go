@@ -388,7 +388,7 @@ func Test_PurgeOrchestrationState(t *testing.T) {
 		workItemProcessingTestLogic(t, be, getOrchestratorActions, validateMetadata)
 
 		// Purge the workflow state
-		if err := be.PurgeOrchestrationState(ctx, instanceID); !assert.NoError(t, err) {
+		if err := be.PurgeOrchestrationState(ctx, instanceID, false); !assert.NoError(t, err) {
 			return
 		}
 
@@ -406,7 +406,7 @@ func Test_PurgeOrchestrationState(t *testing.T) {
 		assert.Equal(t, 0, len(state.OldEvents))
 
 		// Attempting to purge again should fail with api.ErrInstanceNotFound
-		if err := be.PurgeOrchestrationState(ctx, instanceID); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
+		if err := be.PurgeOrchestrationState(ctx, instanceID, false); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
 			return
 		}
 	}

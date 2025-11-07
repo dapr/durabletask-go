@@ -461,7 +461,7 @@ func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInst
 	if req.GetPurgeInstanceFilter() != nil {
 		return nil, errors.New("multi-instance purge is not unimplemented")
 	}
-	count, err := purgeOrchestrationState(ctx, g.backend, api.InstanceID(req.GetInstanceId()), req.Recursive)
+	count, err := purgeOrchestrationState(ctx, g.backend, api.InstanceID(req.GetInstanceId()), req.Recursive, req.GetForce())
 	resp := &protos.PurgeInstancesResponse{DeletedInstanceCount: int32(count)}
 	if err != nil {
 		return resp, fmt.Errorf("failed to purge orchestration state: %w", err)

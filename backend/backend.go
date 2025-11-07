@@ -130,7 +130,7 @@ type Backend interface {
 	//
 	// [api.ErrInstanceNotFound] is returned if the specified orchestration instance doesn't exist.
 	// [api.ErrNotCompleted] is returned if the specified orchestration instance is still running.
-	PurgeOrchestrationState(context.Context, api.InstanceID) error
+	PurgeOrchestrationState(ctx context.Context, id api.InstanceID, force bool) error
 
 	// CompleteOrchestratorTask completes the orchestrator task by saving the updated runtime state to durable storage.
 	CompleteOrchestratorTask(context.Context, *protos.OrchestratorResponse) error
@@ -182,7 +182,7 @@ func UnmarshalHistoryEvent(bytes []byte) (*HistoryEvent, error) {
 
 // purgeOrchestrationState purges the orchestration state, including sub-orchestrations if [recursive] is true.
 // Returns (deletedInstanceCount, error), where deletedInstanceCount is the number of instances deleted.
-func purgeOrchestrationState(ctx context.Context, be Backend, iid api.InstanceID, recursive bool) (int, error) {
+func purgeOrchestrationState(ctx context.Context, be Backend, iid api.InstanceID, recursive bool, force bool) (int, error) {
 	deletedInstanceCount := 0
 	if recursive {
 		owi := &OrchestrationWorkItem{
@@ -203,7 +203,7 @@ func purgeOrchestrationState(ctx context.Context, be Backend, iid api.InstanceID
 		subOrchestrationInstances := getSubOrchestrationInstances(state.OldEvents, state.NewEvents)
 		for _, subOrchestrationInstance := range subOrchestrationInstances {
 			// Recursively purge sub-orchestrations
-			count, err := purgeOrchestrationState(ctx, be, subOrchestrationInstance, recursive)
+			count, err := purgeOrchestrationState(ctx, be, subOrchestrationInstance, recursive, force)
 			// `count` sub-orchestrations have been successfully purged (even in case of error)
 			deletedInstanceCount += count
 			if err != nil {
@@ -212,7 +212,7 @@ func purgeOrchestrationState(ctx context.Context, be Backend, iid api.InstanceID
 		}
 	}
 	// Purging root orchestration
-	if err := be.PurgeOrchestrationState(ctx, iid); err != nil {
+	if err := be.PurgeOrchestrationState(ctx, iid, force); err != nil {
 		return deletedInstanceCount, err
 	}
 	return deletedInstanceCount + 1, nil

@@ -1067,7 +1067,7 @@ func (be *sqliteBackend) AbandonActivityWorkItem(ctx context.Context, wi *backen
 	return nil
 }
 
-func (be *sqliteBackend) PurgeOrchestrationState(ctx context.Context, id api.InstanceID) error {
+func (be *sqliteBackend) PurgeOrchestrationState(ctx context.Context, id api.InstanceID, force bool) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
