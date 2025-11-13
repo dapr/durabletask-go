@@ -957,17 +957,17 @@ func (_c *Backend_NextOrchestrationWorkItem_Call) RunAndReturn(run func(context.
 	return _c
 }
 
-// PurgeOrchestrationState provides a mock function with given fields: _a0, _a1
-func (_m *Backend) PurgeOrchestrationState(_a0 context.Context, _a1 api.InstanceID) error {
-	ret := _m.Called(_a0, _a1)
+// PurgeOrchestrationState provides a mock function with given fields: ctx, id, force
+func (_m *Backend) PurgeOrchestrationState(ctx context.Context, id api.InstanceID, force bool) error {
+	ret := _m.Called(ctx, id, force)
 
 	if len(ret) == 0 {
 		panic("no return value specified for PurgeOrchestrationState")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID) error); ok {
-		r0 = rf(_a0, _a1)
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, bool) error); ok {
+		r0 = rf(ctx, id, force)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -981,15 +981,16 @@ type Backend_PurgeOrchestrationState_Call struct {
 }
 
 // PurgeOrchestrationState is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 api.InstanceID
-func (_e *Backend_Expecter) PurgeOrchestrationState(_a0 interface{}, _a1 interface{}) *Backend_PurgeOrchestrationState_Call {
-	return &Backend_PurgeOrchestrationState_Call{Call: _e.mock.On("PurgeOrchestrationState", _a0, _a1)}
+//   - ctx context.Context
+//   - id api.InstanceID
+//   - force bool
+func (_e *Backend_Expecter) PurgeOrchestrationState(ctx interface{}, id interface{}, force interface{}) *Backend_PurgeOrchestrationState_Call {
+	return &Backend_PurgeOrchestrationState_Call{Call: _e.mock.On("PurgeOrchestrationState", ctx, id, force)}
 }
 
-func (_c *Backend_PurgeOrchestrationState_Call) Run(run func(_a0 context.Context, _a1 api.InstanceID)) *Backend_PurgeOrchestrationState_Call {
+func (_c *Backend_PurgeOrchestrationState_Call) Run(run func(ctx context.Context, id api.InstanceID, force bool)) *Backend_PurgeOrchestrationState_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(api.InstanceID))
+		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(bool))
 	})
 	return _c
 }
@@ -999,7 +1000,7 @@ func (_c *Backend_PurgeOrchestrationState_Call) Return(_a0 error) *Backend_Purge
 	return _c
 }
 
-func (_c *Backend_PurgeOrchestrationState_Call) RunAndReturn(run func(context.Context, api.InstanceID) error) *Backend_PurgeOrchestrationState_Call {
+func (_c *Backend_PurgeOrchestrationState_Call) RunAndReturn(run func(context.Context, api.InstanceID, bool) error) *Backend_PurgeOrchestrationState_Call {
 	_c.Call.Return(run)
 	return _c
 }

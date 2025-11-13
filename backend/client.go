@@ -233,7 +233,7 @@ func (c *backendClient) PurgeOrchestrationState(ctx context.Context, id api.Inst
 			return fmt.Errorf("failed to configure purge request: %w", err)
 		}
 	}
-	if _, err := purgeOrchestrationState(ctx, c.be, id, req.Recursive); err != nil {
+	if _, err := purgeOrchestrationState(ctx, c.be, id, req.Recursive, req.GetForce()); err != nil {
 		return fmt.Errorf("failed to purge orchestration state: %w", err)
 	}
 	return nil

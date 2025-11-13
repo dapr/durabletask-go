@@ -86,6 +86,10 @@ func WithRecursivePurge(recursive bool) PurgeOptions {
 	return PurgeOptions(api.WithRecursivePurge(recursive))
 }
 
+func WithForcePurge(force bool) PurgeOptions {
+	return PurgeOptions(api.WithForcePurge(force))
+}
+
 func WorkflowMetadataIsRunning(o *WorkflowMetadata) bool {
 	return api.OrchestrationMetadataIsComplete(ptr.Of(protos.OrchestrationMetadata(*o)))
 }

@@ -189,6 +189,16 @@ func WithRecursivePurge(recursive bool) PurgeOptions {
 	}
 }
 
+// WithForcePurge configures whether to purge a workflow, regardless of its
+// state or if it is processable/being processed. Highly discouraged to use
+// unless you know what you are doing.
+func WithForcePurge(force bool) PurgeOptions {
+	return func(req *protos.PurgeInstancesRequest) error {
+		req.Force = &force
+		return nil
+	}
+}
+
 func OrchestrationMetadataIsRunning(o *protos.OrchestrationMetadata) bool {
 	return !OrchestrationMetadataIsComplete(o)
 }

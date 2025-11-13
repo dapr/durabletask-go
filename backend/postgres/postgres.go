@@ -1127,7 +1127,7 @@ func (be *postgresBackend) AbandonActivityWorkItem(ctx context.Context, wi *back
 	return nil
 }
 
-func (be *postgresBackend) PurgeOrchestrationState(ctx context.Context, id api.InstanceID) error {
+func (be *postgresBackend) PurgeOrchestrationState(ctx context.Context, id api.InstanceID, force bool) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
