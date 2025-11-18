@@ -6,6 +6,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -39,6 +40,14 @@ func (c *TaskHubGrpcClient) ScheduleNewOrchestration(ctx context.Context, orches
 	}
 	if req.InstanceId == "" {
 		req.InstanceId = uuid.NewString()
+	}
+
+	xspan := trace.SpanFromContext(ctx)
+	if sctx := xspan.SpanContext(); sctx.IsValid() {
+		req.ParentTraceContext = &protos.TraceContext{
+			TraceParent: sctx.TraceID().String(),
+			SpanID:      sctx.SpanID().String(),
+		}
 	}
 
 	resp, err := c.client.StartInstance(ctx, req)
