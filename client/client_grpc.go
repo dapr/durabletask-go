@@ -47,6 +47,7 @@ func (c *TaskHubGrpcClient) ScheduleNewOrchestration(ctx context.Context, orches
 		req.ParentTraceContext = &protos.TraceContext{
 			TraceParent: sctx.TraceID().String(),
 			SpanID:      sctx.SpanID().String(),
+			TraceState:  wrapperspb.String(sctx.TraceState().String()),
 		}
 	}
 
