@@ -94,26 +94,13 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 			}
 			w.logger.Debugf("%v: orchestrator returned %d action(s): %s", wi.InstanceID, len(results.Actions), helpers.ActionListSummary(results.Actions))
 
-			if results.GetPatchMismatch() {
-				_ = runtimestate.AddEvent(wi.State, &protos.HistoryEvent{
-					EventId:   -1,
-					Timestamp: timestamppb.Now(),
-					EventType: &protos.HistoryEvent_ExecutionPendingVersion{
-						ExecutionPendingVersion: &protos.ExecutionPendingVersionEvent{},
-					},
-				})
-				w.logger.Warnf("%v: patch mismatch detected; setting version pending for orchestration instance", wi.InstanceID)
-				break
-			}
-
-			// Backfill patches into the OrchestratorStarted event we added at the start of this turn
-			if results.Patches != nil {
+			if version := results.GetVersion(); version != nil && version.GetPatches() != nil {
 				for _, e := range wi.State.NewEvents {
 					if os := e.GetOrchestratorStarted(); os != nil {
-						os.Patches = results.Patches
-						for _, p := range results.Patches.Patches {
+						os.Version = version
+						for _, p := range version.GetPatches() {
 							if err := helpers.StartAndEndNewPatchSpan(ctx, p, e.Timestamp.AsTime()); err != nil {
-								w.logger.Warnf("%v: failed to generate distributed trace span for durable patch: %v", wi.InstanceID, err)
+								w.logger.Warnf("%v: failed to generate distributed trace span for patch '%s': %v", wi.InstanceID, p, err)
 							}
 						}
 						break
@@ -344,10 +331,14 @@ func addNotableEventsToSpan(events []*protos.HistoryEvent, span trace.Span) {
 				"Execution resumed",
 				trace.WithTimestamp(e.Timestamp.AsTime()),
 				trace.WithAttributes(attribute.String("reason", resumed.Input.GetValue())))
-		} else if versionPending := e.GetExecutionPendingVersion(); versionPending != nil {
+		} else if stalled := e.GetExecutionStalled(); stalled != nil {
 			span.AddEvent(
-				"Execution pending for version upgrade",
-				trace.WithTimestamp(e.Timestamp.AsTime()))
+				"Execution stalled",
+				trace.WithTimestamp(e.Timestamp.AsTime()),
+				trace.WithAttributes(
+					attribute.String("reason", stalled.Reason.String()),
+					attribute.String("description", stalled.GetDescription())),
+			)
 		}
 	}
 }

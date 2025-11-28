@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -1681,149 +1679,150 @@ func Test_OrchestrationPatching_ContinueAsNewDoNotCarryOverChoices(t *testing.T)
 	assert.Equal(t, []bool{false, true, true}, patchesFound)
 }
 
-func Test_OrchestrationPatching_TracingSpans(t *testing.T) {
-	// Registration
+func Test_OrchestrationPatching_PatchPersistsAcrossReplays(t *testing.T) {
+	// This test verifies that once a patch is enabled, it remains enabled
+	// across multiple activity completions (replays).
 	r := task.NewTaskRegistry()
+	runNumber := atomic.Uint32{}
+	patchResults := []bool{}
+
 	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
-		ctx.IsPatched("patch1")
+		runNumber.Add(1)
+
+		// First activity - patch should be enabled (at end of history)
+		patchResults = append(patchResults, ctx.IsPatched("patch1"))
 		ctx.CallActivity("SayHello").Await(nil)
-		ctx.IsPatched("patch2")
+
+		// Second activity - patch should still be enabled (from history)
+		patchResults = append(patchResults, ctx.IsPatched("patch1"))
 		ctx.CallActivity("SayHello").Await(nil)
-		ctx.IsPatched("patch3")
+
+		// Third activity - patch should still be enabled (from history)
+		patchResults = append(patchResults, ctx.IsPatched("patch1"))
 		ctx.CallActivity("SayHello").Await(nil)
+
 		return nil, nil
 	}))
+
 	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
 		return "Hello", nil
 	})
 
-	// Initialization
 	ctx := context.Background()
-	exporter := utils.InitTracing()
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
 	require.NoError(t, err)
 	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 
-	// Validate the exported OTel traces
-	spans := exporter.GetSpans().Snapshots()
-	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("Orchestrator", id),
-		utils.AssertPatch("patch1"),
-		utils.AssertActivity("SayHello", id, 0),
-		utils.AssertPatch("patch2"),
-		utils.AssertActivity("SayHello", id, 1),
-		utils.AssertPatch("patch3"),
-		utils.AssertActivity("SayHello", id, 2),
-		utils.AssertOrchestratorExecuted("Orchestrator", id, "COMPLETED"),
-	)
+	// Orchestrator runs 4 times: initial + 3 activity completions
+	assert.Equal(t, uint32(4), runNumber.Load())
+	// All patch checks should return true (first time enabled, subsequent times from history)
+	// Run 1: [true] - first check at end of history
+	// Run 2: [true, true] - replay + second check at end of history
+	// Run 3: [true, true, true] - replay + third check at end of history
+	// Run 4: [true, true, true] - final replay
+	// Total: 9 checks, all true
+	assert.Len(t, patchResults, 9)
+	for i, result := range patchResults {
+		assert.True(t, result, "patch check %d should be true", i)
+	}
 }
 
-func Test_OrchestrationPatching_ReplicaWithoutPatchSupport_SetToPendingVersion(t *testing.T) {
-	// Use a persistent sqlite DB so state survives worker restarts
-	logger := backend.DefaultLogger()
-	newOrchestratorCalls := atomic.Uint32{}
-	oldOrchestratorCalls := atomic.Uint32{}
+func Test_OrchestrationPatching_PatchRemembersToStayFalse(t *testing.T) {
+	r := task.NewTaskRegistry()
+	runNumber := atomic.Uint32{}
+	patchResults := []bool{}
 
-	// Use a file for sqlite because in-memory DB is not shared between workers.
-	fileName := fmt.Sprintf("replica-mismatch-%s.sqlite", uuid.NewString())
-	filePath := filepath.Join(os.TempDir(), fileName)
-	defer os.Remove(filePath)
-	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(filePath), logger)
+	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		currentRun := runNumber.Add(1)
 
-	// Registration for worker A (patched version)
-	r1 := task.NewTaskRegistry()
-	require.NoError(t, r1.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
-		newOrchestratorCalls.Add(1)
-		if ctx.IsPatched("patch1") {
-			if err := ctx.CallActivity("SayHello2").Await(nil); err != nil {
-				return nil, err
-			}
-		} else {
-			if err := ctx.CallActivity("SayHello1").Await(nil); err != nil {
-				return nil, err
-			}
+		// Simulate code upgrade: patch check is only present from run 2 onwards
+		// At run 2, we're replaying history (activity 1 already completed),
+		// so this patch should return false
+		if currentRun >= 2 {
+			ctx.IsPatched("patch1")
 		}
-		// Block waiting for an external event so the instance remains running
-		if err := ctx.WaitForSingleEvent("Continue", -1).Await(nil); err != nil {
-			return nil, err
-		}
+
+		ctx.CallActivity("SayHello").Await(nil)
+
+		// Call the patch again. It should return false because it was already seen as false earlier in this turn.
+		patchResults = append(patchResults, ctx.IsPatched("patch1"))
+
+		ctx.CallActivity("SayHello").Await(nil)
+
 		return nil, nil
 	}))
-	r1.AddActivityN("SayHello1", func(ctx task.ActivityContext) (any, error) {
-		return "Hello", nil
-	})
-	r1.AddActivityN("SayHello2", func(ctx task.ActivityContext) (any, error) {
+
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
 		return "Hello", nil
 	})
 
-	// Start worker A
 	ctx := context.Background()
-	executor1 := task.NewTaskExecutor(r1)
-	orchWorker1 := backend.NewOrchestrationWorker(be, executor1, logger)
-	actWorker1 := backend.NewActivityTaskWorker(be, executor1, logger)
-	worker1 := backend.NewTaskHubWorker(be, orchWorker1, actWorker1, logger)
-	require.NoError(t, worker1.Start(ctx))
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
 
-	client := backend.NewTaskHubClient(be)
 	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
 	require.NoError(t, err)
-	_, err = client.WaitForOrchestrationStart(ctx, id)
+	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
 	require.NoError(t, err)
-	time.Sleep(1 * time.Second)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 
-	// Simulate failover by stopping worker A before sending the event
-	require.NoError(t, worker1.Shutdown(ctx))
+	assert.Equal(t, uint32(3), runNumber.Load())
 
-	assert.Equal(t, uint32(2), newOrchestratorCalls.Load())
-	md, err := client.FetchOrchestrationMetadata(ctx, id)
-	require.NoError(t, err)
-	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING, md.RuntimeStatus)
+	assert.Len(t, patchResults, 2)
+	assert.False(t, patchResults[0])
+	assert.False(t, patchResults[1])
+}
 
-	// Registration for worker B (unpatched version - does not schedule the activity nor wait for the event)
-	r2 := task.NewTaskRegistry()
-	require.NoError(t, r2.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
-		oldOrchestratorCalls.Add(1)
-		if err := ctx.CallActivity("SayHello1").Await(nil); err != nil {
+func Test_OrchestrationPatching_TracingSpans(t *testing.T) {
+	// This test verifies that patch checks generate distributed tracing spans.
+	r := task.NewTaskRegistry()
+	require.NoError(t, r.AddOrchestratorN("PatchTracingOrchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		ctx.IsPatched("patch1")
+		if err := ctx.CallActivity("SayHello").Await(nil); err != nil {
 			return nil, err
 		}
-		// Block waiting for an external event so the instance remains running
-		if err := ctx.WaitForSingleEvent("Continue", -1).Await(nil); err != nil {
+		ctx.IsPatched("patch2")
+		if err := ctx.CallActivity("SayHello").Await(nil); err != nil {
 			return nil, err
 		}
+		ctx.IsPatched("patch3")
 		return nil, nil
 	}))
-	r2.AddActivityN("SayHello1", func(ctx task.ActivityContext) (any, error) {
+
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
 		return "Hello", nil
 	})
 
-	// Start worker B
-	executor2 := task.NewTaskExecutor(r2)
-	orchWorker2 := backend.NewOrchestrationWorker(be, executor2, logger)
-	actWorker2 := backend.NewActivityTaskWorker(be, executor2, logger)
-	worker2 := backend.NewTaskHubWorker(be, orchWorker2, actWorker2, logger)
-	require.NoError(t, worker2.Start(ctx))
+	ctx := context.Background()
+	exporter := utils.InitTracing()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
 
-	time.Sleep(1 * time.Second)
-	// Raise the event to trigger a new replay/turn on worker B
-	require.NoError(t, client.RaiseEvent(ctx, id, "Continue"))
-
-	// Worker B should try to execute the workflow at this point, but won't be able to do it.
-	// The workflow should be retried on the next available worker.
-	assert.Eventually(t, func() bool {
-		return oldOrchestratorCalls.Load() == 1
-	}, 2*time.Second, 100*time.Millisecond)
-	require.NoError(t, worker2.Shutdown(ctx))
-
-	assert.Equal(t, uint32(2), newOrchestratorCalls.Load())
-	md, err = client.FetchOrchestrationMetadata(ctx, id)
+	id, err := client.ScheduleNewOrchestration(ctx, "PatchTracingOrchestrator")
 	require.NoError(t, err)
-	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING_VERSION, md.RuntimeStatus)
+	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+
+	// Validate the exported OTel traces include patch spans
+	spans := exporter.GetSpans().Snapshots()
+	utils.AssertSpanSequence(t, spans,
+		utils.AssertOrchestratorCreated("PatchTracingOrchestrator", id),
+		utils.AssertPatch("patch1"),
+		utils.AssertActivity("SayHello", id, 0),
+		utils.AssertPatch("patch1"),
+		utils.AssertPatch("patch2"),
+		utils.AssertActivity("SayHello", id, 1),
+		utils.AssertPatch("patch1"),
+		utils.AssertPatch("patch2"),
+		utils.AssertPatch("patch3"),
+		utils.AssertOrchestratorExecuted("PatchTracingOrchestrator", id, "COMPLETED"),
+	)
 }
 
 func initTaskHubWorker(ctx context.Context, r *task.TaskRegistry, opts ...backend.NewTaskWorkerOptions) (backend.TaskHubClient, backend.TaskHubWorker) {

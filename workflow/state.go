@@ -14,7 +14,7 @@ const (
 	StatusTerminated     = api.RUNTIME_STATUS_TERMINATED
 	StatusPending        = api.RUNTIME_STATUS_PENDING
 	StatusSuspended      = api.RUNTIME_STATUS_SUSPENDED
-	StatusPendingVersion = api.RUNTIME_STATUS_PENDING_VERSION
+	StatusPendingVersion = api.RUNTIME_STATUS_STALLED
 )
 
 type WorkflowMetadata protos.OrchestrationMetadata
@@ -39,7 +39,7 @@ func (w WorkflowMetadata) String() string {
 		return "PENDING"
 	case api.RUNTIME_STATUS_SUSPENDED:
 		return "SUSPENDED"
-	case api.RUNTIME_STATUS_PENDING_VERSION:
+	case api.RUNTIME_STATUS_STALLED:
 		return "PENDING_VERSION"
 	default:
 		return ""

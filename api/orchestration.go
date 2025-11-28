@@ -42,7 +42,7 @@ const (
 	RUNTIME_STATUS_TERMINATED       OrchestrationStatus = protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED
 	RUNTIME_STATUS_PENDING          OrchestrationStatus = protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
 	RUNTIME_STATUS_SUSPENDED        OrchestrationStatus = protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED
-	RUNTIME_STATUS_PENDING_VERSION  OrchestrationStatus = protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING_VERSION
+	RUNTIME_STATUS_STALLED          OrchestrationStatus = protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED
 )
 
 type OrchestrationIdReusePolicy = protos.OrchestrationIdReusePolicy

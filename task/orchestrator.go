@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"slices"
 	"strings"
 	"time"
 
@@ -49,9 +48,9 @@ type OrchestrationContext struct {
 	bufferedExternalEvents     map[string]*list.List
 	pendingExternalEventTasks  map[string]*list.List
 	saveBufferedExternalEvents bool
-	patches                    []string
-	newPatches                 []string
-	patchMismatch              bool
+	historyPatches             map[string]bool
+	appliedPatches             map[string]bool
+	encounteredPatches         []string
 }
 
 // callSubOrchestratorOptions is a struct that holds the options for the CallSubOrchestrator orchestrator method.
@@ -138,8 +137,9 @@ func NewOrchestrationContext(registry *TaskRegistry, id api.InstanceID, oldEvent
 		newEvents:                 newEvents,
 		bufferedExternalEvents:    make(map[string]*list.List),
 		pendingExternalEventTasks: make(map[string]*list.List),
-		patches:                   make([]string, 0),
-		newPatches:                make([]string, 0),
+		historyPatches:            make(map[string]bool),
+		appliedPatches:            make(map[string]bool),
+		encounteredPatches:        make([]string, 0),
 	}
 }
 
@@ -154,8 +154,6 @@ func (ctx *OrchestrationContext) start() (actions []*protos.OrchestratorAction) 
 		if result == ErrTaskBlocked {
 			// Expected, normal part of execution
 			actions = ctx.actions()
-		} else if result == ErrPatchMismatch {
-			ctx.patchMismatch = true
 		} else if result != nil {
 			// Unexpected panic!
 			panic(result)
@@ -218,8 +216,10 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 	if os := e.GetOrchestratorStarted(); os != nil {
 		// OrchestratorStarted is only used to update the current orchestration time and patches
 		ctx.CurrentTimeUtc = e.Timestamp.AsTime()
-		if patches := os.GetPatches(); patches != nil {
-			ctx.patches = patches.GetPatches()
+		if version := os.GetVersion(); version != nil {
+			for _, p := range version.GetPatches() {
+				ctx.historyPatches[p] = true
+			}
 		}
 	} else if es := e.GetExecutionStarted(); es != nil {
 		// Extract source AppID from HistoryEvent Router if this is ExecutionStartedEvent
@@ -258,7 +258,7 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 		err = ctx.onExecutionResumed(er)
 	} else if et := e.GetExecutionTerminated(); et != nil {
 		err = ctx.onExecutionTerminated(et)
-	} else if e.GetExecutionPendingVersion() != nil {
+	} else if e.GetExecutionStalled() != nil {
 		// Nothing to do
 	} else if oc := e.GetOrchestratorCompleted(); oc != nil {
 		// Nothing to do
@@ -528,23 +528,32 @@ func (ctx *OrchestrationContext) ContinueAsNew(newInput any, options ...Continue
 }
 
 func (ctx *OrchestrationContext) IsPatched(patchName string) bool {
-	isPatched := slices.Contains(ctx.patches, patchName)
+	isPatched := ctx.isPatched(patchName)
 	if isPatched {
-		return true
+		ctx.encounteredPatches = append(ctx.encounteredPatches, patchName)
 	}
-	isPatched = slices.Contains(ctx.newPatches, patchName)
-	if isPatched {
+	return isPatched
+}
+
+func (ctx *OrchestrationContext) isPatched(patchName string) bool {
+	if patched, exists := ctx.appliedPatches[patchName]; exists {
+		return patched
+	}
+
+	if ctx.historyPatches[patchName] {
+		ctx.appliedPatches[patchName] = true
 		return true
 	}
 
 	totalEvents := len(ctx.oldEvents) + len(ctx.newEvents)
 	if ctx.historyIndex < totalEvents {
 		// We're not at the end of the history stream, we assume the previous used the unpatched version
+		ctx.appliedPatches[patchName] = false
 		return false
 	}
 
 	// We're at the end of the history stream, we can run the patched version and save the decision for next rerun
-	ctx.newPatches = append(ctx.newPatches, patchName)
+	ctx.appliedPatches[patchName] = true
 	return true
 }
 
@@ -593,9 +602,6 @@ func (ctx *OrchestrationContext) onTaskScheduled(taskID int32, ts *protos.TaskSc
 	}
 	scheduleTask := a.GetScheduleTask()
 	if scheduleTask.GetName() != ts.GetName() {
-		if len(ctx.patches) > 0 {
-			panic(ErrPatchMismatch)
-		}
 		return fmt.Errorf(
 			"a previous execution called CallActivity for '%s' and sequence number %d at this point in the orchestration logic, but the current execution doesn't have this action with this sequence number",
 			ts.Name,
@@ -816,6 +822,12 @@ func (ctx *OrchestrationContext) setCompleteInternal(
 	status protos.OrchestrationStatus,
 	failureDetails *protos.TaskFailureDetails,
 ) error {
+	for _, a := range ctx.pendingActions {
+		if a.GetCompleteOrchestration() != nil {
+			return nil
+		}
+	}
+
 	sequenceNumber := ctx.getNextSequenceNumber()
 	completedAction := &protos.OrchestratorAction{
 		Id: sequenceNumber,
