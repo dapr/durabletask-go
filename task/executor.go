@@ -132,11 +132,19 @@ func (te *taskExecutor) ExecuteOrchestrator(ctx context.Context, id api.Instance
 	orchestrationCtx := NewOrchestrationContext(te.Registry, id, oldEvents, newEvents)
 	actions := orchestrationCtx.start()
 
-	return &protos.OrchestratorResponse{
+	response := &protos.OrchestratorResponse{
 		InstanceId:   string(id),
 		Actions:      actions,
 		CustomStatus: wrapperspb.String(orchestrationCtx.customStatus),
-	}, nil
+	}
+
+	if len(orchestrationCtx.encounteredPatches) > 0 {
+		response.Version = &protos.OrchestrationVersion{
+			Patches: orchestrationCtx.encounteredPatches,
+		}
+	}
+
+	return response, nil
 }
 
 func (te taskExecutor) Shutdown(ctx context.Context) error {

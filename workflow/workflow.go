@@ -103,6 +103,10 @@ func (w *WorkflowContext) ContinueAsNew(newInput any, options ...ContinueAsNewOp
 	w.oc.ContinueAsNew(newInput, oopts...)
 }
 
+func (w *WorkflowContext) IsPatched(patchName string) bool {
+	return w.oc.IsPatched(patchName)
+}
+
 // WithChildWorkflowAppID is a functional option type for the CallChildWorkflow
 // workflow method that specifies the app ID of the target activity.
 func WithChildWorkflowAppID(appID string) ChildWorkflowOption {
