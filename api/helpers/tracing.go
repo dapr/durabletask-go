@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/api/semconv"
 )
 
 var tracer = otel.Tracer("durabletask")
@@ -22,9 +23,9 @@ func StartNewCreateOrchestrationSpan(
 	ctx context.Context, name string, version string, instanceID string,
 ) (context.Context, trace.Span) {
 	attributes := []attribute.KeyValue{
-		{Key: "durabletask.type", Value: attribute.StringValue("orchestration")},
-		{Key: "durabletask.task.name", Value: attribute.StringValue(name)},
-		{Key: "durabletask.task.instance_id", Value: attribute.StringValue(instanceID)},
+		semconv.DaprWorkflowTypeKey.String("orchestration"),
+		semconv.DaprWorkflowNameKey.String(name),
+		semconv.DaprWorkflowInstanceIdKey.String(instanceID),
 	}
 	return startNewSpan(ctx, "create_orchestration", name, version, attributes, trace.SpanKindClient, time.Now().UTC())
 }
@@ -36,9 +37,9 @@ func StartNewRunOrchestrationSpan(
 	instanceID := es.OrchestrationInstance.InstanceId
 	version := es.Version.GetValue()
 	attributes := []attribute.KeyValue{
-		{Key: "durabletask.type", Value: attribute.StringValue("orchestration")},
-		{Key: "durabletask.task.name", Value: attribute.StringValue(name)},
-		{Key: "durabletask.task.instance_id", Value: attribute.StringValue(instanceID)},
+		semconv.DaprWorkflowTypeKey.String("orchestration"),
+		semconv.DaprWorkflowNameKey.String(name),
+		semconv.DaprWorkflowInstanceIdKey.String(instanceID),
 	}
 	return startNewSpan(ctx, "orchestration", name, version, attributes, trace.SpanKindServer, startedTime)
 }
@@ -47,20 +48,20 @@ func StartNewActivitySpan(
 	ctx context.Context, name string, version string, instanceID string, taskID int32,
 ) (context.Context, trace.Span) {
 	attributes := []attribute.KeyValue{
-		{Key: "durabletask.type", Value: attribute.StringValue("activity")},
-		{Key: "durabletask.task.name", Value: attribute.StringValue(name)},
-		{Key: "durabletask.task.task_id", Value: attribute.Int64Value(int64(taskID))},
-		{Key: "durabletask.task.instance_id", Value: attribute.StringValue(instanceID)},
+		semconv.DaprWorkflowTypeKey.String("activity"),
+		semconv.DaprWorkflowNameKey.String(name),
+		semconv.DaprWorkflowTaskIdKey.Int64(int64(taskID)),
+		semconv.DaprWorkflowInstanceIdKey.String(instanceID),
 	}
 	return startNewSpan(ctx, "activity", name, version, attributes, trace.SpanKindServer, time.Now().UTC())
 }
 
 func StartAndEndNewTimerSpan(ctx context.Context, tf *protos.TimerFiredEvent, createdTime time.Time, instanceID string) error {
 	attributes := []attribute.KeyValue{
-		{Key: "durabletask.type", Value: attribute.StringValue("timer")},
-		{Key: "durabletask.fire_at", Value: attribute.StringValue(tf.FireAt.AsTime().Format(time.RFC3339))}, // time.RFC3339 most closely maps to ISO 8601
-		{Key: "durabletask.task.task_id", Value: attribute.Int64Value(int64(tf.TimerId))},
-		{Key: "durabletask.task.instance_id", Value: attribute.StringValue(instanceID)},
+		semconv.DaprWorkflowTypeKey.String("timer"),
+		semconv.DaprWorkflowTimerFireAtKey.String(tf.FireAt.AsTime().Format(time.RFC3339)), // time.RFC3339 most closely maps to ISO 8601
+		semconv.DaprWorkflowTimerIdKey.Int64(int64(tf.TimerId)),
+		semconv.DaprWorkflowInstanceIdKey.String(instanceID),
 	}
 
 	_, span := startNewSpan(ctx, "timer", "", "", attributes, trace.SpanKindInternal, createdTime)
@@ -80,10 +81,7 @@ func startNewSpan(
 	var spanName string
 	if taskVersion != "" {
 		spanName = taskType + "||" + taskName + "||" + taskVersion
-		attributes = append(attributes, attribute.KeyValue{
-			Key:   "durabletask.task.version",
-			Value: attribute.StringValue(taskVersion),
-		})
+		attributes = append(attributes, semconv.DaprWorkflowVersionKey.String(taskVersion))
 	} else if taskName != "" {
 		spanName = taskType + "||" + taskName
 	} else {
