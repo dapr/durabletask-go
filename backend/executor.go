@@ -563,6 +563,15 @@ func (g *grpcExecutor) GetInstanceHistory(ctx context.Context, req *protos.GetIn
 
 // TerminateInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.TerminateRequest) (*protos.TerminateResponse, error) {
+	// Check if the workflow is stalled - stalled workflows cannot be terminated
+	metadata, err := g.backend.GetOrchestrationMetadata(ctx, api.InstanceID(req.InstanceId))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get orchestration metadata: %w", err)
+	}
+	if metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED {
+		return nil, fmt.Errorf("cannot terminate workflow '%s': workflow is stalled due to a patch version mismatch", req.InstanceId)
+	}
+
 	e := &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
@@ -577,7 +586,7 @@ func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.Termin
 		return nil, fmt.Errorf("failed to submit termination request: %w", err)
 	}
 
-	_, err := g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId})
+	_, err = g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId})
 
 	return &protos.TerminateResponse{}, err
 }
