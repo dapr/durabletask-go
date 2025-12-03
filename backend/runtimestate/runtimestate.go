@@ -50,6 +50,8 @@ func addEvent(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent, isNew
 		}
 		s.CompletedEvent = completedEvent
 		s.CompletedTime = timestamppb.New(e.Timestamp.AsTime())
+	} else if e.GetExecutionTerminated() != nil {
+		s.Stalled = nil
 	} else if e.GetExecutionSuspended() != nil {
 		s.IsSuspended = true
 	} else if e.GetExecutionResumed() != nil {
