@@ -128,6 +128,15 @@ func AssertSpan(name string, optionalAsserts ...spanAttributeValidator) spanVali
 	}
 }
 
+func AssertPatch(patchName string, optionalAsserts ...spanAttributeValidator) spanValidator {
+	spanName := fmt.Sprintf("patch||%s", patchName)
+	opts := []spanAttributeValidator{
+		assertPatch(patchName),
+	}
+	opts = append(opts, optionalAsserts...)
+	return AssertSpan(spanName, opts...)
+}
+
 func doAssertSpan(t assert.TestingT, spans []trace.ReadOnlySpan, index int, name string, optionalAsserts ...spanAttributeValidator) bool {
 	// array bounds check
 	if !assert.Lessf(t, index, len(spans), "%d spans were exported, but more were expected by the test", len(spans)) {
@@ -215,6 +224,15 @@ func assertTimerFired() spanAttributeValidator {
 		}
 
 		return false
+	}
+}
+
+func assertPatch(patchName string) spanAttributeValidator {
+	return func(t assert.TestingT, span trace.ReadOnlySpan) bool {
+		return assert.Contains(t, span.Attributes(), attribute.KeyValue{
+			Key:   "durabletask.patch_check",
+			Value: attribute.StringValue(patchName),
+		})
 	}
 }
 

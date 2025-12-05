@@ -461,6 +461,17 @@ func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInst
 	if req.GetPurgeInstanceFilter() != nil {
 		return nil, errors.New("multi-instance purge is not unimplemented")
 	}
+
+	if !req.GetForce() {
+		metadata, err := g.backend.GetOrchestrationMetadata(ctx, api.InstanceID(req.GetInstanceId()))
+		if err != nil {
+			return nil, fmt.Errorf("failed to get orchestration metadata: %w", err)
+		}
+		if metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED {
+			return nil, fmt.Errorf("cannot purge workflow '%s': workflow is stalled", req.GetInstanceId())
+		}
+	}
+
 	count, err := purgeOrchestrationState(ctx, g.backend, api.InstanceID(req.GetInstanceId()), req.Recursive, req.GetForce())
 	resp := &protos.PurgeInstancesResponse{DeletedInstanceCount: int32(count)}
 	if err != nil {
@@ -477,6 +488,14 @@ func (grpcExecutor) QueryInstances(context.Context, *protos.QueryInstancesReques
 
 // RaiseEvent implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
+	metadata, err := g.backend.GetOrchestrationMetadata(ctx, api.InstanceID(req.InstanceId))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get orchestration metadata: %w", err)
+	}
+	if metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED {
+		return nil, fmt.Errorf("cannot raise event on workflow '%s': workflow is stalled", req.InstanceId)
+	}
+
 	e := &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.New(time.Now()),
@@ -563,6 +582,14 @@ func (g *grpcExecutor) GetInstanceHistory(ctx context.Context, req *protos.GetIn
 
 // TerminateInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.TerminateRequest) (*protos.TerminateResponse, error) {
+	metadata, err := g.backend.GetOrchestrationMetadata(ctx, api.InstanceID(req.InstanceId))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get orchestration metadata: %w", err)
+	}
+	if metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED {
+		return nil, fmt.Errorf("cannot terminate workflow '%s': workflow is stalled", req.InstanceId)
+	}
+
 	e := &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
@@ -577,13 +604,21 @@ func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.Termin
 		return nil, fmt.Errorf("failed to submit termination request: %w", err)
 	}
 
-	_, err := g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId})
+	_, err = g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId})
 
 	return &protos.TerminateResponse{}, err
 }
 
 // SuspendInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendRequest) (*protos.SuspendResponse, error) {
+	metadata, err := g.backend.GetOrchestrationMetadata(ctx, api.InstanceID(req.InstanceId))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get orchestration metadata: %w", err)
+	}
+	if metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED {
+		return nil, fmt.Errorf("cannot suspend workflow '%s': workflow is stalled", req.InstanceId)
+	}
+
 	var input *wrapperspb.StringValue
 	if req.Reason.GetValue() != "" {
 		input = wrapperspb.String(req.Reason.GetValue())
@@ -601,7 +636,7 @@ func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendR
 		return nil, err
 	}
 
-	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
+	_, err = g.waitForInstance(ctx, &protos.GetInstanceRequest{
 		InstanceId: req.InstanceId,
 	}, func(metadata *OrchestrationMetadata) bool {
 		return metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED ||
@@ -613,6 +648,14 @@ func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendR
 
 // ResumeInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeRequest) (*protos.ResumeResponse, error) {
+	metadata, err := g.backend.GetOrchestrationMetadata(ctx, api.InstanceID(req.InstanceId))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get orchestration metadata: %w", err)
+	}
+	if metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED {
+		return nil, fmt.Errorf("cannot resume workflow '%s': workflow is stalled", req.InstanceId)
+	}
+
 	var input *wrapperspb.StringValue
 	if req.Reason.GetValue() != "" {
 		input = wrapperspb.String(req.Reason.GetValue())
@@ -630,7 +673,7 @@ func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeReq
 		return nil, err
 	}
 
-	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
+	_, err = g.waitForInstance(ctx, &protos.GetInstanceRequest{
 		InstanceId: req.InstanceId,
 	}, func(metadata *OrchestrationMetadata) bool {
 		return metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING ||

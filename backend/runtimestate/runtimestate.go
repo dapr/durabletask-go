@@ -50,10 +50,17 @@ func addEvent(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent, isNew
 		}
 		s.CompletedEvent = completedEvent
 		s.CompletedTime = timestamppb.New(e.Timestamp.AsTime())
+	} else if e.GetExecutionTerminated() != nil {
+		s.Stalled = nil
 	} else if e.GetExecutionSuspended() != nil {
 		s.IsSuspended = true
 	} else if e.GetExecutionResumed() != nil {
 		s.IsSuspended = false
+	} else if e.GetExecutionStalled() != nil {
+		s.Stalled = &protos.RuntimeStateStalled{
+			Reason:      e.GetExecutionStalled().Reason,
+			Description: e.GetExecutionStalled().Description,
+		}
 	} else {
 		// TODO: Check for other possible duplicates using task IDs
 	}
@@ -82,6 +89,7 @@ func IsValid(s *protos.OrchestrationRuntimeState) bool {
 // ApplyActions takes a set of actions and updates its internal state, including populating the outbox.
 func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.StringValue, actions []*protos.OrchestratorAction, currentTraceContext *protos.TraceContext) (bool, error) {
 	s.CustomStatus = customStatus
+	s.Stalled = nil
 	for _, action := range actions {
 		if completedAction := action.GetCompleteOrchestration(); completedAction != nil {
 			if completedAction.OrchestrationStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
@@ -332,10 +340,12 @@ func Output(s *protos.OrchestrationRuntimeState) (*wrapperspb.StringValue, error
 func RuntimeStatus(s *protos.OrchestrationRuntimeState) protos.OrchestrationStatus {
 	if s.StartEvent == nil {
 		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
-	} else if s.IsSuspended {
-		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED
 	} else if s.CompletedEvent != nil {
 		return s.CompletedEvent.GetOrchestrationStatus()
+	} else if s.Stalled != nil {
+		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED
+	} else if s.IsSuspended {
+		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED
 	}
 
 	return protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING
