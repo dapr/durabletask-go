@@ -214,7 +214,7 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 
 	var err error = nil
 	if os := e.GetOrchestratorStarted(); os != nil {
-		// OrchestratorStarted is only used to update the current orchestration time and patches
+		// OrchestratorStarted is only used to update the current orchestration time and history patches
 		ctx.CurrentTimeUtc = e.Timestamp.AsTime()
 		if version := os.GetVersion(); version != nil {
 			for _, p := range version.GetPatches() {
@@ -592,16 +592,7 @@ func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedE
 }
 
 func (ctx *OrchestrationContext) onTaskScheduled(taskID int32, ts *protos.TaskScheduledEvent) error {
-	a, ok := ctx.pendingActions[taskID]
-	if !ok || a.GetScheduleTask() == nil {
-		return fmt.Errorf(
-			"a previous execution called CallActivity for '%s' and sequence number %d at this point in the orchestration logic, but the current execution doesn't have this action with this sequence number",
-			ts.Name,
-			taskID,
-		)
-	}
-	scheduleTask := a.GetScheduleTask()
-	if scheduleTask.GetName() != ts.GetName() {
+	if a, ok := ctx.pendingActions[taskID]; !ok || a.GetScheduleTask() == nil {
 		return fmt.Errorf(
 			"a previous execution called CallActivity for '%s' and sequence number %d at this point in the orchestration logic, but the current execution doesn't have this action with this sequence number",
 			ts.Name,
@@ -822,12 +813,6 @@ func (ctx *OrchestrationContext) setCompleteInternal(
 	status protos.OrchestrationStatus,
 	failureDetails *protos.TaskFailureDetails,
 ) error {
-	for _, a := range ctx.pendingActions {
-		if a.GetCompleteOrchestration() != nil {
-			return nil
-		}
-	}
-
 	sequenceNumber := ctx.getNextSequenceNumber()
 	completedAction := &protos.OrchestratorAction{
 		Id: sequenceNumber,
