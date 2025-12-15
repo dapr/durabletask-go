@@ -2,8 +2,6 @@ package local
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 	"sync"
 
 	"github.com/dapr/durabletask-go/api"
@@ -37,14 +35,15 @@ func (be *TasksBackend) CompleteActivityTask(ctx context.Context, response *prot
 	if be.deletePendingActivityTask(response.GetInstanceId(), response.GetTaskId(), response) {
 		return nil
 	}
-	return fmt.Errorf("unknown instance ID/task ID combo: %s", response.GetInstanceId()+"/"+strconv.FormatInt(int64(response.GetTaskId()), 10))
+
+	return api.NewUnknownTaskIDError(response.GetInstanceId(), response.GetTaskId())
 }
 
 func (be *TasksBackend) CancelActivityTask(ctx context.Context, instanceID api.InstanceID, taskID int32) error {
 	if be.deletePendingActivityTask(string(instanceID), taskID, nil) {
 		return nil
 	}
-	return fmt.Errorf("unknown instance ID/task ID combo: %s", string(instanceID)+"/"+strconv.FormatInt(int64(taskID), 10))
+	return api.NewUnknownTaskIDError(instanceID.String(), taskID)
 }
 
 func (be *TasksBackend) WaitForActivityCompletion(ctx context.Context, request *protos.ActivityRequest) (*protos.ActivityResponse, error) {
@@ -70,14 +69,14 @@ func (be *TasksBackend) CompleteOrchestratorTask(ctx context.Context, response *
 	if be.deletePendingOrchestrator(response.GetInstanceId(), response) {
 		return nil
 	}
-	return fmt.Errorf("unknown instance ID: %s", response.GetInstanceId())
+	return api.NewUnknownInstanceIDError(response.GetInstanceId())
 }
 
 func (be *TasksBackend) CancelOrchestratorTask(ctx context.Context, instanceID api.InstanceID) error {
 	if be.deletePendingOrchestrator(string(instanceID), nil) {
 		return nil
 	}
-	return fmt.Errorf("unknown instance ID: %s", instanceID)
+	return api.NewUnknownInstanceIDError(instanceID.String())
 }
 
 func (be *TasksBackend) WaitForOrchestratorCompletion(ctx context.Context, request *protos.OrchestratorRequest) (*protos.OrchestratorResponse, error) {
