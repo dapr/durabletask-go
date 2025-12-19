@@ -98,10 +98,8 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 				for _, e := range wi.State.NewEvents {
 					if os := e.GetOrchestratorStarted(); os != nil {
 						os.Version = version
-						for _, p := range version.GetPatches() {
-							if err := helpers.StartAndEndNewPatchSpan(ctx, p, e.Timestamp.AsTime()); err != nil {
-								w.logger.Warnf("%v: failed to generate distributed trace span for patch '%s': %v", wi.InstanceID, p, err)
-							}
+						if len(version.GetPatches()) > 0 {
+							span.SetAttributes(attribute.StringSlice("applied_patches", version.GetPatches()))
 						}
 						break
 					}
