@@ -90,6 +90,24 @@ func AssertSpanEvents(eventAsserts ...spanEventValidator) spanAttributeValidator
 	}
 }
 
+func AssertSpanStringAttribute(key string, value string) spanAttributeValidator {
+	return func(t assert.TestingT, span trace.ReadOnlySpan) bool {
+		return assert.Contains(t, span.Attributes(), attribute.KeyValue{
+			Key:   attribute.Key(key),
+			Value: attribute.StringValue(value),
+		})
+	}
+}
+
+func AssertSpanStringSliceAttribute(key string, value []string) spanAttributeValidator {
+	return func(t assert.TestingT, span trace.ReadOnlySpan) bool {
+		return assert.Contains(t, span.Attributes(), attribute.KeyValue{
+			Key:   attribute.Key(key),
+			Value: attribute.StringSliceValue(value),
+		})
+	}
+}
+
 func AssertExternalEvent(eventName string, payloadSize int) spanEventValidator {
 	return func(t assert.TestingT, span trace.ReadOnlySpan, eventIndex int) bool {
 		event := span.Events()[eventIndex]

@@ -1813,15 +1813,11 @@ func Test_OrchestrationPatching_TracingSpans(t *testing.T) {
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
 		utils.AssertOrchestratorCreated("PatchTracingOrchestrator", id),
-		utils.AssertPatch("patch1"),
 		utils.AssertActivity("SayHello", id, 0),
-		utils.AssertPatch("patch1"),
-		utils.AssertPatch("patch2"),
 		utils.AssertActivity("SayHello", id, 1),
-		utils.AssertPatch("patch1"),
-		utils.AssertPatch("patch2"),
-		utils.AssertPatch("patch3"),
-		utils.AssertOrchestratorExecuted("PatchTracingOrchestrator", id, "COMPLETED"),
+		utils.AssertOrchestratorExecuted("PatchTracingOrchestrator", id, "COMPLETED",
+			utils.AssertSpanStringSliceAttribute("applied_patches", []string{"patch1", "patch2", "patch3"}),
+		),
 	)
 }
 
