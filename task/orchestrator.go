@@ -557,14 +557,33 @@ func (ctx *OrchestrationContext) isPatched(patchName string) bool {
 	return true
 }
 
-func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
+func (ctx *OrchestrationContext) getOrchestrator(es *protos.ExecutionStartedEvent) (Orchestrator, error) {
 	orchestrator, ok := ctx.registry.orchestrators[es.Name]
-	if !ok {
-		// try looking for a "default" orchestrator
-		orchestrator, ok = ctx.registry.orchestrators["*"]
-		if !ok {
-			return fmt.Errorf("orchestrator named '%s' is not registered", es.Name)
+	if ok {
+		return orchestrator, nil
+	}
+
+	if versions, ok := ctx.registry.versionedOrchestrators[es.Name]; ok {
+		if latest, ok := ctx.registry.latestVersionedOrchestrators[es.Name]; ok {
+			if orchestrator, ok = versions[latest]; ok {
+				return orchestrator, nil
+			}
+		} else {
+			return nil, fmt.Errorf("versioned orchestrator '%s' does not have a latest version registered", es.Name)
 		}
+	}
+
+	if orchestrator, ok = ctx.registry.orchestrators["*"]; ok {
+		return orchestrator, nil
+	}
+
+	return nil, fmt.Errorf("orchestrator named '%s' is not registered", es.Name)
+}
+
+func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
+	orchestrator, err := ctx.getOrchestrator(es)
+	if err != nil {
+		return err
 	}
 	ctx.Name = es.Name
 	if es.Input != nil {
@@ -573,7 +592,6 @@ func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedE
 
 	output, appError := orchestrator(ctx)
 
-	var err error
 	if appError != nil {
 		err = ctx.setFailed(appError)
 	} else if ctx.continuedAsNew {
