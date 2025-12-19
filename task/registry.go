@@ -8,15 +8,19 @@ import (
 
 // TaskRegistry contains maps of names to corresponding orchestrator and activity functions.
 type TaskRegistry struct {
-	orchestrators map[string]Orchestrator
-	activities    map[string]Activity
+	orchestrators                map[string]Orchestrator
+	versionedOrchestrators       map[string]map[string]Orchestrator
+	latestVersionedOrchestrators map[string]string
+	activities                   map[string]Activity
 }
 
 // NewTaskRegistry returns a new [TaskRegistry] struct.
 func NewTaskRegistry() *TaskRegistry {
 	r := &TaskRegistry{
-		orchestrators: make(map[string]Orchestrator),
-		activities:    make(map[string]Activity),
+		orchestrators:                make(map[string]Orchestrator),
+		activities:                   make(map[string]Activity),
+		versionedOrchestrators:       make(map[string]map[string]Orchestrator),
+		latestVersionedOrchestrators: make(map[string]string),
 	}
 	return r
 }
@@ -34,6 +38,30 @@ func (r *TaskRegistry) AddOrchestratorN(name string, o Orchestrator) error {
 		return fmt.Errorf("orchestrator named '%s' is already registered", name)
 	}
 	r.orchestrators[name] = o
+	return nil
+}
+
+// AddVersionedOrchestratorN adds a versioned orchestrator function to the registry with a specified name.
+func (r *TaskRegistry) AddVersionedOrchestrator(canonicalName string, isLatest bool, o Orchestrator) error {
+	name := helpers.GetTaskFunctionName(o)
+	return r.AddVersionedOrchestratorN(canonicalName, name, isLatest, o)
+}
+
+// AddVersionedOrchestratorN adds a versioned orchestrator function to the registry with a specified name.
+func (r *TaskRegistry) AddVersionedOrchestratorN(canonicalName string, name string, isLatest bool, o Orchestrator) error {
+	if _, ok := r.versionedOrchestrators[canonicalName]; !ok {
+		r.versionedOrchestrators[canonicalName] = make(map[string]Orchestrator)
+	}
+	if _, ok := r.versionedOrchestrators[canonicalName][name]; ok {
+		return fmt.Errorf("versioned orchestrator named '%s' is already registered", name)
+	}
+	r.versionedOrchestrators[canonicalName][name] = o
+	if isLatest {
+		// if current, ok := r.latestVersionedOrchestrators[canonicalName]; ok {
+		// 	return fmt.Errorf("latest versioned orchestrator for '%s' is already registered as '%s'", canonicalName, current)
+		// }
+		r.latestVersionedOrchestrators[canonicalName] = name
+	}
 	return nil
 }
 

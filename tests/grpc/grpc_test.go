@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -588,4 +589,35 @@ func Test_Grpc_GetInstanceHistory(t *testing.T) {
 	resp, err := grpcClient.GetInstanceHistory(ctx, id)
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 12)
+}
+
+func Test_Grpc_PatchedOrchestration(t *testing.T) {
+	r := task.NewTaskRegistry()
+	patches1Found := []bool{}
+	patches2Found := []bool{}
+	runNumber := atomic.Uint32{}
+	r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		currentRun := runNumber.Add(1)
+		if currentRun > 1 {
+			patches1Found = append(patches1Found, ctx.IsPatched("patch1"))
+		}
+		ctx.CallActivity("SayHello").Await(nil)
+		patches2Found = append(patches2Found, ctx.IsPatched("patch2"))
+		return nil, nil
+	})
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
+		return "Hello", nil
+	})
+
+	cancelListener := startGrpcListener(t, r)
+	defer cancelListener()
+	id, err := grpcClient.ScheduleNewOrchestration(ctx, "Orchestrator")
+	require.NoError(t, err)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+	metadata, err := grpcClient.WaitForOrchestrationCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
+	require.NoError(t, err)
+	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+	assert.Equal(t, []bool{false}, patches1Found)
+	assert.Equal(t, []bool{true}, patches2Found)
 }

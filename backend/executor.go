@@ -461,6 +461,13 @@ func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInst
 	if req.GetPurgeInstanceFilter() != nil {
 		return nil, errors.New("multi-instance purge is not unimplemented")
 	}
+
+	if !req.GetForce() {
+		if err := g.requireNotStalled(ctx, req.GetInstanceId()); err != nil {
+			return nil, err
+		}
+	}
+
 	count, err := purgeOrchestrationState(ctx, g.backend, api.InstanceID(req.GetInstanceId()), req.Recursive, req.GetForce())
 	resp := &protos.PurgeInstancesResponse{DeletedInstanceCount: int32(count)}
 	if err != nil {
@@ -477,6 +484,10 @@ func (grpcExecutor) QueryInstances(context.Context, *protos.QueryInstancesReques
 
 // RaiseEvent implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
+	if err := g.requireNotStalled(ctx, req.GetInstanceId()); err != nil {
+		return nil, err
+	}
+
 	e := &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.New(time.Now()),
@@ -563,6 +574,10 @@ func (g *grpcExecutor) GetInstanceHistory(ctx context.Context, req *protos.GetIn
 
 // TerminateInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.TerminateRequest) (*protos.TerminateResponse, error) {
+	if err := g.requireNotStalled(ctx, req.GetInstanceId()); err != nil {
+		return nil, err
+	}
+
 	e := &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
@@ -584,6 +599,10 @@ func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.Termin
 
 // SuspendInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendRequest) (*protos.SuspendResponse, error) {
+	if err := g.requireNotStalled(ctx, req.GetInstanceId()); err != nil {
+		return nil, err
+	}
+
 	var input *wrapperspb.StringValue
 	if req.Reason.GetValue() != "" {
 		input = wrapperspb.String(req.Reason.GetValue())
@@ -613,6 +632,10 @@ func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendR
 
 // ResumeInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeRequest) (*protos.ResumeResponse, error) {
+	if err := g.requireNotStalled(ctx, req.GetInstanceId()); err != nil {
+		return nil, err
+	}
+
 	var input *wrapperspb.StringValue
 	if req.Reason.GetValue() != "" {
 		input = wrapperspb.String(req.Reason.GetValue())
@@ -727,5 +750,16 @@ func (*grpcExecutor) SignalEntity(ctx context.Context, in *protos.SignalEntityRe
 }
 
 func (*grpcExecutor) StreamInstanceHistory(in *protos.StreamInstanceHistoryRequest, srv protos.TaskHubSidecarService_StreamInstanceHistoryServer) error {
+	return nil
+}
+
+func (g *grpcExecutor) requireNotStalled(ctx context.Context, id string) error {
+	metadata, err := g.backend.GetOrchestrationMetadata(ctx, api.InstanceID(id))
+	if err != nil {
+		return fmt.Errorf("failed to get orchestration metadata for workflow %s: %w", id, err)
+	}
+	if metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED {
+		return fmt.Errorf("cannot perform this operation on workflow %s: workflow is stalled", id)
+	}
 	return nil
 }

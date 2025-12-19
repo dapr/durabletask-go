@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1541,7 +1542,283 @@ func Test_TaskExecutionId(t *testing.T) {
 		assert.NotEmpty(t, executionId)
 		uuid.MustParse(executionId)
 	})
+}
 
+func Test_OrchestrationPatching_DefaultToPatched(t *testing.T) {
+	// Registration
+	r := task.NewTaskRegistry()
+	patchesFound := []bool{}
+	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		patchesFound = append(patchesFound, ctx.IsPatched("patch1"))
+		return nil, nil
+	}))
+
+	// Initialization
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	// Run the orchestration
+	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	require.NoError(t, err)
+	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	assert.Equal(t, []bool{true}, patchesFound)
+}
+
+func Test_OrchestrationPatching_RunUnpatchedVersion(t *testing.T) {
+	// Registration
+	r := task.NewTaskRegistry()
+	runNumber := atomic.Uint32{}
+	patchesFound := []bool{}
+	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		currentRun := runNumber.Add(1)
+		// Simulate a version upgrade across runs, first run supports version 1 and 2, following runs support version 1, 2 and 3
+		// It's expected to respect first run, and receive version 2 in the second run.
+		if currentRun > 1 {
+			patchesFound = append(patchesFound, ctx.IsPatched("patch1"))
+		}
+		ctx.CallActivity("SayHello").Await(nil)
+
+		return nil, nil
+	}))
+
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
+		return "Hello", nil
+	})
+
+	// Initialization
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	// Run the orchestration
+	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	require.NoError(t, err)
+	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	assert.Equal(t, uint32(2), runNumber.Load())
+	assert.Equal(t, []bool{false}, patchesFound)
+}
+
+func Test_OrchestrationPatching_MultiplePatches(t *testing.T) {
+	// Registration
+	r := task.NewTaskRegistry()
+	runNumber := atomic.Uint32{}
+	patches1Found := []bool{}
+	patches2Found := []bool{}
+	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		currentRun := runNumber.Add(1)
+		if currentRun > 1 {
+			patches1Found = append(patches1Found, ctx.IsPatched("patch1"))
+		}
+		ctx.CallActivity("SayHello").Await(nil)
+		patches2Found = append(patches2Found, ctx.IsPatched("patch2"))
+		ctx.CallActivity("SayHello").Await(nil)
+
+		return nil, nil
+	}))
+
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
+		return "Hello", nil
+	})
+
+	// Initialization
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	// Run the orchestration
+	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	require.NoError(t, err)
+	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	assert.Equal(t, uint32(3), runNumber.Load())
+	assert.Equal(t, []bool{false, false}, patches1Found)
+	assert.Equal(t, []bool{true, true}, patches2Found)
+}
+
+func Test_OrchestrationPatching_ContinueAsNewDoNotCarryOverChoices(t *testing.T) {
+	// Registration
+	r := task.NewTaskRegistry()
+	patchesFound := []bool{}
+	ranContinueAsNew := false
+	runNumber := atomic.Uint32{}
+	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		currentRun := runNumber.Add(1)
+		// The patch is checked from the 2nd rerun, so it should be false for the in-flight run, but true for the continue-as-new run.
+		if currentRun > 1 {
+			patchesFound = append(patchesFound, ctx.IsPatched("patch1"))
+		}
+		ctx.CallActivity("SayHello").Await(nil)
+		if !ranContinueAsNew {
+			ranContinueAsNew = true
+			ctx.ContinueAsNew(nil)
+		}
+		return nil, nil
+	}))
+
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
+		return "Hello", nil
+	})
+
+	// Initialization
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	// Run the orchestration
+	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	require.NoError(t, err)
+	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	assert.Equal(t, []bool{false, true, true}, patchesFound)
+}
+
+func Test_OrchestrationPatching_PatchPersistsAcrossReplays(t *testing.T) {
+	// This test verifies that once a patch is enabled, it remains enabled
+	// across multiple activity completions (replays).
+	r := task.NewTaskRegistry()
+	runNumber := atomic.Uint32{}
+	patchResults := []bool{}
+
+	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		runNumber.Add(1)
+
+		// First activity - patch should be enabled (at end of history)
+		patchResults = append(patchResults, ctx.IsPatched("patch1"))
+		ctx.CallActivity("SayHello").Await(nil)
+
+		// Second activity - patch should still be enabled (from history)
+		patchResults = append(patchResults, ctx.IsPatched("patch1"))
+		ctx.CallActivity("SayHello").Await(nil)
+
+		// Third activity - patch should still be enabled (from history)
+		patchResults = append(patchResults, ctx.IsPatched("patch1"))
+		ctx.CallActivity("SayHello").Await(nil)
+
+		return nil, nil
+	}))
+
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
+		return "Hello", nil
+	})
+
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	require.NoError(t, err)
+	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+
+	// Orchestrator runs 4 times: initial + 3 activity completions
+	assert.Equal(t, uint32(4), runNumber.Load())
+	// All patch checks should return true (first time enabled, subsequent times from history)
+	// Run 1: [true] - first check at end of history
+	// Run 2: [true, true] - replay + second check at end of history
+	// Run 3: [true, true, true] - replay + third check at end of history
+	// Run 4: [true, true, true] - final replay
+	// Total: 9 checks, all true
+	assert.Len(t, patchResults, 9)
+	for i, result := range patchResults {
+		assert.True(t, result, "patch check %d should be true", i)
+	}
+}
+
+func Test_OrchestrationPatching_PatchRemembersToStayFalse(t *testing.T) {
+	r := task.NewTaskRegistry()
+	runNumber := atomic.Uint32{}
+	patchResults := []bool{}
+
+	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		currentRun := runNumber.Add(1)
+
+		// Simulate code upgrade: patch check is only present from run 2 onwards
+		// At run 2, we're replaying history (activity 1 already completed),
+		// so this patch should return false
+		if currentRun >= 2 {
+			ctx.IsPatched("patch1")
+		}
+
+		ctx.CallActivity("SayHello").Await(nil)
+
+		// Call the patch again. It should return false because it was already seen as false earlier in this turn.
+		patchResults = append(patchResults, ctx.IsPatched("patch1"))
+
+		ctx.CallActivity("SayHello").Await(nil)
+
+		return nil, nil
+	}))
+
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
+		return "Hello", nil
+	})
+
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	require.NoError(t, err)
+	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+
+	assert.Equal(t, uint32(3), runNumber.Load())
+
+	assert.Len(t, patchResults, 2)
+	assert.False(t, patchResults[0])
+	assert.False(t, patchResults[1])
+}
+
+func Test_OrchestrationPatching_TracingSpans(t *testing.T) {
+	// This test verifies that patch checks generate distributed tracing spans.
+	r := task.NewTaskRegistry()
+	require.NoError(t, r.AddOrchestratorN("PatchTracingOrchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+		ctx.IsPatched("patch1")
+		if err := ctx.CallActivity("SayHello").Await(nil); err != nil {
+			return nil, err
+		}
+		ctx.IsPatched("patch2")
+		if err := ctx.CallActivity("SayHello").Await(nil); err != nil {
+			return nil, err
+		}
+		ctx.IsPatched("patch3")
+		return nil, nil
+	}))
+
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
+		return "Hello", nil
+	})
+
+	ctx := context.Background()
+	exporter := utils.InitTracing()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewOrchestration(ctx, "PatchTracingOrchestrator")
+	require.NoError(t, err)
+	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+
+	// Validate the exported OTel traces include patch spans
+	spans := exporter.GetSpans().Snapshots()
+	utils.AssertSpanSequence(t, spans,
+		utils.AssertOrchestratorCreated("PatchTracingOrchestrator", id),
+		utils.AssertActivity("SayHello", id, 0),
+		utils.AssertActivity("SayHello", id, 1),
+		utils.AssertOrchestratorExecuted("PatchTracingOrchestrator", id, "COMPLETED",
+			utils.AssertSpanStringSliceAttribute("applied_patches", []string{"patch1", "patch2", "patch3"}),
+		),
+	)
 }
 
 func initTaskHubWorker(ctx context.Context, r *task.TaskRegistry, opts ...backend.NewTaskWorkerOptions) (backend.TaskHubClient, backend.TaskHubWorker) {

@@ -48,6 +48,9 @@ type OrchestrationContext struct {
 	bufferedExternalEvents     map[string]*list.List
 	pendingExternalEventTasks  map[string]*list.List
 	saveBufferedExternalEvents bool
+	historyPatches             map[string]bool
+	appliedPatches             map[string]bool
+	encounteredPatches         []string
 }
 
 // callSubOrchestratorOptions is a struct that holds the options for the CallSubOrchestrator orchestrator method.
@@ -134,6 +137,9 @@ func NewOrchestrationContext(registry *TaskRegistry, id api.InstanceID, oldEvent
 		newEvents:                 newEvents,
 		bufferedExternalEvents:    make(map[string]*list.List),
 		pendingExternalEventTasks: make(map[string]*list.List),
+		historyPatches:            make(map[string]bool),
+		appliedPatches:            make(map[string]bool),
+		encounteredPatches:        make([]string, 0),
 	}
 }
 
@@ -208,8 +214,13 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 
 	var err error = nil
 	if os := e.GetOrchestratorStarted(); os != nil {
-		// OrchestratorStarted is only used to update the current orchestration time
+		// OrchestratorStarted is only used to update the current orchestration time and history patches
 		ctx.CurrentTimeUtc = e.Timestamp.AsTime()
+		if version := os.GetVersion(); version != nil {
+			for _, p := range version.GetPatches() {
+				ctx.historyPatches[p] = true
+			}
+		}
 	} else if es := e.GetExecutionStarted(); es != nil {
 		// Extract source AppID from HistoryEvent Router if this is ExecutionStartedEvent
 		if e.GetRouter() != nil {
@@ -247,6 +258,8 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 		err = ctx.onExecutionResumed(er)
 	} else if et := e.GetExecutionTerminated(); et != nil {
 		err = ctx.onExecutionTerminated(et)
+	} else if e.GetExecutionStalled() != nil {
+		// Nothing to do
 	} else if oc := e.GetOrchestratorCompleted(); oc != nil {
 		// Nothing to do
 	} else {
@@ -514,14 +527,63 @@ func (ctx *OrchestrationContext) ContinueAsNew(newInput any, options ...Continue
 	}
 }
 
-func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
+func (ctx *OrchestrationContext) IsPatched(patchName string) bool {
+	isPatched := ctx.isPatched(patchName)
+	if isPatched {
+		ctx.encounteredPatches = append(ctx.encounteredPatches, patchName)
+	}
+	return isPatched
+}
+
+func (ctx *OrchestrationContext) isPatched(patchName string) bool {
+	if patched, exists := ctx.appliedPatches[patchName]; exists {
+		return patched
+	}
+
+	if ctx.historyPatches[patchName] {
+		ctx.appliedPatches[patchName] = true
+		return true
+	}
+
+	totalEvents := len(ctx.oldEvents) + len(ctx.newEvents)
+	if ctx.historyIndex < totalEvents {
+		// We're not at the end of the history stream, we assume the previous used the unpatched version
+		ctx.appliedPatches[patchName] = false
+		return false
+	}
+
+	// We're at the end of the history stream, we can run the patched version and save the decision for next rerun
+	ctx.appliedPatches[patchName] = true
+	return true
+}
+
+func (ctx *OrchestrationContext) getOrchestrator(es *protos.ExecutionStartedEvent) (Orchestrator, error) {
 	orchestrator, ok := ctx.registry.orchestrators[es.Name]
-	if !ok {
-		// try looking for a "default" orchestrator
-		orchestrator, ok = ctx.registry.orchestrators["*"]
-		if !ok {
-			return fmt.Errorf("orchestrator named '%s' is not registered", es.Name)
+	if ok {
+		return orchestrator, nil
+	}
+
+	if versions, ok := ctx.registry.versionedOrchestrators[es.Name]; ok {
+		if latest, ok := ctx.registry.latestVersionedOrchestrators[es.Name]; ok {
+			if orchestrator, ok = versions[latest]; ok {
+				return orchestrator, nil
+			}
+		} else {
+			return nil, fmt.Errorf("versioned orchestrator '%s' does not have a latest version registered", es.Name)
 		}
+	}
+
+	if orchestrator, ok = ctx.registry.orchestrators["*"]; ok {
+		return orchestrator, nil
+	}
+
+	return nil, fmt.Errorf("orchestrator named '%s' is not registered", es.Name)
+}
+
+func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
+	orchestrator, err := ctx.getOrchestrator(es)
+	if err != nil {
+		return err
 	}
 	ctx.Name = es.Name
 	if es.Input != nil {
@@ -530,7 +592,6 @@ func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedE
 
 	output, appError := orchestrator(ctx)
 
-	var err error
 	if appError != nil {
 		err = ctx.setFailed(appError)
 	} else if ctx.continuedAsNew {
