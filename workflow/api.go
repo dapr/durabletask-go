@@ -106,6 +106,13 @@ func WithRerunNewInstanceID(id string) RerunOptions {
 	return RerunOptions(api.WithRerunNewInstanceID(api.InstanceID(id)))
 }
 
+func WithRerunNewChildInstanceID(id string) RerunOptions {
+	return RerunOptions(func(o *protos.RerunWorkflowFromEventRequest) error {
+		o.NewChildWorkflowInstanceID = ptr.Of(id)
+		return nil
+	})
+}
+
 func WithListInstanceIDsPageSize(pageSize uint32) ListInstanceIDsOptions {
 	return ListInstanceIDsOptions(api.WithListInstanceIDsPageSize(pageSize))
 }
