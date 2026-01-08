@@ -57,9 +57,6 @@ func (r *TaskRegistry) AddVersionedOrchestratorN(canonicalName string, name stri
 	}
 	r.versionedOrchestrators[canonicalName][name] = o
 	if isLatest {
-		// if current, ok := r.latestVersionedOrchestrators[canonicalName]; ok {
-		// 	return fmt.Errorf("latest versioned orchestrator for '%s' is already registered as '%s'", canonicalName, current)
-		// }
 		r.latestVersionedOrchestrators[canonicalName] = name
 	}
 	return nil
