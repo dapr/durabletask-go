@@ -90,6 +90,24 @@ func AssertSpanEvents(eventAsserts ...spanEventValidator) spanAttributeValidator
 	}
 }
 
+func AssertSpanStringAttribute(key string, value string) spanAttributeValidator {
+	return func(t assert.TestingT, span trace.ReadOnlySpan) bool {
+		return assert.Contains(t, span.Attributes(), attribute.KeyValue{
+			Key:   attribute.Key(key),
+			Value: attribute.StringValue(value),
+		})
+	}
+}
+
+func AssertSpanStringSliceAttribute(key string, value []string) spanAttributeValidator {
+	return func(t assert.TestingT, span trace.ReadOnlySpan) bool {
+		return assert.Contains(t, span.Attributes(), attribute.KeyValue{
+			Key:   attribute.Key(key),
+			Value: attribute.StringSliceValue(value),
+		})
+	}
+}
+
 func AssertExternalEvent(eventName string, payloadSize int) spanEventValidator {
 	return func(t assert.TestingT, span trace.ReadOnlySpan, eventIndex int) bool {
 		event := span.Events()[eventIndex]
@@ -126,6 +144,15 @@ func AssertSpan(name string, optionalAsserts ...spanAttributeValidator) spanVali
 			fmt.Printf("span assertion for %s (index=%d) failed\n", name, index)
 		}
 	}
+}
+
+func AssertPatch(patchName string, optionalAsserts ...spanAttributeValidator) spanValidator {
+	spanName := fmt.Sprintf("patch||%s", patchName)
+	opts := []spanAttributeValidator{
+		assertPatch(patchName),
+	}
+	opts = append(opts, optionalAsserts...)
+	return AssertSpan(spanName, opts...)
 }
 
 func doAssertSpan(t assert.TestingT, spans []trace.ReadOnlySpan, index int, name string, optionalAsserts ...spanAttributeValidator) bool {
@@ -215,6 +242,15 @@ func assertTimerFired() spanAttributeValidator {
 		}
 
 		return false
+	}
+}
+
+func assertPatch(patchName string) spanAttributeValidator {
+	return func(t assert.TestingT, span trace.ReadOnlySpan) bool {
+		return assert.Contains(t, span.Attributes(), attribute.KeyValue{
+			Key:   "durabletask.patch_check",
+			Value: attribute.StringValue(patchName),
+		})
 	}
 }
 

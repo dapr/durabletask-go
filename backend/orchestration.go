@@ -94,6 +94,18 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 			}
 			w.logger.Debugf("%v: orchestrator returned %d action(s): %s", wi.InstanceID, len(results.Actions), helpers.ActionListSummary(results.Actions))
 
+			if version := results.GetVersion(); version != nil && version.GetPatches() != nil {
+				for _, e := range wi.State.NewEvents {
+					if os := e.GetOrchestratorStarted(); os != nil {
+						os.Version = version
+						if len(version.GetPatches()) > 0 {
+							span.SetAttributes(attribute.StringSlice("applied_patches", version.GetPatches()))
+						}
+						break
+					}
+				}
+			}
+
 			// Apply the orchestrator outputs to the orchestration state.
 			continuedAsNew, err := runtimestate.ApplyActions(wi.State, results.CustomStatus, results.Actions, helpers.TraceContextFromSpan(span))
 			if err != nil {
@@ -317,6 +329,14 @@ func addNotableEventsToSpan(events []*protos.HistoryEvent, span trace.Span) {
 				"Execution resumed",
 				trace.WithTimestamp(e.Timestamp.AsTime()),
 				trace.WithAttributes(attribute.String("reason", resumed.Input.GetValue())))
+		} else if stalled := e.GetExecutionStalled(); stalled != nil {
+			span.AddEvent(
+				"Execution stalled",
+				trace.WithTimestamp(e.Timestamp.AsTime()),
+				trace.WithAttributes(
+					attribute.String("reason", stalled.Reason.String()),
+					attribute.String("description", stalled.GetDescription())),
+			)
 		}
 	}
 }
