@@ -13,7 +13,7 @@ var (
 	ErrDuplicateInstance = errors.New("orchestration instance already exists")
 	ErrIgnoreInstance    = errors.New("ignore creating orchestration instance")
 	ErrTaskCancelled     = errors.New("task was cancelled")
-	ErrStalled           = errors.New("orchestration is stalled")
+	ErrStalled           = errors.New("workflow is stalled")
 
 	EmptyInstanceID = InstanceID("")
 )
