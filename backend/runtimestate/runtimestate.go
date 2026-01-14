@@ -301,7 +301,7 @@ func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.
 				},
 			}
 			s.PendingMessages = append(s.PendingMessages, msg)
-		} else if versionNotRegistered := action.GetOrchestratorVersionNotRegistered(); versionNotRegistered != nil {
+		} else if versionNotAvailable := action.GetOrchestratorVersionNotAvailable(); versionNotAvailable != nil {
 			versionName := ""
 			for _, e := range s.OldEvents {
 				if es := e.GetOrchestratorStarted(); es != nil {
@@ -316,8 +316,8 @@ func ApplyActions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.
 					Timestamp: timestamppb.Now(),
 					EventType: &protos.HistoryEvent_ExecutionStalled{
 						ExecutionStalled: &protos.ExecutionStalledEvent{
-							Reason:      protos.StalledReason_VERSION_NAME_MISMATCH,
-							Description: ptr.Of(fmt.Sprintf("Version not registered: %s", versionName)),
+							Reason:      protos.StalledReason_VERSION_NOT_AVAILABLE,
+							Description: ptr.Of(fmt.Sprintf("Version not available: %s", versionName)),
 						},
 					},
 					Router: action.Router,

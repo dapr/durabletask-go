@@ -12,7 +12,6 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
-	"github.com/dapr/kit/ptr"
 )
 
 type taskExecutor struct {
@@ -139,13 +138,13 @@ func (te *taskExecutor) ExecuteOrchestrator(ctx context.Context, id api.Instance
 		CustomStatus: wrapperspb.String(orchestrationCtx.customStatus),
 	}
 
-	if len(orchestrationCtx.encounteredPatches) > 0 || orchestrationCtx.VersionName != "" {
+	if len(orchestrationCtx.encounteredPatches) > 0 || orchestrationCtx.VersionName != nil {
 		response.Version = &protos.OrchestrationVersion{}
 		if len(orchestrationCtx.encounteredPatches) > 0 {
 			response.Version.Patches = orchestrationCtx.encounteredPatches
 		}
-		if orchestrationCtx.VersionName != "" {
-			response.Version.Name = ptr.Of(orchestrationCtx.VersionName)
+		if orchestrationCtx.VersionName != nil {
+			response.Version.Name = orchestrationCtx.VersionName
 		}
 	}
 
