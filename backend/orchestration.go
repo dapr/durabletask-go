@@ -94,7 +94,7 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 			}
 			w.logger.Debugf("%v: orchestrator returned %d action(s): %s", wi.InstanceID, len(results.Actions), helpers.ActionListSummary(results.Actions))
 
-			if version := results.GetVersion(); version != nil && (version.GetPatches() != nil || version.GetName() != "") {
+			if version := results.GetVersion(); version != nil && (version.GetPatches() != nil || version.Name != nil) {
 				for _, e := range wi.State.NewEvents {
 					if os := e.GetOrchestratorStarted(); os != nil {
 						os.Version = version

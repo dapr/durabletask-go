@@ -572,19 +572,19 @@ func (ctx *OrchestrationContext) getOrchestrator(es *protos.ExecutionStartedEven
 	}
 
 	if versions, ok := ctx.registry.versionedOrchestrators[es.Name]; ok {
-		var versionToUse *string
+		var versionToUse string
 		if ctx.VersionName != nil {
-			versionToUse = ctx.VersionName
+			versionToUse = *ctx.VersionName
 		} else {
 			if latest, ok := ctx.registry.latestVersionedOrchestrators[es.Name]; ok {
-				versionToUse = ptr.Of(latest)
+				versionToUse = latest
 			} else {
 				return nil, fmt.Errorf("versioned workflow '%s' does not have a latest version registered", es.Name)
 			}
 		}
 
-		if orchestrator, ok = versions[*versionToUse]; ok {
-			ctx.VersionName = versionToUse
+		if orchestrator, ok = versions[versionToUse]; ok {
+			ctx.VersionName = &versionToUse
 			return orchestrator, nil
 		} else {
 			return nil, api.NewUnsupportedVersionError()

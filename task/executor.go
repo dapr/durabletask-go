@@ -138,14 +138,17 @@ func (te *taskExecutor) ExecuteOrchestrator(ctx context.Context, id api.Instance
 		CustomStatus: wrapperspb.String(orchestrationCtx.customStatus),
 	}
 
-	if len(orchestrationCtx.encounteredPatches) > 0 || orchestrationCtx.VersionName != nil {
-		response.Version = &protos.OrchestrationVersion{}
-		if len(orchestrationCtx.encounteredPatches) > 0 {
-			response.Version.Patches = orchestrationCtx.encounteredPatches
+	if len(orchestrationCtx.encounteredPatches) > 0 {
+		if response.Version == nil {
+			response.Version = new(protos.OrchestrationVersion)
 		}
-		if orchestrationCtx.VersionName != nil {
-			response.Version.Name = orchestrationCtx.VersionName
+		response.Version.Patches = orchestrationCtx.encounteredPatches
+	}
+	if orchestrationCtx.VersionName != nil {
+		if response.Version == nil {
+			response.Version = new(protos.OrchestrationVersion)
 		}
+		response.Version.Name = orchestrationCtx.VersionName
 	}
 
 	return response, nil
