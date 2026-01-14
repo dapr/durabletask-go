@@ -139,9 +139,16 @@ func (te *taskExecutor) ExecuteOrchestrator(ctx context.Context, id api.Instance
 	}
 
 	if len(orchestrationCtx.encounteredPatches) > 0 {
-		response.Version = &protos.OrchestrationVersion{
-			Patches: orchestrationCtx.encounteredPatches,
+		if response.Version == nil {
+			response.Version = new(protos.OrchestrationVersion)
 		}
+		response.Version.Patches = orchestrationCtx.encounteredPatches
+	}
+	if orchestrationCtx.VersionName != nil {
+		if response.Version == nil {
+			response.Version = new(protos.OrchestrationVersion)
+		}
+		response.Version.Name = orchestrationCtx.VersionName
 	}
 
 	return response, nil

@@ -57,3 +57,18 @@ func IsUnknownInstanceIDError(err error) bool {
 	_, ok := err.(*UnknownInstanceIDError)
 	return ok
 }
+
+type UnsupportedVersionError struct{}
+
+func NewUnsupportedVersionError() error {
+	return &UnsupportedVersionError{}
+}
+
+func (e *UnsupportedVersionError) Error() string {
+	return "orchestrator version is not registered"
+}
+
+func IsUnsupportedVersionError(err error) bool {
+	_, ok := err.(*UnsupportedVersionError)
+	return ok
+}
