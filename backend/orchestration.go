@@ -25,19 +25,29 @@ type OrchestratorExecutor interface {
 		newEvents []*protos.HistoryEvent) (*protos.OrchestratorResponse, error)
 }
 
+type OrchestratorOptions struct {
+	Backend  Backend
+	Executor OrchestratorExecutor
+	Logger   Logger
+	AppID    string
+}
+
 type orchestratorProcessor struct {
 	be       Backend
 	executor OrchestratorExecutor
 	logger   Logger
+
+	applier *runtimestate.Applier
 }
 
-func NewOrchestrationWorker(be Backend, executor OrchestratorExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*OrchestrationWorkItem] {
+func NewOrchestrationWorker(opts OrchestratorOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*OrchestrationWorkItem] {
 	processor := &orchestratorProcessor{
-		be:       be,
-		executor: executor,
-		logger:   logger,
+		be:       opts.Backend,
+		executor: opts.Executor,
+		logger:   opts.Logger,
+		applier:  runtimestate.NewApplier(opts.AppID),
 	}
-	return NewTaskWorker[*OrchestrationWorkItem](processor, logger, opts...)
+	return NewTaskWorker[*OrchestrationWorkItem](processor, opts.Logger, taskopts...)
 }
 
 // Name implements TaskProcessor
@@ -107,7 +117,7 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 			}
 
 			// Apply the orchestrator outputs to the orchestration state.
-			continuedAsNew, err := runtimestate.ApplyActions(wi.State, results.CustomStatus, results.Actions, helpers.TraceContextFromSpan(span))
+			continuedAsNew, err := w.applier.Actions(wi.State, results.CustomStatus, results.Actions, helpers.TraceContextFromSpan(span))
 			if err != nil {
 				return fmt.Errorf("failed to apply the execution result actions: %w", err)
 			}

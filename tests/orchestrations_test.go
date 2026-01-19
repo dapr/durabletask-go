@@ -1826,7 +1826,12 @@ func initTaskHubWorker(ctx context.Context, r *task.TaskRegistry, opts ...backen
 	logger := backend.DefaultLogger()
 	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(""), logger)
 	executor := task.NewTaskExecutor(r)
-	orchestrationWorker := backend.NewOrchestrationWorker(be, executor, logger, opts...)
+	orchestrationWorker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+		Backend:  be,
+		Executor: executor,
+		Logger:   logger,
+		AppID:    "testapp",
+	}, opts...)
 	activityWorker := backend.NewActivityTaskWorker(be, executor, logger, opts...)
 	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
 	if err := taskHubWorker.Start(ctx); err != nil {
