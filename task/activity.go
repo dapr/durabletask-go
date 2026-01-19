@@ -107,12 +107,14 @@ type ActivityContext interface {
 	GetTaskID() int32
 	GetTaskExecutionID() string
 	Context() context.Context
+	GetTraceContext() *protos.TraceContext
 }
 
 type activityContext struct {
 	TaskID          int32
 	TaskExecutionID string
 	Name            string
+	TraceContext    *protos.TraceContext
 
 	rawInput []byte
 	ctx      context.Context
@@ -122,10 +124,12 @@ type activityContext struct {
 type Activity func(ctx ActivityContext) (any, error)
 
 func newTaskActivityContext(ctx context.Context, taskID int32, ts *protos.TaskScheduledEvent) *activityContext {
+
 	return &activityContext{
 		TaskID:          taskID,
 		TaskExecutionID: ts.TaskExecutionId,
 		Name:            ts.Name,
+		TraceContext:    ts.ParentTraceContext,
 		rawInput:        []byte(ts.Input.GetValue()),
 		ctx:             ctx,
 	}
@@ -147,3 +151,8 @@ func (actx *activityContext) GetTaskID() int32 {
 func (actx *activityContext) GetTaskExecutionID() string {
 	return actx.TaskExecutionID
 }
+
+func (actx *activityContext) GetTraceContext() *protos.TraceContext {
+	return actx.TraceContext
+}
+
