@@ -42,7 +42,13 @@ func TestMain(m *testing.M) {
 	grpcServer := grpc.NewServer()
 	grpcExecutor, registerFn := backend.NewGrpcExecutor(be, logger)
 	registerFn(grpcServer)
-	orchestrationWorker := backend.NewOrchestrationWorker(be, grpcExecutor, logger)
+	orchestrationWorker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+		Backend:  be,
+		Executor: grpcExecutor,
+		Logger:   logger,
+		AppID:    "testapp",
+	})
+
 	activityWorker := backend.NewActivityTaskWorker(be, grpcExecutor, logger)
 	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
 	if err := taskHubWorker.Start(ctx); err != nil {

@@ -148,7 +148,8 @@ func Test_CompletedSubOrchestration(t *testing.T) {
 		},
 	}
 
-	continuedAsNew, err := runtimestate.ApplyActions(s, nil, actions, nil)
+	applier := runtimestate.NewApplier("example")
+	continuedAsNew, err := applier.Actions(s, nil, actions, nil)
 	if assert.NoError(t, err) && assert.False(t, continuedAsNew) {
 		if assert.Len(t, s.NewEvents, 1) {
 			e := s.NewEvents[0]
@@ -217,7 +218,8 @@ func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 		},
 	}
 
-	continuedAsNew, err := runtimestate.ApplyActions(state, nil, actions, nil)
+	applier := runtimestate.NewApplier("example")
+	continuedAsNew, err := applier.Actions(state, nil, actions, nil)
 	if assert.NoError(t, err) && assert.True(t, continuedAsNew) {
 		if assert.Len(t, state.NewEvents, 3) {
 			assert.NotNil(t, state.NewEvents[0].Timestamp)
@@ -282,7 +284,8 @@ func Test_CreateTimer(t *testing.T) {
 
 	}
 
-	continuedAsNew, err := runtimestate.ApplyActions(s, nil, actions, nil)
+	applier := runtimestate.NewApplier("example")
+	continuedAsNew, err := applier.Actions(s, nil, actions, nil)
 	if assert.NoError(t, err) && assert.False(t, continuedAsNew) {
 		if assert.Len(t, s.NewEvents, timerCount) {
 			for _, e := range s.NewEvents {
@@ -339,7 +342,8 @@ func Test_ScheduleTask(t *testing.T) {
 	}
 
 	tc := &protos.TraceContext{TraceParent: "trace", TraceState: wrapperspb.String("state")}
-	continuedAsNew, err := runtimestate.ApplyActions(state, nil, actions, tc)
+	applier := runtimestate.NewApplier("example")
+	continuedAsNew, err := applier.Actions(state, nil, actions, tc)
 	if assert.NoError(t, err) && assert.False(t, continuedAsNew) {
 		if assert.Len(t, state.NewEvents, 1) {
 			e := state.NewEvents[0]
@@ -410,7 +414,8 @@ func Test_CreateSubOrchestration(t *testing.T) {
 		TraceParent: expectedTraceParent,
 		TraceState:  wrapperspb.String(expectedTraceState),
 	}
-	continuedAsNew, err := runtimestate.ApplyActions(state, nil, actions, tc)
+	applier := runtimestate.NewApplier("example")
+	continuedAsNew, err := applier.Actions(state, nil, actions, tc)
 	if assert.NoError(t, err) && assert.False(t, continuedAsNew) {
 		if assert.Len(t, state.NewEvents, 1) {
 			e := state.NewEvents[0]
@@ -484,7 +489,8 @@ func Test_SendEvent(t *testing.T) {
 		},
 	}
 
-	continuedAsNew, err := runtimestate.ApplyActions(s, nil, actions, nil)
+	applier := runtimestate.NewApplier("example")
+	continuedAsNew, err := applier.Actions(s, nil, actions, nil)
 	if assert.NoError(t, err) && assert.False(t, continuedAsNew) {
 		if assert.Len(t, s.NewEvents, 1) {
 			e := s.NewEvents[0]

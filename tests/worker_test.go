@@ -64,7 +64,12 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 	ex := mocks.NewExecutor(t)
 	ex.EXPECT().ExecuteOrchestrator(anyContext, wi.InstanceID, state.OldEvents, mock.Anything).Return(result, nil).Once()
 
-	worker := backend.NewOrchestrationWorker(be, ex, logger)
+	worker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+		Backend:  be,
+		Executor: ex,
+		Logger:   logger,
+		AppID:    "testapp",
+	})
 	worker.Start(ctx)
 
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
@@ -133,7 +138,12 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 		cancel()
 	})
 
-	worker := backend.NewOrchestrationWorker(be, ex, logger, backend.WithMaxParallelism(1))
+	worker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+		Backend:  be,
+		Executor: ex,
+		Logger:   logger,
+		AppID:    "testapp",
+	}, backend.WithMaxParallelism(1))
 	worker.Start(ctx)
 
 	require.Eventually(t, completed.Load, 2*time.Second, 10*time.Millisecond)
@@ -213,7 +223,12 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 	}).Once()
 
 	// Set up and run the test
-	worker := backend.NewOrchestrationWorker(be, ex, logger)
+	worker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+		Backend:  be,
+		Executor: ex,
+		Logger:   logger,
+		AppID:    "testapp",
+	})
 	worker.Start(ctx)
 	//ok, err := worker.ProcessNext(ctx)
 	//// Successfully processing a work-item should result in a nil error
