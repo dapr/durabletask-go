@@ -45,3 +45,17 @@ func (r *Registry) AddActivityN(name string, a Activity) error {
 		return a(ctx.(ActivityContext))
 	})
 }
+
+// AddVersionedWorkflow adds a versioned workflow function to the registry with a specified name.
+func (r *Registry) AddVersionedWorkflow(canonicalName string, isLatest bool, w Workflow) error {
+	return r.registry.AddVersionedOrchestrator(canonicalName, isLatest, func(ctx *task.OrchestrationContext) (any, error) {
+		return w(&WorkflowContext{ctx})
+	})
+}
+
+// AddVersionedWorkflowN adds a versioned workflow function to the registry with a specified name.
+func (r *Registry) AddVersionedWorkflowN(canonicalName string, name string, isLatest bool, w Workflow) error {
+	return r.registry.AddVersionedOrchestratorN(canonicalName, name, isLatest, func(ctx *task.OrchestrationContext) (any, error) {
+		return w(&WorkflowContext{ctx})
+	})
+}

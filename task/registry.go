@@ -41,7 +41,7 @@ func (r *TaskRegistry) AddOrchestratorN(name string, o Orchestrator) error {
 	return nil
 }
 
-// AddVersionedOrchestratorN adds a versioned orchestrator function to the registry with a specified name.
+// AddVersionedOrchestrator adds a versioned orchestrator function to the registry with a specified name.
 func (r *TaskRegistry) AddVersionedOrchestrator(canonicalName string, isLatest bool, o Orchestrator) error {
 	name := helpers.GetTaskFunctionName(o)
 	return r.AddVersionedOrchestratorN(canonicalName, name, isLatest, o)
