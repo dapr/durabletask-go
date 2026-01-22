@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -169,6 +170,13 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 
 	task := e.GetTaskScheduled()
 
+	// Extract trace context from the incoming context to propagate to Java client
+	// If task.ParentTraceContext is not set, extract it from the context
+	parentTraceCtx := task.ParentTraceContext
+	if parentTraceCtx == nil {
+		parentTraceCtx = executor.extractTraceContextFromCtx(ctx)
+	}
+
 	req := &protos.ActivityRequest{
 		Name:                  task.Name,
 		Version:               task.Version,
@@ -176,7 +184,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: string(iid)},
 		TaskId:                e.EventId,
 		TaskExecutionId:       task.TaskExecutionId,
-		ParentTraceContext:    task.ParentTraceContext,
+		ParentTraceContext:    parentTraceCtx,
 	}
 	workItem := &protos.WorkItem{
 		Request: &protos.WorkItem_ActivityRequest{
@@ -264,6 +272,36 @@ func (g *grpcExecutor) Shutdown(ctx context.Context) error {
 	})
 
 	return nil
+}
+
+// extractTraceContextFromCtx extracts the trace context from the context and returns a TraceContext protobuf message
+// This is used to propagate trace context through the ActivityRequest protobuf
+func (g *grpcExecutor) extractTraceContextFromCtx(ctx context.Context) *protos.TraceContext {
+	spanCtx := trace.SpanFromContext(ctx).SpanContext()
+	if !spanCtx.IsValid() {
+		g.logger.Debug("No valid span context found in context")
+		return nil
+	}
+
+	// Build W3C Trace Context traceparent header: version-traceId-spanId-traceFlags
+	traceparent := fmt.Sprintf("00-%s-%s-%02x",
+		spanCtx.TraceID().String(),
+		spanCtx.SpanID().String(),
+		spanCtx.TraceFlags())
+
+	traceCtx := &protos.TraceContext{
+		TraceParent: traceparent,
+	}
+
+	// Add tracestate if present
+	if stateStr := spanCtx.TraceState().String(); stateStr != "" {
+		traceCtx.TraceState = wrapperspb.String(stateStr)
+	}
+
+	g.logger.Infof("Extracted trace context from ctx: traceID=%s spanID=%s flags=%02x",
+		spanCtx.TraceID(), spanCtx.SpanID(), spanCtx.TraceFlags())
+
+	return traceCtx
 }
 
 // Hello implements protos.TaskHubSidecarServiceServer
