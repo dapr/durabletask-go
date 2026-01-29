@@ -46,7 +46,7 @@ func (be *TasksBackend) CancelActivityTask(ctx context.Context, instanceID api.I
 	return api.NewUnknownTaskIDError(instanceID.String(), taskID)
 }
 
-func (be *TasksBackend) WaitForActivityCompletion(ctx context.Context, request *protos.ActivityRequest) (*protos.ActivityResponse, error) {
+func (be *TasksBackend) WaitForActivityCompletion(request *protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error) {
 	key := backend.GetActivityExecutionKey(request.GetOrchestrationInstance().GetInstanceId(), request.GetTaskId())
 	pending := &pendingActivity{
 		response: nil,
@@ -54,14 +54,16 @@ func (be *TasksBackend) WaitForActivityCompletion(ctx context.Context, request *
 	}
 	be.pendingActivities.Store(key, pending)
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-pending.complete:
-		if pending.response == nil {
-			return nil, api.ErrTaskCancelled
+	return func(ctx context.Context) (*protos.ActivityResponse, error) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-pending.complete:
+			if pending.response == nil {
+				return nil, api.ErrTaskCancelled
+			}
+			return pending.response, nil
 		}
-		return pending.response, nil
 	}
 }
 
@@ -79,21 +81,23 @@ func (be *TasksBackend) CancelOrchestratorTask(ctx context.Context, instanceID a
 	return api.NewUnknownInstanceIDError(instanceID.String())
 }
 
-func (be *TasksBackend) WaitForOrchestratorCompletion(ctx context.Context, request *protos.OrchestratorRequest) (*protos.OrchestratorResponse, error) {
+func (be *TasksBackend) WaitForOrchestratorCompletion(request *protos.OrchestratorRequest) func(context.Context) (*protos.OrchestratorResponse, error) {
 	pending := &pendingOrchestrator{
 		response: nil,
 		complete: make(chan struct{}, 1),
 	}
 	be.pendingOrchestrators.Store(request.GetInstanceId(), pending)
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-pending.complete:
-		if pending.response == nil {
-			return nil, api.ErrTaskCancelled
+	return func(ctx context.Context) (*protos.OrchestratorResponse, error) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-pending.complete:
+			if pending.response == nil {
+				return nil, api.ErrTaskCancelled
+			}
+			return pending.response, nil
 		}
-		return pending.response, nil
 	}
 }
 
