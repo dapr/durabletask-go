@@ -141,7 +141,7 @@ type Backend interface {
 	// WaitForOrchestratorCompletion blocks until the orchestrator completes and returns the final response.
 	//
 	// [api.ErrTaskCancelled] is returned if the task was cancelled.
-	WaitForOrchestratorCompletion(context.Context, *protos.OrchestratorRequest) (*protos.OrchestratorResponse, error)
+	WaitForOrchestratorCompletion(*protos.OrchestratorRequest) func(context.Context) (*protos.OrchestratorResponse, error)
 
 	// CompleteActivityTask completes the activity task by saving the updated runtime state to durable storage.
 	CompleteActivityTask(context.Context, *protos.ActivityResponse) error
@@ -152,7 +152,7 @@ type Backend interface {
 	// WaitForActivityCompletion blocks until the activity completes and returns the final response.
 	//
 	// [api.ErrTaskCancelled] is returned if the task was cancelled.
-	WaitForActivityCompletion(context.Context, *protos.ActivityRequest) (*protos.ActivityResponse, error)
+	WaitForActivityCompletion(*protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error)
 
 	// ListInstanceIDs lists orchestration instance IDs based on the provided
 	// query parameters.

@@ -139,6 +139,8 @@ func (executor *grpcExecutor) ExecuteOrchestrator(ctx context.Context, iid api.I
 		},
 	}
 
+	wait := executor.backend.WaitForOrchestratorCompletion(req)
+
 	// Send the orchestration execution work-item to the connected worker.
 	// This will block if the worker isn't listening for work items.
 	select {
@@ -148,7 +150,8 @@ func (executor *grpcExecutor) ExecuteOrchestrator(ctx context.Context, iid api.I
 	case executor.workItemQueue <- workItem:
 	}
 
-	resp, err := executor.backend.WaitForOrchestratorCompletion(ctx, req)
+	resp, err := wait(ctx)
+
 	// this orchestrator is either completed or cancelled, but its no longer pending, delete it
 	executor.pendingOrchestrators.Delete(iid)
 	if err != nil {
@@ -184,6 +187,8 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		},
 	}
 
+	wait := executor.backend.WaitForActivityCompletion(req)
+
 	// Send the activity execution work-item to the connected worker.
 	// This will block if the worker isn't listening for work items.
 	select {
@@ -193,7 +198,8 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 	case executor.workItemQueue <- workItem:
 	}
 
-	resp, err := executor.backend.WaitForActivityCompletion(ctx, req)
+	resp, err := wait(ctx)
+
 	// this activity is either completed or cancelled, but its no longer pending, delete it
 	executor.pendingActivities.Delete(key)
 	if err != nil {
