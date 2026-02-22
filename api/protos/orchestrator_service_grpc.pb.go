@@ -38,6 +38,7 @@ const (
 	TaskHubSidecarService_GetWorkItems_FullMethodName                    = "/TaskHubSidecarService/GetWorkItems"
 	TaskHubSidecarService_CompleteActivityTask_FullMethodName            = "/TaskHubSidecarService/CompleteActivityTask"
 	TaskHubSidecarService_CompleteOrchestratorTask_FullMethodName        = "/TaskHubSidecarService/CompleteOrchestratorTask"
+	TaskHubSidecarService_CompleteWorkflowTask_FullMethodName            = "/TaskHubSidecarService/CompleteWorkflowTask"
 	TaskHubSidecarService_CompleteEntityTask_FullMethodName              = "/TaskHubSidecarService/CompleteEntityTask"
 	TaskHubSidecarService_StreamInstanceHistory_FullMethodName           = "/TaskHubSidecarService/StreamInstanceHistory"
 	TaskHubSidecarService_CreateTaskHub_FullMethodName                   = "/TaskHubSidecarService/CreateTaskHub"
@@ -48,6 +49,7 @@ const (
 	TaskHubSidecarService_CleanEntityStorage_FullMethodName              = "/TaskHubSidecarService/CleanEntityStorage"
 	TaskHubSidecarService_AbandonTaskActivityWorkItem_FullMethodName     = "/TaskHubSidecarService/AbandonTaskActivityWorkItem"
 	TaskHubSidecarService_AbandonTaskOrchestratorWorkItem_FullMethodName = "/TaskHubSidecarService/AbandonTaskOrchestratorWorkItem"
+	TaskHubSidecarService_AbandonTaskWorkflowWorkItem_FullMethodName     = "/TaskHubSidecarService/AbandonTaskWorkflowWorkItem"
 	TaskHubSidecarService_AbandonTaskEntityWorkItem_FullMethodName       = "/TaskHubSidecarService/AbandonTaskEntityWorkItem"
 	TaskHubSidecarService_RerunWorkflowFromEvent_FullMethodName          = "/TaskHubSidecarService/RerunWorkflowFromEvent"
 	TaskHubSidecarService_ListInstanceIDs_FullMethodName                 = "/TaskHubSidecarService/ListInstanceIDs"
@@ -83,6 +85,8 @@ type TaskHubSidecarServiceClient interface {
 	GetWorkItems(ctx context.Context, in *GetWorkItemsRequest, opts ...grpc.CallOption) (TaskHubSidecarService_GetWorkItemsClient, error)
 	CompleteActivityTask(ctx context.Context, in *ActivityResponse, opts ...grpc.CallOption) (*CompleteTaskResponse, error)
 	CompleteOrchestratorTask(ctx context.Context, in *OrchestratorResponse, opts ...grpc.CallOption) (*CompleteTaskResponse, error)
+	// CompleteWorkflowTask reports the result of processing a workflow work item.
+	CompleteWorkflowTask(ctx context.Context, in *WorkflowResponse, opts ...grpc.CallOption) (*CompleteTaskResponse, error)
 	CompleteEntityTask(ctx context.Context, in *EntityBatchResult, opts ...grpc.CallOption) (*CompleteTaskResponse, error)
 	// Gets the history of an orchestration instance as a stream of events.
 	StreamInstanceHistory(ctx context.Context, in *StreamInstanceHistoryRequest, opts ...grpc.CallOption) (TaskHubSidecarService_StreamInstanceHistoryClient, error)
@@ -102,6 +106,8 @@ type TaskHubSidecarServiceClient interface {
 	AbandonTaskActivityWorkItem(ctx context.Context, in *AbandonActivityTaskRequest, opts ...grpc.CallOption) (*AbandonActivityTaskResponse, error)
 	// Abandon an orchestration work item
 	AbandonTaskOrchestratorWorkItem(ctx context.Context, in *AbandonOrchestrationTaskRequest, opts ...grpc.CallOption) (*AbandonOrchestrationTaskResponse, error)
+	// AbandonTaskWorkflowWorkItem abandons a workflow work item.
+	AbandonTaskWorkflowWorkItem(ctx context.Context, in *AbandonWorkflowTaskRequest, opts ...grpc.CallOption) (*AbandonWorkflowTaskResponse, error)
 	// Abandon an entity work item
 	AbandonTaskEntityWorkItem(ctx context.Context, in *AbandonEntityTaskRequest, opts ...grpc.CallOption) (*AbandonEntityTaskResponse, error)
 	// Rerun a Workflow from a specific event ID of a workflow instance.
@@ -276,6 +282,15 @@ func (c *taskHubSidecarServiceClient) CompleteOrchestratorTask(ctx context.Conte
 	return out, nil
 }
 
+func (c *taskHubSidecarServiceClient) CompleteWorkflowTask(ctx context.Context, in *WorkflowResponse, opts ...grpc.CallOption) (*CompleteTaskResponse, error) {
+	out := new(CompleteTaskResponse)
+	err := c.cc.Invoke(ctx, TaskHubSidecarService_CompleteWorkflowTask_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *taskHubSidecarServiceClient) CompleteEntityTask(ctx context.Context, in *EntityBatchResult, opts ...grpc.CallOption) (*CompleteTaskResponse, error) {
 	out := new(CompleteTaskResponse)
 	err := c.cc.Invoke(ctx, TaskHubSidecarService_CompleteEntityTask_FullMethodName, in, out, opts...)
@@ -389,6 +404,15 @@ func (c *taskHubSidecarServiceClient) AbandonTaskOrchestratorWorkItem(ctx contex
 	return out, nil
 }
 
+func (c *taskHubSidecarServiceClient) AbandonTaskWorkflowWorkItem(ctx context.Context, in *AbandonWorkflowTaskRequest, opts ...grpc.CallOption) (*AbandonWorkflowTaskResponse, error) {
+	out := new(AbandonWorkflowTaskResponse)
+	err := c.cc.Invoke(ctx, TaskHubSidecarService_AbandonTaskWorkflowWorkItem_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *taskHubSidecarServiceClient) AbandonTaskEntityWorkItem(ctx context.Context, in *AbandonEntityTaskRequest, opts ...grpc.CallOption) (*AbandonEntityTaskResponse, error) {
 	out := new(AbandonEntityTaskResponse)
 	err := c.cc.Invoke(ctx, TaskHubSidecarService_AbandonTaskEntityWorkItem_FullMethodName, in, out, opts...)
@@ -454,6 +478,8 @@ type TaskHubSidecarServiceServer interface {
 	GetWorkItems(*GetWorkItemsRequest, TaskHubSidecarService_GetWorkItemsServer) error
 	CompleteActivityTask(context.Context, *ActivityResponse) (*CompleteTaskResponse, error)
 	CompleteOrchestratorTask(context.Context, *OrchestratorResponse) (*CompleteTaskResponse, error)
+	// CompleteWorkflowTask reports the result of processing a workflow work item.
+	CompleteWorkflowTask(context.Context, *WorkflowResponse) (*CompleteTaskResponse, error)
 	CompleteEntityTask(context.Context, *EntityBatchResult) (*CompleteTaskResponse, error)
 	// Gets the history of an orchestration instance as a stream of events.
 	StreamInstanceHistory(*StreamInstanceHistoryRequest, TaskHubSidecarService_StreamInstanceHistoryServer) error
@@ -473,6 +499,8 @@ type TaskHubSidecarServiceServer interface {
 	AbandonTaskActivityWorkItem(context.Context, *AbandonActivityTaskRequest) (*AbandonActivityTaskResponse, error)
 	// Abandon an orchestration work item
 	AbandonTaskOrchestratorWorkItem(context.Context, *AbandonOrchestrationTaskRequest) (*AbandonOrchestrationTaskResponse, error)
+	// AbandonTaskWorkflowWorkItem abandons a workflow work item.
+	AbandonTaskWorkflowWorkItem(context.Context, *AbandonWorkflowTaskRequest) (*AbandonWorkflowTaskResponse, error)
 	// Abandon an entity work item
 	AbandonTaskEntityWorkItem(context.Context, *AbandonEntityTaskRequest) (*AbandonEntityTaskResponse, error)
 	// Rerun a Workflow from a specific event ID of a workflow instance.
@@ -531,6 +559,9 @@ func (UnimplementedTaskHubSidecarServiceServer) CompleteActivityTask(context.Con
 func (UnimplementedTaskHubSidecarServiceServer) CompleteOrchestratorTask(context.Context, *OrchestratorResponse) (*CompleteTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CompleteOrchestratorTask not implemented")
 }
+func (UnimplementedTaskHubSidecarServiceServer) CompleteWorkflowTask(context.Context, *WorkflowResponse) (*CompleteTaskResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteWorkflowTask not implemented")
+}
 func (UnimplementedTaskHubSidecarServiceServer) CompleteEntityTask(context.Context, *EntityBatchResult) (*CompleteTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CompleteEntityTask not implemented")
 }
@@ -560,6 +591,9 @@ func (UnimplementedTaskHubSidecarServiceServer) AbandonTaskActivityWorkItem(cont
 }
 func (UnimplementedTaskHubSidecarServiceServer) AbandonTaskOrchestratorWorkItem(context.Context, *AbandonOrchestrationTaskRequest) (*AbandonOrchestrationTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AbandonTaskOrchestratorWorkItem not implemented")
+}
+func (UnimplementedTaskHubSidecarServiceServer) AbandonTaskWorkflowWorkItem(context.Context, *AbandonWorkflowTaskRequest) (*AbandonWorkflowTaskResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AbandonTaskWorkflowWorkItem not implemented")
 }
 func (UnimplementedTaskHubSidecarServiceServer) AbandonTaskEntityWorkItem(context.Context, *AbandonEntityTaskRequest) (*AbandonEntityTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AbandonTaskEntityWorkItem not implemented")
@@ -859,6 +893,24 @@ func _TaskHubSidecarService_CompleteOrchestratorTask_Handler(srv interface{}, ct
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaskHubSidecarService_CompleteWorkflowTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkflowResponse)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskHubSidecarServiceServer).CompleteWorkflowTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskHubSidecarService_CompleteWorkflowTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskHubSidecarServiceServer).CompleteWorkflowTask(ctx, req.(*WorkflowResponse))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaskHubSidecarService_CompleteEntityTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EntityBatchResult)
 	if err := dec(in); err != nil {
@@ -1042,6 +1094,24 @@ func _TaskHubSidecarService_AbandonTaskOrchestratorWorkItem_Handler(srv interfac
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaskHubSidecarService_AbandonTaskWorkflowWorkItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AbandonWorkflowTaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskHubSidecarServiceServer).AbandonTaskWorkflowWorkItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskHubSidecarService_AbandonTaskWorkflowWorkItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskHubSidecarServiceServer).AbandonTaskWorkflowWorkItem(ctx, req.(*AbandonWorkflowTaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaskHubSidecarService_AbandonTaskEntityWorkItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AbandonEntityTaskRequest)
 	if err := dec(in); err != nil {
@@ -1178,6 +1248,10 @@ var TaskHubSidecarService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TaskHubSidecarService_CompleteOrchestratorTask_Handler,
 		},
 		{
+			MethodName: "CompleteWorkflowTask",
+			Handler:    _TaskHubSidecarService_CompleteWorkflowTask_Handler,
+		},
+		{
 			MethodName: "CompleteEntityTask",
 			Handler:    _TaskHubSidecarService_CompleteEntityTask_Handler,
 		},
@@ -1212,6 +1286,10 @@ var TaskHubSidecarService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AbandonTaskOrchestratorWorkItem",
 			Handler:    _TaskHubSidecarService_AbandonTaskOrchestratorWorkItem_Handler,
+		},
+		{
+			MethodName: "AbandonTaskWorkflowWorkItem",
+			Handler:    _TaskHubSidecarService_AbandonTaskWorkflowWorkItem_Handler,
 		},
 		{
 			MethodName: "AbandonTaskEntityWorkItem",

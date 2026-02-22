@@ -22,28 +22,34 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	BackendService_CreateInstance_FullMethodName                = "/durabletask.protos.backend.v1.BackendService/CreateInstance"
-	BackendService_AddEvent_FullMethodName                      = "/durabletask.protos.backend.v1.BackendService/AddEvent"
-	BackendService_GetInstance_FullMethodName                   = "/durabletask.protos.backend.v1.BackendService/GetInstance"
-	BackendService_GetEntity_FullMethodName                     = "/durabletask.protos.backend.v1.BackendService/GetEntity"
-	BackendService_QueryInstances_FullMethodName                = "/durabletask.protos.backend.v1.BackendService/QueryInstances"
-	BackendService_QueryEntities_FullMethodName                 = "/durabletask.protos.backend.v1.BackendService/QueryEntities"
-	BackendService_WaitForInstance_FullMethodName               = "/durabletask.protos.backend.v1.BackendService/WaitForInstance"
-	BackendService_PurgeInstances_FullMethodName                = "/durabletask.protos.backend.v1.BackendService/PurgeInstances"
-	BackendService_CleanEntityStorage_FullMethodName            = "/durabletask.protos.backend.v1.BackendService/CleanEntityStorage"
-	BackendService_GetWorkItems_FullMethodName                  = "/durabletask.protos.backend.v1.BackendService/GetWorkItems"
-	BackendService_GetOrchestrationRuntimeState_FullMethodName  = "/durabletask.protos.backend.v1.BackendService/GetOrchestrationRuntimeState"
-	BackendService_StreamInstanceHistory_FullMethodName         = "/durabletask.protos.backend.v1.BackendService/StreamInstanceHistory"
-	BackendService_CompleteActivityWorkItem_FullMethodName      = "/durabletask.protos.backend.v1.BackendService/CompleteActivityWorkItem"
-	BackendService_AbandonActivityWorkItem_FullMethodName       = "/durabletask.protos.backend.v1.BackendService/AbandonActivityWorkItem"
-	BackendService_CompleteOrchestrationWorkItem_FullMethodName = "/durabletask.protos.backend.v1.BackendService/CompleteOrchestrationWorkItem"
-	BackendService_AbandonOrchestrationWorkItem_FullMethodName  = "/durabletask.protos.backend.v1.BackendService/AbandonOrchestrationWorkItem"
-	BackendService_CompleteEntityWorkItem_FullMethodName        = "/durabletask.protos.backend.v1.BackendService/CompleteEntityWorkItem"
-	BackendService_AbandonEntityWorkItem_FullMethodName         = "/durabletask.protos.backend.v1.BackendService/AbandonEntityWorkItem"
-	BackendService_Ping_FullMethodName                          = "/durabletask.protos.backend.v1.BackendService/Ping"
-	BackendService_GetMetrics_FullMethodName                    = "/durabletask.protos.backend.v1.BackendService/GetMetrics"
-	BackendService_ListInstanceIDs_FullMethodName               = "/durabletask.protos.backend.v1.BackendService/ListInstanceIDs"
-	BackendService_GetInstanceHistory_FullMethodName            = "/durabletask.protos.backend.v1.BackendService/GetInstanceHistory"
+	BackendService_CreateInstance_FullMethodName                = "/durabletask.protos.v1.BackendService/CreateInstance"
+	BackendService_AddEvent_FullMethodName                      = "/durabletask.protos.v1.BackendService/AddEvent"
+	BackendService_GetInstance_FullMethodName                   = "/durabletask.protos.v1.BackendService/GetInstance"
+	BackendService_GetEntity_FullMethodName                     = "/durabletask.protos.v1.BackendService/GetEntity"
+	BackendService_QueryInstances_FullMethodName                = "/durabletask.protos.v1.BackendService/QueryInstances"
+	BackendService_QueryEntities_FullMethodName                 = "/durabletask.protos.v1.BackendService/QueryEntities"
+	BackendService_WaitForInstance_FullMethodName               = "/durabletask.protos.v1.BackendService/WaitForInstance"
+	BackendService_PurgeInstances_FullMethodName                = "/durabletask.protos.v1.BackendService/PurgeInstances"
+	BackendService_CleanEntityStorage_FullMethodName            = "/durabletask.protos.v1.BackendService/CleanEntityStorage"
+	BackendService_GetWorkItems_FullMethodName                  = "/durabletask.protos.v1.BackendService/GetWorkItems"
+	// Deprecated: use BackendService_GetWorkflowRuntimeState_FullMethodName
+	BackendService_GetOrchestrationRuntimeState_FullMethodName  = "/durabletask.protos.v1.BackendService/GetOrchestrationRuntimeState"
+	BackendService_GetWorkflowRuntimeState_FullMethodName       = "/durabletask.protos.v1.BackendService/GetWorkflowRuntimeState"
+	BackendService_StreamInstanceHistory_FullMethodName         = "/durabletask.protos.v1.BackendService/StreamInstanceHistory"
+	BackendService_CompleteActivityWorkItem_FullMethodName      = "/durabletask.protos.v1.BackendService/CompleteActivityWorkItem"
+	BackendService_AbandonActivityWorkItem_FullMethodName       = "/durabletask.protos.v1.BackendService/AbandonActivityWorkItem"
+	// Deprecated: use BackendService_CompleteWorkflowWorkItem_FullMethodName
+	BackendService_CompleteOrchestrationWorkItem_FullMethodName = "/durabletask.protos.v1.BackendService/CompleteOrchestrationWorkItem"
+	BackendService_CompleteWorkflowWorkItem_FullMethodName      = "/durabletask.protos.v1.BackendService/CompleteWorkflowWorkItem"
+	// Deprecated: use BackendService_AbandonWorkflowWorkItem_FullMethodName
+	BackendService_AbandonOrchestrationWorkItem_FullMethodName  = "/durabletask.protos.v1.BackendService/AbandonOrchestrationWorkItem"
+	BackendService_AbandonWorkflowWorkItem_FullMethodName       = "/durabletask.protos.v1.BackendService/AbandonWorkflowWorkItem"
+	BackendService_CompleteEntityWorkItem_FullMethodName        = "/durabletask.protos.v1.BackendService/CompleteEntityWorkItem"
+	BackendService_AbandonEntityWorkItem_FullMethodName         = "/durabletask.protos.v1.BackendService/AbandonEntityWorkItem"
+	BackendService_Ping_FullMethodName                          = "/durabletask.protos.v1.BackendService/Ping"
+	BackendService_GetMetrics_FullMethodName                    = "/durabletask.protos.v1.BackendService/GetMetrics"
+	BackendService_ListInstanceIDs_FullMethodName               = "/durabletask.protos.v1.BackendService/ListInstanceIDs"
+	BackendService_GetInstanceHistory_FullMethodName            = "/durabletask.protos.v1.BackendService/GetInstanceHistory"
 )
 
 // BackendServiceClient is the client API for BackendService service.
@@ -73,6 +79,8 @@ type BackendServiceClient interface {
 	GetWorkItems(ctx context.Context, in *GetWorkItemsRequest, opts ...grpc.CallOption) (BackendService_GetWorkItemsClient, error)
 	// Gets orchestration runtime state (history, etc.) for a given orchestration instance.
 	GetOrchestrationRuntimeState(ctx context.Context, in *GetOrchestrationRuntimeStateRequest, opts ...grpc.CallOption) (*GetOrchestrationRuntimeStateResponse, error)
+	// GetWorkflowRuntimeState gets workflow runtime state (history, etc.) for a given workflow instance.
+	GetWorkflowRuntimeState(ctx context.Context, in *GetWorkflowRuntimeStateRequest, opts ...grpc.CallOption) (*GetWorkflowRuntimeStateResponse, error)
 	// Gets the history of an orchestration instance as a stream of events.
 	StreamInstanceHistory(ctx context.Context, in *StreamInstanceHistoryRequest, opts ...grpc.CallOption) (BackendService_StreamInstanceHistoryClient, error)
 	// Completes an outstanding activity work item and adds a new event to the target orchestration's inbox.
@@ -81,8 +89,12 @@ type BackendServiceClient interface {
 	AbandonActivityWorkItem(ctx context.Context, in *AbandonActivityWorkItemRequest, opts ...grpc.CallOption) (*AbandonActivityWorkItemResponse, error)
 	// Completes an outstanding orchestrator work item, and adds a new event to the target orchestration's inbox.
 	CompleteOrchestrationWorkItem(ctx context.Context, in *CompleteOrchestrationWorkItemRequest, opts ...grpc.CallOption) (*CompleteOrchestrationWorkItemResponse, error)
+	// CompleteWorkflowWorkItem completes an outstanding workflow work item.
+	CompleteWorkflowWorkItem(ctx context.Context, in *CompleteWorkflowWorkItemRequest, opts ...grpc.CallOption) (*CompleteWorkflowWorkItemResponse, error)
 	// Abandons an outstanding orchestrator work item. Abandoned work items will be delivered again after some delay.
 	AbandonOrchestrationWorkItem(ctx context.Context, in *AbandonOrchestrationWorkItemRequest, opts ...grpc.CallOption) (*AbandonOrchestrationWorkItemResponse, error)
+	// AbandonWorkflowWorkItem abandons an outstanding workflow work item.
+	AbandonWorkflowWorkItem(ctx context.Context, in *AbandonWorkflowWorkItemRequest, opts ...grpc.CallOption) (*AbandonWorkflowWorkItemResponse, error)
 	// Completes an outstanding entity work item.
 	CompleteEntityWorkItem(ctx context.Context, in *CompleteEntityWorkItemRequest, opts ...grpc.CallOption) (*CompleteEntityWorkItemResponse, error)
 	// Abandons an outstanding entity work item. Abandoned work items will be delivered again after some delay.
@@ -225,6 +237,15 @@ func (c *backendServiceClient) GetOrchestrationRuntimeState(ctx context.Context,
 	return out, nil
 }
 
+func (c *backendServiceClient) GetWorkflowRuntimeState(ctx context.Context, in *GetWorkflowRuntimeStateRequest, opts ...grpc.CallOption) (*GetWorkflowRuntimeStateResponse, error) {
+	out := new(GetWorkflowRuntimeStateResponse)
+	err := c.cc.Invoke(ctx, BackendService_GetWorkflowRuntimeState_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *backendServiceClient) StreamInstanceHistory(ctx context.Context, in *StreamInstanceHistoryRequest, opts ...grpc.CallOption) (BackendService_StreamInstanceHistoryClient, error) {
 	stream, err := c.cc.NewStream(ctx, &BackendService_ServiceDesc.Streams[1], BackendService_StreamInstanceHistory_FullMethodName, opts...)
 	if err != nil {
@@ -284,9 +305,27 @@ func (c *backendServiceClient) CompleteOrchestrationWorkItem(ctx context.Context
 	return out, nil
 }
 
+func (c *backendServiceClient) CompleteWorkflowWorkItem(ctx context.Context, in *CompleteWorkflowWorkItemRequest, opts ...grpc.CallOption) (*CompleteWorkflowWorkItemResponse, error) {
+	out := new(CompleteWorkflowWorkItemResponse)
+	err := c.cc.Invoke(ctx, BackendService_CompleteWorkflowWorkItem_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *backendServiceClient) AbandonOrchestrationWorkItem(ctx context.Context, in *AbandonOrchestrationWorkItemRequest, opts ...grpc.CallOption) (*AbandonOrchestrationWorkItemResponse, error) {
 	out := new(AbandonOrchestrationWorkItemResponse)
 	err := c.cc.Invoke(ctx, BackendService_AbandonOrchestrationWorkItem_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *backendServiceClient) AbandonWorkflowWorkItem(ctx context.Context, in *AbandonWorkflowWorkItemRequest, opts ...grpc.CallOption) (*AbandonWorkflowWorkItemResponse, error) {
+	out := new(AbandonWorkflowWorkItemResponse)
+	err := c.cc.Invoke(ctx, BackendService_AbandonWorkflowWorkItem_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -374,6 +413,8 @@ type BackendServiceServer interface {
 	GetWorkItems(*GetWorkItemsRequest, BackendService_GetWorkItemsServer) error
 	// Gets orchestration runtime state (history, etc.) for a given orchestration instance.
 	GetOrchestrationRuntimeState(context.Context, *GetOrchestrationRuntimeStateRequest) (*GetOrchestrationRuntimeStateResponse, error)
+	// GetWorkflowRuntimeState gets workflow runtime state (history, etc.) for a given workflow instance.
+	GetWorkflowRuntimeState(context.Context, *GetWorkflowRuntimeStateRequest) (*GetWorkflowRuntimeStateResponse, error)
 	// Gets the history of an orchestration instance as a stream of events.
 	StreamInstanceHistory(*StreamInstanceHistoryRequest, BackendService_StreamInstanceHistoryServer) error
 	// Completes an outstanding activity work item and adds a new event to the target orchestration's inbox.
@@ -382,8 +423,12 @@ type BackendServiceServer interface {
 	AbandonActivityWorkItem(context.Context, *AbandonActivityWorkItemRequest) (*AbandonActivityWorkItemResponse, error)
 	// Completes an outstanding orchestrator work item, and adds a new event to the target orchestration's inbox.
 	CompleteOrchestrationWorkItem(context.Context, *CompleteOrchestrationWorkItemRequest) (*CompleteOrchestrationWorkItemResponse, error)
+	// CompleteWorkflowWorkItem completes an outstanding workflow work item.
+	CompleteWorkflowWorkItem(context.Context, *CompleteWorkflowWorkItemRequest) (*CompleteWorkflowWorkItemResponse, error)
 	// Abandons an outstanding orchestrator work item. Abandoned work items will be delivered again after some delay.
 	AbandonOrchestrationWorkItem(context.Context, *AbandonOrchestrationWorkItemRequest) (*AbandonOrchestrationWorkItemResponse, error)
+	// AbandonWorkflowWorkItem abandons an outstanding workflow work item.
+	AbandonWorkflowWorkItem(context.Context, *AbandonWorkflowWorkItemRequest) (*AbandonWorkflowWorkItemResponse, error)
 	// Completes an outstanding entity work item.
 	CompleteEntityWorkItem(context.Context, *CompleteEntityWorkItemRequest) (*CompleteEntityWorkItemResponse, error)
 	// Abandons an outstanding entity work item. Abandoned work items will be delivered again after some delay.
@@ -434,6 +479,9 @@ func (UnimplementedBackendServiceServer) GetWorkItems(*GetWorkItemsRequest, Back
 func (UnimplementedBackendServiceServer) GetOrchestrationRuntimeState(context.Context, *GetOrchestrationRuntimeStateRequest) (*GetOrchestrationRuntimeStateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOrchestrationRuntimeState not implemented")
 }
+func (UnimplementedBackendServiceServer) GetWorkflowRuntimeState(context.Context, *GetWorkflowRuntimeStateRequest) (*GetWorkflowRuntimeStateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkflowRuntimeState not implemented")
+}
 func (UnimplementedBackendServiceServer) StreamInstanceHistory(*StreamInstanceHistoryRequest, BackendService_StreamInstanceHistoryServer) error {
 	return status.Errorf(codes.Unimplemented, "method StreamInstanceHistory not implemented")
 }
@@ -446,8 +494,14 @@ func (UnimplementedBackendServiceServer) AbandonActivityWorkItem(context.Context
 func (UnimplementedBackendServiceServer) CompleteOrchestrationWorkItem(context.Context, *CompleteOrchestrationWorkItemRequest) (*CompleteOrchestrationWorkItemResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CompleteOrchestrationWorkItem not implemented")
 }
+func (UnimplementedBackendServiceServer) CompleteWorkflowWorkItem(context.Context, *CompleteWorkflowWorkItemRequest) (*CompleteWorkflowWorkItemResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteWorkflowWorkItem not implemented")
+}
 func (UnimplementedBackendServiceServer) AbandonOrchestrationWorkItem(context.Context, *AbandonOrchestrationWorkItemRequest) (*AbandonOrchestrationWorkItemResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AbandonOrchestrationWorkItem not implemented")
+}
+func (UnimplementedBackendServiceServer) AbandonWorkflowWorkItem(context.Context, *AbandonWorkflowWorkItemRequest) (*AbandonWorkflowWorkItemResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AbandonWorkflowWorkItem not implemented")
 }
 func (UnimplementedBackendServiceServer) CompleteEntityWorkItem(context.Context, *CompleteEntityWorkItemRequest) (*CompleteEntityWorkItemResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CompleteEntityWorkItem not implemented")
@@ -681,6 +735,24 @@ func _BackendService_GetOrchestrationRuntimeState_Handler(srv interface{}, ctx c
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BackendService_GetWorkflowRuntimeState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetWorkflowRuntimeStateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BackendServiceServer).GetWorkflowRuntimeState(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BackendService_GetWorkflowRuntimeState_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BackendServiceServer).GetWorkflowRuntimeState(ctx, req.(*GetWorkflowRuntimeStateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _BackendService_StreamInstanceHistory_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamInstanceHistoryRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -756,6 +828,24 @@ func _BackendService_CompleteOrchestrationWorkItem_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BackendService_CompleteWorkflowWorkItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteWorkflowWorkItemRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BackendServiceServer).CompleteWorkflowWorkItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BackendService_CompleteWorkflowWorkItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BackendServiceServer).CompleteWorkflowWorkItem(ctx, req.(*CompleteWorkflowWorkItemRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _BackendService_AbandonOrchestrationWorkItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AbandonOrchestrationWorkItemRequest)
 	if err := dec(in); err != nil {
@@ -770,6 +860,24 @@ func _BackendService_AbandonOrchestrationWorkItem_Handler(srv interface{}, ctx c
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(BackendServiceServer).AbandonOrchestrationWorkItem(ctx, req.(*AbandonOrchestrationWorkItemRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BackendService_AbandonWorkflowWorkItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AbandonWorkflowWorkItemRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BackendServiceServer).AbandonWorkflowWorkItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BackendService_AbandonWorkflowWorkItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BackendServiceServer).AbandonWorkflowWorkItem(ctx, req.(*AbandonWorkflowWorkItemRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -930,6 +1038,10 @@ var BackendService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _BackendService_GetOrchestrationRuntimeState_Handler,
 		},
 		{
+			MethodName: "GetWorkflowRuntimeState",
+			Handler:    _BackendService_GetWorkflowRuntimeState_Handler,
+		},
+		{
 			MethodName: "CompleteActivityWorkItem",
 			Handler:    _BackendService_CompleteActivityWorkItem_Handler,
 		},
@@ -942,8 +1054,16 @@ var BackendService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _BackendService_CompleteOrchestrationWorkItem_Handler,
 		},
 		{
+			MethodName: "CompleteWorkflowWorkItem",
+			Handler:    _BackendService_CompleteWorkflowWorkItem_Handler,
+		},
+		{
 			MethodName: "AbandonOrchestrationWorkItem",
 			Handler:    _BackendService_AbandonOrchestrationWorkItem_Handler,
+		},
+		{
+			MethodName: "AbandonWorkflowWorkItem",
+			Handler:    _BackendService_AbandonWorkflowWorkItem_Handler,
 		},
 		{
 			MethodName: "CompleteEntityWorkItem",

@@ -89,8 +89,8 @@ func (x *RuntimeStateStalled) GetDescription() string {
 	return ""
 }
 
-// OrchestrationRuntimeState holds the current state for an orchestration.
-type OrchestrationRuntimeState struct {
+// WorkflowRuntimeState holds the current state for an orchestration.
+type WorkflowRuntimeState struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -100,7 +100,7 @@ type OrchestrationRuntimeState struct {
 	OldEvents       []*HistoryEvent                     `protobuf:"bytes,3,rep,name=oldEvents,proto3" json:"oldEvents,omitempty"`
 	PendingTasks    []*HistoryEvent                     `protobuf:"bytes,4,rep,name=pendingTasks,proto3" json:"pendingTasks,omitempty"`
 	PendingTimers   []*HistoryEvent                     `protobuf:"bytes,5,rep,name=pendingTimers,proto3" json:"pendingTimers,omitempty"`
-	PendingMessages []*OrchestrationRuntimeStateMessage `protobuf:"bytes,6,rep,name=pendingMessages,proto3" json:"pendingMessages,omitempty"`
+	PendingMessages []*WorkflowRuntimeStateMessage `protobuf:"bytes,6,rep,name=pendingMessages,proto3" json:"pendingMessages,omitempty"`
 	StartEvent      *ExecutionStartedEvent              `protobuf:"bytes,7,opt,name=startEvent,proto3" json:"startEvent,omitempty"`
 	CompletedEvent  *ExecutionCompletedEvent            `protobuf:"bytes,8,opt,name=completedEvent,proto3" json:"completedEvent,omitempty"`
 	CreatedTime     *timestamppb.Timestamp              `protobuf:"bytes,9,opt,name=createdTime,proto3" json:"createdTime,omitempty"`
@@ -112,8 +112,8 @@ type OrchestrationRuntimeState struct {
 	Stalled         *RuntimeStateStalled                `protobuf:"bytes,15,opt,name=stalled,proto3,oneof" json:"stalled,omitempty"`
 }
 
-func (x *OrchestrationRuntimeState) Reset() {
-	*x = OrchestrationRuntimeState{}
+func (x *WorkflowRuntimeState) Reset() {
+	*x = WorkflowRuntimeState{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_runtime_state_proto_msgTypes[1]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -121,13 +121,13 @@ func (x *OrchestrationRuntimeState) Reset() {
 	}
 }
 
-func (x *OrchestrationRuntimeState) String() string {
+func (x *WorkflowRuntimeState) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*OrchestrationRuntimeState) ProtoMessage() {}
+func (*WorkflowRuntimeState) ProtoMessage() {}
 
-func (x *OrchestrationRuntimeState) ProtoReflect() protoreflect.Message {
+func (x *WorkflowRuntimeState) ProtoReflect() protoreflect.Message {
 	mi := &file_runtime_state_proto_msgTypes[1]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -139,118 +139,118 @@ func (x *OrchestrationRuntimeState) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use OrchestrationRuntimeState.ProtoReflect.Descriptor instead.
-func (*OrchestrationRuntimeState) Descriptor() ([]byte, []int) {
+// Deprecated: Use WorkflowRuntimeState.ProtoReflect.Descriptor instead.
+func (*WorkflowRuntimeState) Descriptor() ([]byte, []int) {
 	return file_runtime_state_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *OrchestrationRuntimeState) GetInstanceId() string {
+func (x *WorkflowRuntimeState) GetInstanceId() string {
 	if x != nil {
 		return x.InstanceId
 	}
 	return ""
 }
 
-func (x *OrchestrationRuntimeState) GetNewEvents() []*HistoryEvent {
+func (x *WorkflowRuntimeState) GetNewEvents() []*HistoryEvent {
 	if x != nil {
 		return x.NewEvents
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetOldEvents() []*HistoryEvent {
+func (x *WorkflowRuntimeState) GetOldEvents() []*HistoryEvent {
 	if x != nil {
 		return x.OldEvents
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetPendingTasks() []*HistoryEvent {
+func (x *WorkflowRuntimeState) GetPendingTasks() []*HistoryEvent {
 	if x != nil {
 		return x.PendingTasks
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetPendingTimers() []*HistoryEvent {
+func (x *WorkflowRuntimeState) GetPendingTimers() []*HistoryEvent {
 	if x != nil {
 		return x.PendingTimers
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetPendingMessages() []*OrchestrationRuntimeStateMessage {
+func (x *WorkflowRuntimeState) GetPendingMessages() []*WorkflowRuntimeStateMessage {
 	if x != nil {
 		return x.PendingMessages
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetStartEvent() *ExecutionStartedEvent {
+func (x *WorkflowRuntimeState) GetStartEvent() *ExecutionStartedEvent {
 	if x != nil {
 		return x.StartEvent
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetCompletedEvent() *ExecutionCompletedEvent {
+func (x *WorkflowRuntimeState) GetCompletedEvent() *ExecutionCompletedEvent {
 	if x != nil {
 		return x.CompletedEvent
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetCreatedTime() *timestamppb.Timestamp {
+func (x *WorkflowRuntimeState) GetCreatedTime() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CreatedTime
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetLastUpdatedTime() *timestamppb.Timestamp {
+func (x *WorkflowRuntimeState) GetLastUpdatedTime() *timestamppb.Timestamp {
 	if x != nil {
 		return x.LastUpdatedTime
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetCompletedTime() *timestamppb.Timestamp {
+func (x *WorkflowRuntimeState) GetCompletedTime() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CompletedTime
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetContinuedAsNew() bool {
+func (x *WorkflowRuntimeState) GetContinuedAsNew() bool {
 	if x != nil {
 		return x.ContinuedAsNew
 	}
 	return false
 }
 
-func (x *OrchestrationRuntimeState) GetIsSuspended() bool {
+func (x *WorkflowRuntimeState) GetIsSuspended() bool {
 	if x != nil {
 		return x.IsSuspended
 	}
 	return false
 }
 
-func (x *OrchestrationRuntimeState) GetCustomStatus() *wrapperspb.StringValue {
+func (x *WorkflowRuntimeState) GetCustomStatus() *wrapperspb.StringValue {
 	if x != nil {
 		return x.CustomStatus
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeState) GetStalled() *RuntimeStateStalled {
+func (x *WorkflowRuntimeState) GetStalled() *RuntimeStateStalled {
 	if x != nil {
 		return x.Stalled
 	}
 	return nil
 }
 
-// OrchestrationRuntimeStateMessage holds an OrchestratorMessage and the target instance ID.
-type OrchestrationRuntimeStateMessage struct {
+// WorkflowRuntimeStateMessage holds an OrchestratorMessage and the target instance ID.
+type WorkflowRuntimeStateMessage struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -259,8 +259,8 @@ type OrchestrationRuntimeStateMessage struct {
 	TargetInstanceID string        `protobuf:"bytes,2,opt,name=TargetInstanceID,proto3" json:"TargetInstanceID,omitempty"`
 }
 
-func (x *OrchestrationRuntimeStateMessage) Reset() {
-	*x = OrchestrationRuntimeStateMessage{}
+func (x *WorkflowRuntimeStateMessage) Reset() {
+	*x = WorkflowRuntimeStateMessage{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_runtime_state_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -268,13 +268,13 @@ func (x *OrchestrationRuntimeStateMessage) Reset() {
 	}
 }
 
-func (x *OrchestrationRuntimeStateMessage) String() string {
+func (x *WorkflowRuntimeStateMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*OrchestrationRuntimeStateMessage) ProtoMessage() {}
+func (*WorkflowRuntimeStateMessage) ProtoMessage() {}
 
-func (x *OrchestrationRuntimeStateMessage) ProtoReflect() protoreflect.Message {
+func (x *WorkflowRuntimeStateMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_runtime_state_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -286,19 +286,19 @@ func (x *OrchestrationRuntimeStateMessage) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use OrchestrationRuntimeStateMessage.ProtoReflect.Descriptor instead.
-func (*OrchestrationRuntimeStateMessage) Descriptor() ([]byte, []int) {
+// Deprecated: Use WorkflowRuntimeStateMessage.ProtoReflect.Descriptor instead.
+func (*WorkflowRuntimeStateMessage) Descriptor() ([]byte, []int) {
 	return file_runtime_state_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *OrchestrationRuntimeStateMessage) GetHistoryEvent() *HistoryEvent {
+func (x *WorkflowRuntimeStateMessage) GetHistoryEvent() *HistoryEvent {
 	if x != nil {
 		return x.HistoryEvent
 	}
 	return nil
 }
 
-func (x *OrchestrationRuntimeStateMessage) GetTargetInstanceID() string {
+func (x *WorkflowRuntimeStateMessage) GetTargetInstanceID() string {
 	if x != nil {
 		return x.TargetInstanceID
 	}
@@ -414,8 +414,8 @@ func file_runtime_state_proto_rawDescGZIP() []byte {
 var file_runtime_state_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_runtime_state_proto_goTypes = []interface{}{
 	(*RuntimeStateStalled)(nil),              // 0: durabletask.protos.backend.v1.RuntimeStateStalled
-	(*OrchestrationRuntimeState)(nil),        // 1: durabletask.protos.backend.v1.OrchestrationRuntimeState
-	(*OrchestrationRuntimeStateMessage)(nil), // 2: durabletask.protos.backend.v1.OrchestrationRuntimeStateMessage
+	(*WorkflowRuntimeState)(nil),        // 1: durabletask.protos.backend.v1.WorkflowRuntimeState
+	(*WorkflowRuntimeStateMessage)(nil), // 2: durabletask.protos.backend.v1.WorkflowRuntimeStateMessage
 	(StalledReason)(0),                       // 3: StalledReason
 	(*HistoryEvent)(nil),                     // 4: HistoryEvent
 	(*ExecutionStartedEvent)(nil),            // 5: ExecutionStartedEvent
@@ -425,19 +425,19 @@ var file_runtime_state_proto_goTypes = []interface{}{
 }
 var file_runtime_state_proto_depIdxs = []int32{
 	3,  // 0: durabletask.protos.backend.v1.RuntimeStateStalled.reason:type_name -> StalledReason
-	4,  // 1: durabletask.protos.backend.v1.OrchestrationRuntimeState.newEvents:type_name -> HistoryEvent
-	4,  // 2: durabletask.protos.backend.v1.OrchestrationRuntimeState.oldEvents:type_name -> HistoryEvent
-	4,  // 3: durabletask.protos.backend.v1.OrchestrationRuntimeState.pendingTasks:type_name -> HistoryEvent
-	4,  // 4: durabletask.protos.backend.v1.OrchestrationRuntimeState.pendingTimers:type_name -> HistoryEvent
-	2,  // 5: durabletask.protos.backend.v1.OrchestrationRuntimeState.pendingMessages:type_name -> durabletask.protos.backend.v1.OrchestrationRuntimeStateMessage
-	5,  // 6: durabletask.protos.backend.v1.OrchestrationRuntimeState.startEvent:type_name -> ExecutionStartedEvent
-	6,  // 7: durabletask.protos.backend.v1.OrchestrationRuntimeState.completedEvent:type_name -> ExecutionCompletedEvent
-	7,  // 8: durabletask.protos.backend.v1.OrchestrationRuntimeState.createdTime:type_name -> google.protobuf.Timestamp
-	7,  // 9: durabletask.protos.backend.v1.OrchestrationRuntimeState.lastUpdatedTime:type_name -> google.protobuf.Timestamp
-	7,  // 10: durabletask.protos.backend.v1.OrchestrationRuntimeState.completedTime:type_name -> google.protobuf.Timestamp
-	8,  // 11: durabletask.protos.backend.v1.OrchestrationRuntimeState.customStatus:type_name -> google.protobuf.StringValue
-	0,  // 12: durabletask.protos.backend.v1.OrchestrationRuntimeState.stalled:type_name -> durabletask.protos.backend.v1.RuntimeStateStalled
-	4,  // 13: durabletask.protos.backend.v1.OrchestrationRuntimeStateMessage.historyEvent:type_name -> HistoryEvent
+	4,  // 1: durabletask.protos.backend.v1.WorkflowRuntimeState.newEvents:type_name -> HistoryEvent
+	4,  // 2: durabletask.protos.backend.v1.WorkflowRuntimeState.oldEvents:type_name -> HistoryEvent
+	4,  // 3: durabletask.protos.backend.v1.WorkflowRuntimeState.pendingTasks:type_name -> HistoryEvent
+	4,  // 4: durabletask.protos.backend.v1.WorkflowRuntimeState.pendingTimers:type_name -> HistoryEvent
+	2,  // 5: durabletask.protos.backend.v1.WorkflowRuntimeState.pendingMessages:type_name -> durabletask.protos.backend.v1.WorkflowRuntimeStateMessage
+	5,  // 6: durabletask.protos.backend.v1.WorkflowRuntimeState.startEvent:type_name -> ExecutionStartedEvent
+	6,  // 7: durabletask.protos.backend.v1.WorkflowRuntimeState.completedEvent:type_name -> ExecutionCompletedEvent
+	7,  // 8: durabletask.protos.backend.v1.WorkflowRuntimeState.createdTime:type_name -> google.protobuf.Timestamp
+	7,  // 9: durabletask.protos.backend.v1.WorkflowRuntimeState.lastUpdatedTime:type_name -> google.protobuf.Timestamp
+	7,  // 10: durabletask.protos.backend.v1.WorkflowRuntimeState.completedTime:type_name -> google.protobuf.Timestamp
+	8,  // 11: durabletask.protos.backend.v1.WorkflowRuntimeState.customStatus:type_name -> google.protobuf.StringValue
+	0,  // 12: durabletask.protos.backend.v1.WorkflowRuntimeState.stalled:type_name -> durabletask.protos.backend.v1.RuntimeStateStalled
+	4,  // 13: durabletask.protos.backend.v1.WorkflowRuntimeStateMessage.historyEvent:type_name -> HistoryEvent
 	14, // [14:14] is the sub-list for method output_type
 	14, // [14:14] is the sub-list for method input_type
 	14, // [14:14] is the sub-list for extension type_name
@@ -465,7 +465,7 @@ func file_runtime_state_proto_init() {
 			}
 		}
 		file_runtime_state_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*OrchestrationRuntimeState); i {
+			switch v := v.(*WorkflowRuntimeState); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -477,7 +477,7 @@ func file_runtime_state_proto_init() {
 			}
 		}
 		file_runtime_state_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*OrchestrationRuntimeStateMessage); i {
+			switch v := v.(*WorkflowRuntimeStateMessage); i {
 			case 0:
 				return &v.state
 			case 1:

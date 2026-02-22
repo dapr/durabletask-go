@@ -235,7 +235,7 @@ func (x *WaitForInstanceResponse) GetOrchestrationState() *OrchestrationState {
 }
 
 // Request parameters for fetching orchestration runtime state.
-type GetOrchestrationRuntimeStateRequest struct {
+type GetWorkflowRuntimeStateRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -244,8 +244,8 @@ type GetOrchestrationRuntimeStateRequest struct {
 	Instance *OrchestrationInstance `protobuf:"bytes,1,opt,name=instance,proto3" json:"instance,omitempty"`
 }
 
-func (x *GetOrchestrationRuntimeStateRequest) Reset() {
-	*x = GetOrchestrationRuntimeStateRequest{}
+func (x *GetWorkflowRuntimeStateRequest) Reset() {
+	*x = GetWorkflowRuntimeStateRequest{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_backend_service_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -253,13 +253,13 @@ func (x *GetOrchestrationRuntimeStateRequest) Reset() {
 	}
 }
 
-func (x *GetOrchestrationRuntimeStateRequest) String() string {
+func (x *GetWorkflowRuntimeStateRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetOrchestrationRuntimeStateRequest) ProtoMessage() {}
+func (*GetWorkflowRuntimeStateRequest) ProtoMessage() {}
 
-func (x *GetOrchestrationRuntimeStateRequest) ProtoReflect() protoreflect.Message {
+func (x *GetWorkflowRuntimeStateRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_backend_service_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -271,12 +271,12 @@ func (x *GetOrchestrationRuntimeStateRequest) ProtoReflect() protoreflect.Messag
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetOrchestrationRuntimeStateRequest.ProtoReflect.Descriptor instead.
-func (*GetOrchestrationRuntimeStateRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetWorkflowRuntimeStateRequest.ProtoReflect.Descriptor instead.
+func (*GetWorkflowRuntimeStateRequest) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *GetOrchestrationRuntimeStateRequest) GetInstance() *OrchestrationInstance {
+func (x *GetWorkflowRuntimeStateRequest) GetInstance() *OrchestrationInstance {
 	if x != nil {
 		return x.Instance
 	}
@@ -284,7 +284,7 @@ func (x *GetOrchestrationRuntimeStateRequest) GetInstance() *OrchestrationInstan
 }
 
 // Response payload returned when fetching orchestration runtime state.
-type GetOrchestrationRuntimeStateResponse struct {
+type GetWorkflowRuntimeStateResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -293,8 +293,8 @@ type GetOrchestrationRuntimeStateResponse struct {
 	History []*HistoryEvent `protobuf:"bytes,1,rep,name=history,proto3" json:"history,omitempty"`
 }
 
-func (x *GetOrchestrationRuntimeStateResponse) Reset() {
-	*x = GetOrchestrationRuntimeStateResponse{}
+func (x *GetWorkflowRuntimeStateResponse) Reset() {
+	*x = GetWorkflowRuntimeStateResponse{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_backend_service_proto_msgTypes[5]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -302,13 +302,13 @@ func (x *GetOrchestrationRuntimeStateResponse) Reset() {
 	}
 }
 
-func (x *GetOrchestrationRuntimeStateResponse) String() string {
+func (x *GetWorkflowRuntimeStateResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*GetOrchestrationRuntimeStateResponse) ProtoMessage() {}
+func (*GetWorkflowRuntimeStateResponse) ProtoMessage() {}
 
-func (x *GetOrchestrationRuntimeStateResponse) ProtoReflect() protoreflect.Message {
+func (x *GetWorkflowRuntimeStateResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_backend_service_proto_msgTypes[5]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -320,12 +320,12 @@ func (x *GetOrchestrationRuntimeStateResponse) ProtoReflect() protoreflect.Messa
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use GetOrchestrationRuntimeStateResponse.ProtoReflect.Descriptor instead.
-func (*GetOrchestrationRuntimeStateResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetWorkflowRuntimeStateResponse.ProtoReflect.Descriptor instead.
+func (*GetWorkflowRuntimeStateResponse) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *GetOrchestrationRuntimeStateResponse) GetHistory() []*HistoryEvent {
+func (x *GetWorkflowRuntimeStateResponse) GetHistory() []*HistoryEvent {
 	if x != nil {
 		return x.History
 	}
@@ -519,7 +519,7 @@ func (*AbandonActivityWorkItemResponse) Descriptor() ([]byte, []int) {
 }
 
 // Request payload for completing an orchestration work item.
-type CompleteOrchestrationWorkItemRequest struct {
+type CompleteWorkflowWorkItemRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -532,14 +532,14 @@ type CompleteOrchestrationWorkItemRequest struct {
 	NewHistory      []*HistoryEvent         `protobuf:"bytes,5,rep,name=newHistory,proto3" json:"newHistory,omitempty"`
 	NewTasks        []*HistoryEvent         `protobuf:"bytes,6,rep,name=newTasks,proto3" json:"newTasks,omitempty"`
 	NewTimers       []*HistoryEvent         `protobuf:"bytes,7,rep,name=newTimers,proto3" json:"newTimers,omitempty"`
-	NewMessages     []*OrchestratorMessage  `protobuf:"bytes,8,rep,name=newMessages,proto3" json:"newMessages,omitempty"`
+	NewMessages     []*WorkflowMessage  `protobuf:"bytes,8,rep,name=newMessages,proto3" json:"newMessages,omitempty"`
 	// The number of work item events that were processed by the orchestrator.
 	// This field is optional. If not set, the service should assume that the orchestrator processed all events.
 	NumEventsProcessed *wrapperspb.Int32Value `protobuf:"bytes,9,opt,name=numEventsProcessed,proto3" json:"numEventsProcessed,omitempty"`
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) Reset() {
-	*x = CompleteOrchestrationWorkItemRequest{}
+func (x *CompleteWorkflowWorkItemRequest) Reset() {
+	*x = CompleteWorkflowWorkItemRequest{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_backend_service_proto_msgTypes[10]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -547,13 +547,13 @@ func (x *CompleteOrchestrationWorkItemRequest) Reset() {
 	}
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) String() string {
+func (x *CompleteWorkflowWorkItemRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CompleteOrchestrationWorkItemRequest) ProtoMessage() {}
+func (*CompleteWorkflowWorkItemRequest) ProtoMessage() {}
 
-func (x *CompleteOrchestrationWorkItemRequest) ProtoReflect() protoreflect.Message {
+func (x *CompleteWorkflowWorkItemRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_backend_service_proto_msgTypes[10]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -565,68 +565,68 @@ func (x *CompleteOrchestrationWorkItemRequest) ProtoReflect() protoreflect.Messa
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CompleteOrchestrationWorkItemRequest.ProtoReflect.Descriptor instead.
-func (*CompleteOrchestrationWorkItemRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CompleteWorkflowWorkItemRequest.ProtoReflect.Descriptor instead.
+func (*CompleteWorkflowWorkItemRequest) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) GetCompletionToken() string {
+func (x *CompleteWorkflowWorkItemRequest) GetCompletionToken() string {
 	if x != nil {
 		return x.CompletionToken
 	}
 	return ""
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) GetInstance() *OrchestrationInstance {
+func (x *CompleteWorkflowWorkItemRequest) GetInstance() *OrchestrationInstance {
 	if x != nil {
 		return x.Instance
 	}
 	return nil
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) GetRuntimeStatus() OrchestrationStatus {
+func (x *CompleteWorkflowWorkItemRequest) GetRuntimeStatus() OrchestrationStatus {
 	if x != nil {
 		return x.RuntimeStatus
 	}
 	return OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) GetCustomStatus() *wrapperspb.StringValue {
+func (x *CompleteWorkflowWorkItemRequest) GetCustomStatus() *wrapperspb.StringValue {
 	if x != nil {
 		return x.CustomStatus
 	}
 	return nil
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) GetNewHistory() []*HistoryEvent {
+func (x *CompleteWorkflowWorkItemRequest) GetNewHistory() []*HistoryEvent {
 	if x != nil {
 		return x.NewHistory
 	}
 	return nil
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) GetNewTasks() []*HistoryEvent {
+func (x *CompleteWorkflowWorkItemRequest) GetNewTasks() []*HistoryEvent {
 	if x != nil {
 		return x.NewTasks
 	}
 	return nil
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) GetNewTimers() []*HistoryEvent {
+func (x *CompleteWorkflowWorkItemRequest) GetNewTimers() []*HistoryEvent {
 	if x != nil {
 		return x.NewTimers
 	}
 	return nil
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) GetNewMessages() []*OrchestratorMessage {
+func (x *CompleteWorkflowWorkItemRequest) GetNewMessages() []*WorkflowMessage {
 	if x != nil {
 		return x.NewMessages
 	}
 	return nil
 }
 
-func (x *CompleteOrchestrationWorkItemRequest) GetNumEventsProcessed() *wrapperspb.Int32Value {
+func (x *CompleteWorkflowWorkItemRequest) GetNumEventsProcessed() *wrapperspb.Int32Value {
 	if x != nil {
 		return x.NumEventsProcessed
 	}
@@ -634,14 +634,14 @@ func (x *CompleteOrchestrationWorkItemRequest) GetNumEventsProcessed() *wrappers
 }
 
 // Response payload for completing an orchestration work item.
-type CompleteOrchestrationWorkItemResponse struct {
+type CompleteWorkflowWorkItemResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 }
 
-func (x *CompleteOrchestrationWorkItemResponse) Reset() {
-	*x = CompleteOrchestrationWorkItemResponse{}
+func (x *CompleteWorkflowWorkItemResponse) Reset() {
+	*x = CompleteWorkflowWorkItemResponse{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_backend_service_proto_msgTypes[11]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -649,13 +649,13 @@ func (x *CompleteOrchestrationWorkItemResponse) Reset() {
 	}
 }
 
-func (x *CompleteOrchestrationWorkItemResponse) String() string {
+func (x *CompleteWorkflowWorkItemResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CompleteOrchestrationWorkItemResponse) ProtoMessage() {}
+func (*CompleteWorkflowWorkItemResponse) ProtoMessage() {}
 
-func (x *CompleteOrchestrationWorkItemResponse) ProtoReflect() protoreflect.Message {
+func (x *CompleteWorkflowWorkItemResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_backend_service_proto_msgTypes[11]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -667,13 +667,13 @@ func (x *CompleteOrchestrationWorkItemResponse) ProtoReflect() protoreflect.Mess
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CompleteOrchestrationWorkItemResponse.ProtoReflect.Descriptor instead.
-func (*CompleteOrchestrationWorkItemResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use CompleteWorkflowWorkItemResponse.ProtoReflect.Descriptor instead.
+func (*CompleteWorkflowWorkItemResponse) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{11}
 }
 
 // A message to be delivered to an orchestration by the backend.
-type OrchestratorMessage struct {
+type WorkflowMessage struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -684,8 +684,8 @@ type OrchestratorMessage struct {
 	Event *HistoryEvent `protobuf:"bytes,2,opt,name=event,proto3" json:"event,omitempty"`
 }
 
-func (x *OrchestratorMessage) Reset() {
-	*x = OrchestratorMessage{}
+func (x *WorkflowMessage) Reset() {
+	*x = WorkflowMessage{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_backend_service_proto_msgTypes[12]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -693,13 +693,13 @@ func (x *OrchestratorMessage) Reset() {
 	}
 }
 
-func (x *OrchestratorMessage) String() string {
+func (x *WorkflowMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*OrchestratorMessage) ProtoMessage() {}
+func (*WorkflowMessage) ProtoMessage() {}
 
-func (x *OrchestratorMessage) ProtoReflect() protoreflect.Message {
+func (x *WorkflowMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_backend_service_proto_msgTypes[12]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -711,19 +711,19 @@ func (x *OrchestratorMessage) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use OrchestratorMessage.ProtoReflect.Descriptor instead.
-func (*OrchestratorMessage) Descriptor() ([]byte, []int) {
+// Deprecated: Use WorkflowMessage.ProtoReflect.Descriptor instead.
+func (*WorkflowMessage) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *OrchestratorMessage) GetInstance() *OrchestrationInstance {
+func (x *WorkflowMessage) GetInstance() *OrchestrationInstance {
 	if x != nil {
 		return x.Instance
 	}
 	return nil
 }
 
-func (x *OrchestratorMessage) GetEvent() *HistoryEvent {
+func (x *WorkflowMessage) GetEvent() *HistoryEvent {
 	if x != nil {
 		return x.Event
 	}
@@ -731,7 +731,7 @@ func (x *OrchestratorMessage) GetEvent() *HistoryEvent {
 }
 
 // Request payload for abandoning an orchestration work item.
-type AbandonOrchestrationWorkItemRequest struct {
+type AbandonWorkflowWorkItemRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -740,8 +740,8 @@ type AbandonOrchestrationWorkItemRequest struct {
 	CompletionToken string `protobuf:"bytes,1,opt,name=completionToken,proto3" json:"completionToken,omitempty"`
 }
 
-func (x *AbandonOrchestrationWorkItemRequest) Reset() {
-	*x = AbandonOrchestrationWorkItemRequest{}
+func (x *AbandonWorkflowWorkItemRequest) Reset() {
+	*x = AbandonWorkflowWorkItemRequest{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_backend_service_proto_msgTypes[13]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -749,13 +749,13 @@ func (x *AbandonOrchestrationWorkItemRequest) Reset() {
 	}
 }
 
-func (x *AbandonOrchestrationWorkItemRequest) String() string {
+func (x *AbandonWorkflowWorkItemRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AbandonOrchestrationWorkItemRequest) ProtoMessage() {}
+func (*AbandonWorkflowWorkItemRequest) ProtoMessage() {}
 
-func (x *AbandonOrchestrationWorkItemRequest) ProtoReflect() protoreflect.Message {
+func (x *AbandonWorkflowWorkItemRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_backend_service_proto_msgTypes[13]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -767,12 +767,12 @@ func (x *AbandonOrchestrationWorkItemRequest) ProtoReflect() protoreflect.Messag
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AbandonOrchestrationWorkItemRequest.ProtoReflect.Descriptor instead.
-func (*AbandonOrchestrationWorkItemRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use AbandonWorkflowWorkItemRequest.ProtoReflect.Descriptor instead.
+func (*AbandonWorkflowWorkItemRequest) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *AbandonOrchestrationWorkItemRequest) GetCompletionToken() string {
+func (x *AbandonWorkflowWorkItemRequest) GetCompletionToken() string {
 	if x != nil {
 		return x.CompletionToken
 	}
@@ -780,14 +780,14 @@ func (x *AbandonOrchestrationWorkItemRequest) GetCompletionToken() string {
 }
 
 // Response payload for abandoning an orchestration work item.
-type AbandonOrchestrationWorkItemResponse struct {
+type AbandonWorkflowWorkItemResponse struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 }
 
-func (x *AbandonOrchestrationWorkItemResponse) Reset() {
-	*x = AbandonOrchestrationWorkItemResponse{}
+func (x *AbandonWorkflowWorkItemResponse) Reset() {
+	*x = AbandonWorkflowWorkItemResponse{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_backend_service_proto_msgTypes[14]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -795,13 +795,13 @@ func (x *AbandonOrchestrationWorkItemResponse) Reset() {
 	}
 }
 
-func (x *AbandonOrchestrationWorkItemResponse) String() string {
+func (x *AbandonWorkflowWorkItemResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AbandonOrchestrationWorkItemResponse) ProtoMessage() {}
+func (*AbandonWorkflowWorkItemResponse) ProtoMessage() {}
 
-func (x *AbandonOrchestrationWorkItemResponse) ProtoReflect() protoreflect.Message {
+func (x *AbandonWorkflowWorkItemResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_backend_service_proto_msgTypes[14]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -813,8 +813,8 @@ func (x *AbandonOrchestrationWorkItemResponse) ProtoReflect() protoreflect.Messa
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AbandonOrchestrationWorkItemResponse.ProtoReflect.Descriptor instead.
-func (*AbandonOrchestrationWorkItemResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use AbandonWorkflowWorkItemResponse.ProtoReflect.Descriptor instead.
+func (*AbandonWorkflowWorkItemResponse) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{14}
 }
 
@@ -836,7 +836,7 @@ type CompleteEntityWorkItemRequest struct {
 	EntityState *wrapperspb.StringValue `protobuf:"bytes,4,opt,name=entityState,proto3" json:"entityState,omitempty"`
 	// The messages that were sent by the executed operations. This must
 	// include any responses to the operation calls.
-	Messages []*OrchestratorMessage `protobuf:"bytes,5,rep,name=messages,proto3" json:"messages,omitempty"`
+	Messages []*WorkflowMessage `protobuf:"bytes,5,rep,name=messages,proto3" json:"messages,omitempty"`
 }
 
 func (x *CompleteEntityWorkItemRequest) Reset() {
@@ -899,7 +899,7 @@ func (x *CompleteEntityWorkItemRequest) GetEntityState() *wrapperspb.StringValue
 	return nil
 }
 
-func (x *CompleteEntityWorkItemRequest) GetMessages() []*OrchestratorMessage {
+func (x *CompleteEntityWorkItemRequest) GetMessages() []*WorkflowMessage {
 	if x != nil {
 		return x.Messages
 	}
@@ -1119,7 +1119,7 @@ func (*PingResponse) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{20}
 }
 
-type WorkflowState struct {
+type BackendWorkflowState struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -1130,8 +1130,8 @@ type WorkflowState struct {
 	Generation   uint64                  `protobuf:"varint,4,opt,name=generation,proto3" json:"generation,omitempty"`
 }
 
-func (x *WorkflowState) Reset() {
-	*x = WorkflowState{}
+func (x *BackendWorkflowState) Reset() {
+	*x = BackendWorkflowState{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_backend_service_proto_msgTypes[21]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1139,13 +1139,13 @@ func (x *WorkflowState) Reset() {
 	}
 }
 
-func (x *WorkflowState) String() string {
+func (x *BackendWorkflowState) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*WorkflowState) ProtoMessage() {}
+func (*BackendWorkflowState) ProtoMessage() {}
 
-func (x *WorkflowState) ProtoReflect() protoreflect.Message {
+func (x *BackendWorkflowState) ProtoReflect() protoreflect.Message {
 	mi := &file_backend_service_proto_msgTypes[21]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1157,33 +1157,33 @@ func (x *WorkflowState) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use WorkflowState.ProtoReflect.Descriptor instead.
-func (*WorkflowState) Descriptor() ([]byte, []int) {
+// Deprecated: Use BackendWorkflowState.ProtoReflect.Descriptor instead.
+func (*BackendWorkflowState) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{21}
 }
 
-func (x *WorkflowState) GetInbox() []*HistoryEvent {
+func (x *BackendWorkflowState) GetInbox() []*HistoryEvent {
 	if x != nil {
 		return x.Inbox
 	}
 	return nil
 }
 
-func (x *WorkflowState) GetHistory() []*HistoryEvent {
+func (x *BackendWorkflowState) GetHistory() []*HistoryEvent {
 	if x != nil {
 		return x.History
 	}
 	return nil
 }
 
-func (x *WorkflowState) GetCustomStatus() *wrapperspb.StringValue {
+func (x *BackendWorkflowState) GetCustomStatus() *wrapperspb.StringValue {
 	if x != nil {
 		return x.CustomStatus
 	}
 	return nil
 }
 
-func (x *WorkflowState) GetGeneration() uint64 {
+func (x *BackendWorkflowState) GetGeneration() uint64 {
 	if x != nil {
 		return x.Generation
 	}
@@ -1245,7 +1245,7 @@ func (x *CreateWorkflowInstanceRequest) GetPolicy() *OrchestrationIdReusePolicy 
 	return nil
 }
 
-type OrchestrationMetadata struct {
+type WorkflowMetadata struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -1263,8 +1263,8 @@ type OrchestrationMetadata struct {
 	ParentInstanceId string                  `protobuf:"bytes,11,opt,name=parentInstanceId,proto3" json:"parentInstanceId,omitempty"`
 }
 
-func (x *OrchestrationMetadata) Reset() {
-	*x = OrchestrationMetadata{}
+func (x *WorkflowMetadata) Reset() {
+	*x = WorkflowMetadata{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_backend_service_proto_msgTypes[23]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1272,13 +1272,13 @@ func (x *OrchestrationMetadata) Reset() {
 	}
 }
 
-func (x *OrchestrationMetadata) String() string {
+func (x *WorkflowMetadata) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*OrchestrationMetadata) ProtoMessage() {}
+func (*WorkflowMetadata) ProtoMessage() {}
 
-func (x *OrchestrationMetadata) ProtoReflect() protoreflect.Message {
+func (x *WorkflowMetadata) ProtoReflect() protoreflect.Message {
 	mi := &file_backend_service_proto_msgTypes[23]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1290,82 +1290,82 @@ func (x *OrchestrationMetadata) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use OrchestrationMetadata.ProtoReflect.Descriptor instead.
-func (*OrchestrationMetadata) Descriptor() ([]byte, []int) {
+// Deprecated: Use WorkflowMetadata.ProtoReflect.Descriptor instead.
+func (*WorkflowMetadata) Descriptor() ([]byte, []int) {
 	return file_backend_service_proto_rawDescGZIP(), []int{23}
 }
 
-func (x *OrchestrationMetadata) GetInstanceId() string {
+func (x *WorkflowMetadata) GetInstanceId() string {
 	if x != nil {
 		return x.InstanceId
 	}
 	return ""
 }
 
-func (x *OrchestrationMetadata) GetName() string {
+func (x *WorkflowMetadata) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *OrchestrationMetadata) GetRuntimeStatus() OrchestrationStatus {
+func (x *WorkflowMetadata) GetRuntimeStatus() OrchestrationStatus {
 	if x != nil {
 		return x.RuntimeStatus
 	}
 	return OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING
 }
 
-func (x *OrchestrationMetadata) GetCreatedAt() *timestamppb.Timestamp {
+func (x *WorkflowMetadata) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CreatedAt
 	}
 	return nil
 }
 
-func (x *OrchestrationMetadata) GetLastUpdatedAt() *timestamppb.Timestamp {
+func (x *WorkflowMetadata) GetLastUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.LastUpdatedAt
 	}
 	return nil
 }
 
-func (x *OrchestrationMetadata) GetInput() *wrapperspb.StringValue {
+func (x *WorkflowMetadata) GetInput() *wrapperspb.StringValue {
 	if x != nil {
 		return x.Input
 	}
 	return nil
 }
 
-func (x *OrchestrationMetadata) GetOutput() *wrapperspb.StringValue {
+func (x *WorkflowMetadata) GetOutput() *wrapperspb.StringValue {
 	if x != nil {
 		return x.Output
 	}
 	return nil
 }
 
-func (x *OrchestrationMetadata) GetCustomStatus() *wrapperspb.StringValue {
+func (x *WorkflowMetadata) GetCustomStatus() *wrapperspb.StringValue {
 	if x != nil {
 		return x.CustomStatus
 	}
 	return nil
 }
 
-func (x *OrchestrationMetadata) GetFailureDetails() *TaskFailureDetails {
+func (x *WorkflowMetadata) GetFailureDetails() *TaskFailureDetails {
 	if x != nil {
 		return x.FailureDetails
 	}
 	return nil
 }
 
-func (x *OrchestrationMetadata) GetCompletedAt() *timestamppb.Timestamp {
+func (x *WorkflowMetadata) GetCompletedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CompletedAt
 	}
 	return nil
 }
 
-func (x *OrchestrationMetadata) GetParentInstanceId() string {
+func (x *WorkflowMetadata) GetParentInstanceId() string {
 	if x != nil {
 		return x.ParentInstanceId
 	}
@@ -1587,7 +1587,7 @@ type BackendMetrics struct {
 	// Activity work item metrics
 	ActivityWorkItems *WorkItemMetrics `protobuf:"bytes,1,opt,name=activityWorkItems,proto3" json:"activityWorkItems,omitempty"`
 	// Orchestrator work item metrics
-	OrchestratorWorkItems *WorkItemMetrics `protobuf:"bytes,2,opt,name=orchestratorWorkItems,proto3" json:"orchestratorWorkItems,omitempty"`
+	WorkflowWorkItems *WorkItemMetrics `protobuf:"bytes,2,opt,name=orchestratorWorkItems,proto3" json:"orchestratorWorkItems,omitempty"`
 	// Entity work item metrics
 	EntityWorkItems *WorkItemMetrics `protobuf:"bytes,3,opt,name=entityWorkItems,proto3" json:"entityWorkItems,omitempty"`
 	// Metrics related to workers currently connected to the backend
@@ -1633,9 +1633,9 @@ func (x *BackendMetrics) GetActivityWorkItems() *WorkItemMetrics {
 	return nil
 }
 
-func (x *BackendMetrics) GetOrchestratorWorkItems() *WorkItemMetrics {
+func (x *BackendMetrics) GetWorkflowWorkItems() *WorkItemMetrics {
 	if x != nil {
-		return x.OrchestratorWorkItems
+		return x.WorkflowWorkItems
 	}
 	return nil
 }
@@ -2204,26 +2204,26 @@ var file_backend_service_proto_goTypes = []interface{}{
 	(*AddEventResponse)(nil),                      // 1: durabletask.protos.backend.v1.AddEventResponse
 	(*WaitForInstanceRequest)(nil),                // 2: durabletask.protos.backend.v1.WaitForInstanceRequest
 	(*WaitForInstanceResponse)(nil),               // 3: durabletask.protos.backend.v1.WaitForInstanceResponse
-	(*GetOrchestrationRuntimeStateRequest)(nil),   // 4: durabletask.protos.backend.v1.GetOrchestrationRuntimeStateRequest
-	(*GetOrchestrationRuntimeStateResponse)(nil),  // 5: durabletask.protos.backend.v1.GetOrchestrationRuntimeStateResponse
+	(*GetWorkflowRuntimeStateRequest)(nil),   // 4: durabletask.protos.backend.v1.GetWorkflowRuntimeStateRequest
+	(*GetWorkflowRuntimeStateResponse)(nil),  // 5: durabletask.protos.backend.v1.GetWorkflowRuntimeStateResponse
 	(*CompleteActivityWorkItemRequest)(nil),       // 6: durabletask.protos.backend.v1.CompleteActivityWorkItemRequest
 	(*CompleteActivityWorkItemResponse)(nil),      // 7: durabletask.protos.backend.v1.CompleteActivityWorkItemResponse
 	(*AbandonActivityWorkItemRequest)(nil),        // 8: durabletask.protos.backend.v1.AbandonActivityWorkItemRequest
 	(*AbandonActivityWorkItemResponse)(nil),       // 9: durabletask.protos.backend.v1.AbandonActivityWorkItemResponse
-	(*CompleteOrchestrationWorkItemRequest)(nil),  // 10: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest
-	(*CompleteOrchestrationWorkItemResponse)(nil), // 11: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemResponse
-	(*OrchestratorMessage)(nil),                   // 12: durabletask.protos.backend.v1.OrchestratorMessage
-	(*AbandonOrchestrationWorkItemRequest)(nil),   // 13: durabletask.protos.backend.v1.AbandonOrchestrationWorkItemRequest
-	(*AbandonOrchestrationWorkItemResponse)(nil),  // 14: durabletask.protos.backend.v1.AbandonOrchestrationWorkItemResponse
+	(*CompleteWorkflowWorkItemRequest)(nil),  // 10: durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest
+	(*CompleteWorkflowWorkItemResponse)(nil), // 11: durabletask.protos.backend.v1.CompleteWorkflowWorkItemResponse
+	(*WorkflowMessage)(nil),                   // 12: durabletask.protos.backend.v1.WorkflowMessage
+	(*AbandonWorkflowWorkItemRequest)(nil),   // 13: durabletask.protos.backend.v1.AbandonWorkflowWorkItemRequest
+	(*AbandonWorkflowWorkItemResponse)(nil),  // 14: durabletask.protos.backend.v1.AbandonWorkflowWorkItemResponse
 	(*CompleteEntityWorkItemRequest)(nil),         // 15: durabletask.protos.backend.v1.CompleteEntityWorkItemRequest
 	(*CompleteEntityWorkItemResponse)(nil),        // 16: durabletask.protos.backend.v1.CompleteEntityWorkItemResponse
 	(*AbandonEntityWorkItemRequest)(nil),          // 17: durabletask.protos.backend.v1.AbandonEntityWorkItemRequest
 	(*AbandonEntityWorkItemResponse)(nil),         // 18: durabletask.protos.backend.v1.AbandonEntityWorkItemResponse
 	(*PingRequest)(nil),                           // 19: durabletask.protos.backend.v1.PingRequest
 	(*PingResponse)(nil),                          // 20: durabletask.protos.backend.v1.PingResponse
-	(*WorkflowState)(nil),                         // 21: durabletask.protos.backend.v1.WorkflowState
+	(*BackendWorkflowState)(nil),                         // 21: durabletask.protos.backend.v1.BackendWorkflowState
 	(*CreateWorkflowInstanceRequest)(nil),         // 22: durabletask.protos.backend.v1.CreateWorkflowInstanceRequest
-	(*OrchestrationMetadata)(nil),                 // 23: durabletask.protos.backend.v1.OrchestrationMetadata
+	(*WorkflowMetadata)(nil),                 // 23: durabletask.protos.backend.v1.WorkflowMetadata
 	(*WorkflowStateMetadata)(nil),                 // 24: durabletask.protos.backend.v1.WorkflowStateMetadata
 	(*DurableTimer)(nil),                          // 25: durabletask.protos.backend.v1.DurableTimer
 	(*GetMetricsRequest)(nil),                     // 26: durabletask.protos.backend.v1.GetMetricsRequest
@@ -2267,34 +2267,34 @@ var file_backend_service_proto_depIdxs = []int32{
 	31, // 0: durabletask.protos.backend.v1.AddEventRequest.instance:type_name -> OrchestrationInstance
 	32, // 1: durabletask.protos.backend.v1.AddEventRequest.event:type_name -> HistoryEvent
 	33, // 2: durabletask.protos.backend.v1.WaitForInstanceResponse.orchestrationState:type_name -> OrchestrationState
-	31, // 3: durabletask.protos.backend.v1.GetOrchestrationRuntimeStateRequest.instance:type_name -> OrchestrationInstance
-	32, // 4: durabletask.protos.backend.v1.GetOrchestrationRuntimeStateResponse.history:type_name -> HistoryEvent
+	31, // 3: durabletask.protos.backend.v1.GetWorkflowRuntimeStateRequest.instance:type_name -> OrchestrationInstance
+	32, // 4: durabletask.protos.backend.v1.GetWorkflowRuntimeStateResponse.history:type_name -> HistoryEvent
 	32, // 5: durabletask.protos.backend.v1.CompleteActivityWorkItemRequest.responseEvent:type_name -> HistoryEvent
-	31, // 6: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest.instance:type_name -> OrchestrationInstance
-	34, // 7: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest.runtimeStatus:type_name -> OrchestrationStatus
-	35, // 8: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest.customStatus:type_name -> google.protobuf.StringValue
-	32, // 9: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest.newHistory:type_name -> HistoryEvent
-	32, // 10: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest.newTasks:type_name -> HistoryEvent
-	32, // 11: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest.newTimers:type_name -> HistoryEvent
-	12, // 12: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest.newMessages:type_name -> durabletask.protos.backend.v1.OrchestratorMessage
-	36, // 13: durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest.numEventsProcessed:type_name -> google.protobuf.Int32Value
-	31, // 14: durabletask.protos.backend.v1.OrchestratorMessage.instance:type_name -> OrchestrationInstance
-	32, // 15: durabletask.protos.backend.v1.OrchestratorMessage.event:type_name -> HistoryEvent
+	31, // 6: durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest.instance:type_name -> OrchestrationInstance
+	34, // 7: durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest.runtimeStatus:type_name -> OrchestrationStatus
+	35, // 8: durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest.customStatus:type_name -> google.protobuf.StringValue
+	32, // 9: durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest.newHistory:type_name -> HistoryEvent
+	32, // 10: durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest.newTasks:type_name -> HistoryEvent
+	32, // 11: durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest.newTimers:type_name -> HistoryEvent
+	12, // 12: durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest.newMessages:type_name -> durabletask.protos.backend.v1.WorkflowMessage
+	36, // 13: durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest.numEventsProcessed:type_name -> google.protobuf.Int32Value
+	31, // 14: durabletask.protos.backend.v1.WorkflowMessage.instance:type_name -> OrchestrationInstance
+	32, // 15: durabletask.protos.backend.v1.WorkflowMessage.event:type_name -> HistoryEvent
 	35, // 16: durabletask.protos.backend.v1.CompleteEntityWorkItemRequest.entityState:type_name -> google.protobuf.StringValue
-	12, // 17: durabletask.protos.backend.v1.CompleteEntityWorkItemRequest.messages:type_name -> durabletask.protos.backend.v1.OrchestratorMessage
-	32, // 18: durabletask.protos.backend.v1.WorkflowState.inbox:type_name -> HistoryEvent
-	32, // 19: durabletask.protos.backend.v1.WorkflowState.history:type_name -> HistoryEvent
-	35, // 20: durabletask.protos.backend.v1.WorkflowState.customStatus:type_name -> google.protobuf.StringValue
+	12, // 17: durabletask.protos.backend.v1.CompleteEntityWorkItemRequest.messages:type_name -> durabletask.protos.backend.v1.WorkflowMessage
+	32, // 18: durabletask.protos.backend.v1.BackendWorkflowState.inbox:type_name -> HistoryEvent
+	32, // 19: durabletask.protos.backend.v1.BackendWorkflowState.history:type_name -> HistoryEvent
+	35, // 20: durabletask.protos.backend.v1.BackendWorkflowState.customStatus:type_name -> google.protobuf.StringValue
 	32, // 21: durabletask.protos.backend.v1.CreateWorkflowInstanceRequest.startEvent:type_name -> HistoryEvent
 	37, // 22: durabletask.protos.backend.v1.CreateWorkflowInstanceRequest.policy:type_name -> OrchestrationIdReusePolicy
-	34, // 23: durabletask.protos.backend.v1.OrchestrationMetadata.runtimeStatus:type_name -> OrchestrationStatus
-	38, // 24: durabletask.protos.backend.v1.OrchestrationMetadata.createdAt:type_name -> google.protobuf.Timestamp
-	38, // 25: durabletask.protos.backend.v1.OrchestrationMetadata.lastUpdatedAt:type_name -> google.protobuf.Timestamp
-	35, // 26: durabletask.protos.backend.v1.OrchestrationMetadata.input:type_name -> google.protobuf.StringValue
-	35, // 27: durabletask.protos.backend.v1.OrchestrationMetadata.output:type_name -> google.protobuf.StringValue
-	35, // 28: durabletask.protos.backend.v1.OrchestrationMetadata.customStatus:type_name -> google.protobuf.StringValue
-	39, // 29: durabletask.protos.backend.v1.OrchestrationMetadata.failureDetails:type_name -> TaskFailureDetails
-	38, // 30: durabletask.protos.backend.v1.OrchestrationMetadata.completedAt:type_name -> google.protobuf.Timestamp
+	34, // 23: durabletask.protos.backend.v1.WorkflowMetadata.runtimeStatus:type_name -> OrchestrationStatus
+	38, // 24: durabletask.protos.backend.v1.WorkflowMetadata.createdAt:type_name -> google.protobuf.Timestamp
+	38, // 25: durabletask.protos.backend.v1.WorkflowMetadata.lastUpdatedAt:type_name -> google.protobuf.Timestamp
+	35, // 26: durabletask.protos.backend.v1.WorkflowMetadata.input:type_name -> google.protobuf.StringValue
+	35, // 27: durabletask.protos.backend.v1.WorkflowMetadata.output:type_name -> google.protobuf.StringValue
+	35, // 28: durabletask.protos.backend.v1.WorkflowMetadata.customStatus:type_name -> google.protobuf.StringValue
+	39, // 29: durabletask.protos.backend.v1.WorkflowMetadata.failureDetails:type_name -> TaskFailureDetails
+	38, // 30: durabletask.protos.backend.v1.WorkflowMetadata.completedAt:type_name -> google.protobuf.Timestamp
 	32, // 31: durabletask.protos.backend.v1.DurableTimer.timerEvent:type_name -> HistoryEvent
 	28, // 32: durabletask.protos.backend.v1.GetMetricsResponse.metrics:type_name -> durabletask.protos.backend.v1.BackendMetrics
 	29, // 33: durabletask.protos.backend.v1.BackendMetrics.activityWorkItems:type_name -> durabletask.protos.backend.v1.WorkItemMetrics
@@ -2311,12 +2311,12 @@ var file_backend_service_proto_depIdxs = []int32{
 	45, // 44: durabletask.protos.backend.v1.BackendService.PurgeInstances:input_type -> PurgeInstancesRequest
 	46, // 45: durabletask.protos.backend.v1.BackendService.CleanEntityStorage:input_type -> CleanEntityStorageRequest
 	47, // 46: durabletask.protos.backend.v1.BackendService.GetWorkItems:input_type -> GetWorkItemsRequest
-	4,  // 47: durabletask.protos.backend.v1.BackendService.GetOrchestrationRuntimeState:input_type -> durabletask.protos.backend.v1.GetOrchestrationRuntimeStateRequest
+	4,  // 47: durabletask.protos.backend.v1.BackendService.GetOrchestrationRuntimeState:input_type -> durabletask.protos.backend.v1.GetWorkflowRuntimeStateRequest
 	48, // 48: durabletask.protos.backend.v1.BackendService.StreamInstanceHistory:input_type -> StreamInstanceHistoryRequest
 	6,  // 49: durabletask.protos.backend.v1.BackendService.CompleteActivityWorkItem:input_type -> durabletask.protos.backend.v1.CompleteActivityWorkItemRequest
 	8,  // 50: durabletask.protos.backend.v1.BackendService.AbandonActivityWorkItem:input_type -> durabletask.protos.backend.v1.AbandonActivityWorkItemRequest
-	10, // 51: durabletask.protos.backend.v1.BackendService.CompleteOrchestrationWorkItem:input_type -> durabletask.protos.backend.v1.CompleteOrchestrationWorkItemRequest
-	13, // 52: durabletask.protos.backend.v1.BackendService.AbandonOrchestrationWorkItem:input_type -> durabletask.protos.backend.v1.AbandonOrchestrationWorkItemRequest
+	10, // 51: durabletask.protos.backend.v1.BackendService.CompleteOrchestrationWorkItem:input_type -> durabletask.protos.backend.v1.CompleteWorkflowWorkItemRequest
+	13, // 52: durabletask.protos.backend.v1.BackendService.AbandonOrchestrationWorkItem:input_type -> durabletask.protos.backend.v1.AbandonWorkflowWorkItemRequest
 	15, // 53: durabletask.protos.backend.v1.BackendService.CompleteEntityWorkItem:input_type -> durabletask.protos.backend.v1.CompleteEntityWorkItemRequest
 	17, // 54: durabletask.protos.backend.v1.BackendService.AbandonEntityWorkItem:input_type -> durabletask.protos.backend.v1.AbandonEntityWorkItemRequest
 	19, // 55: durabletask.protos.backend.v1.BackendService.Ping:input_type -> durabletask.protos.backend.v1.PingRequest
@@ -2333,12 +2333,12 @@ var file_backend_service_proto_depIdxs = []int32{
 	56, // 66: durabletask.protos.backend.v1.BackendService.PurgeInstances:output_type -> PurgeInstancesResponse
 	57, // 67: durabletask.protos.backend.v1.BackendService.CleanEntityStorage:output_type -> CleanEntityStorageResponse
 	58, // 68: durabletask.protos.backend.v1.BackendService.GetWorkItems:output_type -> WorkItem
-	5,  // 69: durabletask.protos.backend.v1.BackendService.GetOrchestrationRuntimeState:output_type -> durabletask.protos.backend.v1.GetOrchestrationRuntimeStateResponse
+	5,  // 69: durabletask.protos.backend.v1.BackendService.GetOrchestrationRuntimeState:output_type -> durabletask.protos.backend.v1.GetWorkflowRuntimeStateResponse
 	59, // 70: durabletask.protos.backend.v1.BackendService.StreamInstanceHistory:output_type -> HistoryChunk
 	7,  // 71: durabletask.protos.backend.v1.BackendService.CompleteActivityWorkItem:output_type -> durabletask.protos.backend.v1.CompleteActivityWorkItemResponse
 	9,  // 72: durabletask.protos.backend.v1.BackendService.AbandonActivityWorkItem:output_type -> durabletask.protos.backend.v1.AbandonActivityWorkItemResponse
-	11, // 73: durabletask.protos.backend.v1.BackendService.CompleteOrchestrationWorkItem:output_type -> durabletask.protos.backend.v1.CompleteOrchestrationWorkItemResponse
-	14, // 74: durabletask.protos.backend.v1.BackendService.AbandonOrchestrationWorkItem:output_type -> durabletask.protos.backend.v1.AbandonOrchestrationWorkItemResponse
+	11, // 73: durabletask.protos.backend.v1.BackendService.CompleteOrchestrationWorkItem:output_type -> durabletask.protos.backend.v1.CompleteWorkflowWorkItemResponse
+	14, // 74: durabletask.protos.backend.v1.BackendService.AbandonOrchestrationWorkItem:output_type -> durabletask.protos.backend.v1.AbandonWorkflowWorkItemResponse
 	16, // 75: durabletask.protos.backend.v1.BackendService.CompleteEntityWorkItem:output_type -> durabletask.protos.backend.v1.CompleteEntityWorkItemResponse
 	18, // 76: durabletask.protos.backend.v1.BackendService.AbandonEntityWorkItem:output_type -> durabletask.protos.backend.v1.AbandonEntityWorkItemResponse
 	20, // 77: durabletask.protos.backend.v1.BackendService.Ping:output_type -> durabletask.protos.backend.v1.PingResponse
@@ -2408,7 +2408,7 @@ func file_backend_service_proto_init() {
 			}
 		}
 		file_backend_service_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetOrchestrationRuntimeStateRequest); i {
+			switch v := v.(*GetWorkflowRuntimeStateRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2420,7 +2420,7 @@ func file_backend_service_proto_init() {
 			}
 		}
 		file_backend_service_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetOrchestrationRuntimeStateResponse); i {
+			switch v := v.(*GetWorkflowRuntimeStateResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2480,7 +2480,7 @@ func file_backend_service_proto_init() {
 			}
 		}
 		file_backend_service_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CompleteOrchestrationWorkItemRequest); i {
+			switch v := v.(*CompleteWorkflowWorkItemRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2492,7 +2492,7 @@ func file_backend_service_proto_init() {
 			}
 		}
 		file_backend_service_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CompleteOrchestrationWorkItemResponse); i {
+			switch v := v.(*CompleteWorkflowWorkItemResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2504,7 +2504,7 @@ func file_backend_service_proto_init() {
 			}
 		}
 		file_backend_service_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*OrchestratorMessage); i {
+			switch v := v.(*WorkflowMessage); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2516,7 +2516,7 @@ func file_backend_service_proto_init() {
 			}
 		}
 		file_backend_service_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AbandonOrchestrationWorkItemRequest); i {
+			switch v := v.(*AbandonWorkflowWorkItemRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2528,7 +2528,7 @@ func file_backend_service_proto_init() {
 			}
 		}
 		file_backend_service_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AbandonOrchestrationWorkItemResponse); i {
+			switch v := v.(*AbandonWorkflowWorkItemResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2612,7 +2612,7 @@ func file_backend_service_proto_init() {
 			}
 		}
 		file_backend_service_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*WorkflowState); i {
+			switch v := v.(*BackendWorkflowState); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2636,7 +2636,7 @@ func file_backend_service_proto_init() {
 			}
 		}
 		file_backend_service_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*OrchestrationMetadata); i {
+			switch v := v.(*WorkflowMetadata); i {
 			case 0:
 				return &v.state
 			case 1:

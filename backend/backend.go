@@ -23,7 +23,7 @@ var (
 type (
 	HistoryEvent                     = protos.HistoryEvent
 	TaskFailureDetails               = protos.TaskFailureDetails
-	WorkflowState                    = protos.WorkflowState
+	WorkflowState                    = protos.BackendWorkflowState
 	CreateWorkflowInstanceRequest    = protos.CreateWorkflowInstanceRequest
 	ActivityRequest                  = protos.ActivityRequest
 	OrchestrationMetadata            = protos.OrchestrationMetadata
@@ -32,6 +32,9 @@ type (
 	DurableTimer                     = protos.DurableTimer
 	OrchestrationRuntimeState        = protos.OrchestrationRuntimeState
 	OrchestrationRuntimeStateMessage = protos.OrchestrationRuntimeStateMessage
+	WorkflowRuntimeState             = protos.WorkflowRuntimeState
+	WorkflowRuntimeStateMessage      = protos.WorkflowRuntimeStateMessage
+	WorkflowMetadata                 = protos.WorkflowMetadata
 	RerunWorkflowFromEventRequest    = protos.RerunWorkflowFromEventRequest
 	ListInstanceIDsRequest           = protos.ListInstanceIDsRequest
 	ListInstanceIDsResponse          = protos.ListInstanceIDsResponse
