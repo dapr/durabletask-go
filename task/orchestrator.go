@@ -217,7 +217,7 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 	}
 
 	var err error = nil
-	if os := e.GetOrchestratorStarted(); os != nil {
+	if os := e.GetWorkflowExecutorStarted(); os != nil {
 		// OrchestratorStarted is only used to update the current orchestration time and history patches
 		ctx.CurrentTimeUtc = e.Timestamp.AsTime()
 		if version := os.GetVersion(); version != nil {
@@ -236,11 +236,11 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 		err = ctx.onTaskCompleted(tc)
 	} else if tf := e.GetTaskFailed(); tf != nil {
 		err = ctx.onTaskFailed(tf)
-	} else if ts := e.GetSubOrchestrationInstanceCreated(); ts != nil {
+	} else if ts := e.GetSubWorkflowInstanceCreated(); ts != nil {
 		err = ctx.onSubOrchestrationScheduled(e.EventId, ts)
-	} else if sc := e.GetSubOrchestrationInstanceCompleted(); sc != nil {
+	} else if sc := e.GetSubWorkflowInstanceCompleted(); sc != nil {
 		err = ctx.onSubOrchestrationCompleted(sc)
-	} else if sf := e.GetSubOrchestrationInstanceFailed(); sf != nil {
+	} else if sf := e.GetSubWorkflowInstanceFailed(); sf != nil {
 		err = ctx.onSubOrchestrationFailed(sf)
 	} else if tc := e.GetTimerCreated(); tc != nil {
 		err = ctx.onTimerCreated(e)
@@ -256,7 +256,7 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 		err = ctx.onExecutionTerminated(et)
 	} else if e.GetExecutionStalled() != nil {
 		// Nothing to do
-	} else if oc := e.GetOrchestratorCompleted(); oc != nil {
+	} else if oc := e.GetWorkflowExecutorCompleted(); oc != nil {
 		// Nothing to do
 	} else {
 		err = fmt.Errorf("don't know how to handle event: %v", e)
@@ -303,7 +303,7 @@ func (ctx *OrchestrationContext) CallActivity(activity interface{}, opts ...Call
 func (ctx *OrchestrationContext) internalScheduleActivity(activityName, taskExecutionId string, options *callActivityOptions) Task {
 	scheduleTaskAction := &protos.OrchestratorAction{
 		Id: ctx.getNextSequenceNumber(),
-		OrchestratorActionType: &protos.OrchestratorAction_ScheduleTask{
+		WorkflowActionType: &protos.OrchestratorAction_ScheduleTask{
 			ScheduleTask: &protos.ScheduleTaskAction{Name: activityName, TaskExecutionId: taskExecutionId, Input: options.rawInput},
 		},
 	}
@@ -348,8 +348,8 @@ func (ctx *OrchestrationContext) CallSubOrchestrator(orchestrator interface{}, o
 func (ctx *OrchestrationContext) internalCallSubOrchestrator(orchestratorName string, options *callSubOrchestratorOptions) Task {
 	createSubOrchestrationAction := &protos.OrchestratorAction{
 		Id: ctx.getNextSequenceNumber(),
-		OrchestratorActionType: &protos.OrchestratorAction_CreateSubOrchestration{
-			CreateSubOrchestration: &protos.CreateSubOrchestrationAction{
+		WorkflowActionType: &protos.OrchestratorAction_CreateSubOrchestration{
+			CreateSubWorkflow: &protos.CreateSubOrchestrationAction{
 				Name:       orchestratorName,
 				Input:      options.rawInput,
 				InstanceId: options.instanceID,
@@ -441,7 +441,7 @@ func (ctx *OrchestrationContext) createTimerInternal(name *string, delay time.Du
 	fireAt := ctx.CurrentTimeUtc.Add(delay)
 	timerAction := &protos.OrchestratorAction{
 		Id: ctx.getNextSequenceNumber(),
-		OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+		WorkflowActionType: &protos.OrchestratorAction_CreateTimer{
 			CreateTimer: &protos.CreateTimerAction{
 				FireAt: timestamppb.New(fireAt),
 				Name:   name,
@@ -657,7 +657,7 @@ func (ctx *OrchestrationContext) onTaskFailed(tf *protos.TaskFailedEvent) error 
 }
 
 func (ctx *OrchestrationContext) onSubOrchestrationScheduled(taskID int32, ts *protos.SubOrchestrationInstanceCreatedEvent) error {
-	if a, ok := ctx.pendingActions[taskID]; !ok || a.GetCreateSubOrchestration() == nil {
+	if a, ok := ctx.pendingActions[taskID]; !ok || a.GetCreateSubWorkflow() == nil {
 		return fmt.Errorf(
 			"a previous execution called CallSubOrchestrator for '%s' and sequence number %d at this point in the orchestration logic, but the current execution doesn't have this action with this sequence number",
 			ts.Name,
@@ -833,9 +833,9 @@ func (ctx *OrchestrationContext) setCompleteInternal(
 	sequenceNumber := ctx.getNextSequenceNumber()
 	completedAction := &protos.OrchestratorAction{
 		Id: sequenceNumber,
-		OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-			CompleteOrchestration: &protos.CompleteOrchestrationAction{
-				OrchestrationStatus: status,
+		WorkflowActionType: &protos.OrchestratorAction_CompleteOrchestration{
+			CompleteWorkflow: &protos.CompleteOrchestrationAction{
+				WorkflowStatus: status,
 				Result:              rawResult,
 				FailureDetails:      failureDetails,
 			},
@@ -850,8 +850,8 @@ func (ctx *OrchestrationContext) setVersionNotRegistered() error {
 	sequenceNumber := ctx.getNextSequenceNumber()
 	ctx.pendingActions[sequenceNumber] = &protos.OrchestratorAction{
 		Id: sequenceNumber,
-		OrchestratorActionType: &protos.OrchestratorAction_OrchestratorVersionNotAvailable{
-			OrchestratorVersionNotAvailable: &protos.OrchestratorVersionNotAvailableAction{},
+		WorkflowActionType: &protos.OrchestratorAction_OrchestratorVersionNotAvailable{
+			WorkflowVersionNotAvailable: &protos.OrchestratorVersionNotAvailableAction{},
 		},
 	}
 	return nil
@@ -872,7 +872,7 @@ func (ctx *OrchestrationContext) actions() []*protos.OrchestratorAction {
 	for _, a := range ctx.pendingActions {
 		actions = append(actions, a)
 		if ctx.continuedAsNew && ctx.saveBufferedExternalEvents {
-			if co := a.GetCompleteOrchestration(); co != nil {
+			if co := a.GetCompleteWorkflow(); co != nil {
 				for _, eventList := range ctx.bufferedExternalEvents {
 					for item := eventList.Front(); item != nil; item = item.Next() {
 						e := item.Value.(*protos.HistoryEvent)

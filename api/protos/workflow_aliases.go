@@ -1,70 +1,91 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// This file provides type aliases that map new workflow-centric names to
-// the underlying types, and also provides backward-compatible aliases for
-// the old orchestration-centric names.
+// This file provides backward-compatible type aliases for the old
+// Orchestration*/Orchestrator* names that have been renamed to Workflow* in the
+// generated protobuf code.
 
 package protos
 
-// WorkflowInstance is the new name for OrchestrationInstance.
-type WorkflowInstance = OrchestrationInstance
+// OrchestrationInstance is the deprecated name for WorkflowInstance.
+// Deprecated: Use WorkflowInstance instead.
+type OrchestrationInstance = WorkflowInstance
 
-// WorkflowStatus is the new name for OrchestrationStatus.
-type WorkflowStatus = OrchestrationStatus
+// OrchestrationStatus is the deprecated name for WorkflowStatus.
+// Deprecated: Use WorkflowStatus instead.
+type OrchestrationStatus = WorkflowStatus
 
-// WorkflowState is the new name for OrchestrationState.
-type WorkflowState = OrchestrationState
+// OrchestrationState is the deprecated name for WorkflowState.
+// Deprecated: Use WorkflowState instead.
+type OrchestrationState = WorkflowState
 
-// WorkflowIdReusePolicy is the new name for OrchestrationIdReusePolicy.
-type WorkflowIdReusePolicy = OrchestrationIdReusePolicy
+// OrchestrationIdReusePolicy is the deprecated name for WorkflowIdReusePolicy.
+// Deprecated: Use WorkflowIdReusePolicy instead.
+type OrchestrationIdReusePolicy = WorkflowIdReusePolicy
 
-// WorkflowVersion is the new name for OrchestrationVersion.
-type WorkflowVersion = OrchestrationVersion
+// OrchestrationVersion is the deprecated name for WorkflowVersion.
+// Deprecated: Use WorkflowVersion instead.
+type OrchestrationVersion = WorkflowVersion
 
-// WorkflowAction is the new name for OrchestratorAction.
-type WorkflowAction = OrchestratorAction
+// OrchestratorAction is the deprecated name for WorkflowAction.
+// Deprecated: Use WorkflowAction instead.
+type OrchestratorAction = WorkflowAction
 
-// WorkflowRequest is the new name for OrchestratorRequest.
-type WorkflowRequest = OrchestratorRequest
+// OrchestratorRequest is the deprecated name for WorkflowRequest.
+// Deprecated: Use WorkflowRequest instead.
+type OrchestratorRequest = WorkflowRequest
 
-// WorkflowResponse is the new name for OrchestratorResponse.
-type WorkflowResponse = OrchestratorResponse
+// OrchestratorResponse is the deprecated name for WorkflowResponse.
+// Deprecated: Use WorkflowResponse instead.
+type OrchestratorResponse = WorkflowResponse
 
-// CreateWorkflowAction is the new name for CreateOrchestrationAction.
-type CreateWorkflowAction = CreateOrchestrationAction
+// CreateOrchestrationAction is the deprecated name for CreateWorkflowAction.
+// Deprecated: Use CreateWorkflowAction instead.
+type CreateOrchestrationAction = CreateWorkflowAction
 
-// SubWorkflowInstanceCreatedEvent is the new name for SubOrchestrationInstanceCreatedEvent.
-type SubWorkflowInstanceCreatedEvent = SubOrchestrationInstanceCreatedEvent
+// OrchestratorStartedEvent is the deprecated name for WorkflowExecutorStartedEvent.
+// Deprecated: Use WorkflowExecutorStartedEvent instead.
+type OrchestratorStartedEvent = WorkflowExecutorStartedEvent
 
-// SubWorkflowInstanceCompletedEvent is the new name for SubOrchestrationInstanceCompletedEvent.
-type SubWorkflowInstanceCompletedEvent = SubOrchestrationInstanceCompletedEvent
+// OrchestratorCompletedEvent is the deprecated name for WorkflowExecutorCompletedEvent.
+// Deprecated: Use WorkflowExecutorCompletedEvent instead.
+type OrchestratorCompletedEvent = WorkflowExecutorCompletedEvent
 
-// SubWorkflowInstanceFailedEvent is the new name for SubOrchestrationInstanceFailedEvent.
-type SubWorkflowInstanceFailedEvent = SubOrchestrationInstanceFailedEvent
+// SubOrchestrationInstanceCreatedEvent is the deprecated name for SubWorkflowInstanceCreatedEvent.
+// Deprecated: Use SubWorkflowInstanceCreatedEvent instead.
+type SubOrchestrationInstanceCreatedEvent = SubWorkflowInstanceCreatedEvent
 
-// WorkflowExecutorStartedEvent is the new name for OrchestratorStartedEvent.
-type WorkflowExecutorStartedEvent = OrchestratorStartedEvent
+// SubOrchestrationInstanceCompletedEvent is the deprecated name for SubWorkflowInstanceCompletedEvent.
+// Deprecated: Use SubWorkflowInstanceCompletedEvent instead.
+type SubOrchestrationInstanceCompletedEvent = SubWorkflowInstanceCompletedEvent
 
-// CreateSubWorkflowAction is the new name for CreateSubOrchestrationAction.
-type CreateSubWorkflowAction = CreateSubOrchestrationAction
+// SubOrchestrationInstanceFailedEvent is the deprecated name for SubWorkflowInstanceFailedEvent.
+// Deprecated: Use SubWorkflowInstanceFailedEvent instead.
+type SubOrchestrationInstanceFailedEvent = SubWorkflowInstanceFailedEvent
 
-// CompleteWorkflowAction is the new name for CompleteOrchestrationAction.
-type CompleteWorkflowAction = CompleteOrchestrationAction
+// CreateSubOrchestrationAction is the deprecated name for CreateSubWorkflowAction.
+// Deprecated: Use CreateSubWorkflowAction instead.
+type CreateSubOrchestrationAction = CreateSubWorkflowAction
 
-// TerminateWorkflowAction is the new name for TerminateOrchestrationAction.
-type TerminateWorkflowAction = TerminateOrchestrationAction
+// CompleteOrchestrationAction is the deprecated name for CompleteWorkflowAction.
+// Deprecated: Use CompleteWorkflowAction instead.
+type CompleteOrchestrationAction = CompleteWorkflowAction
 
-// WorkflowVersionNotAvailableAction is the new name for OrchestratorVersionNotAvailableAction.
-type WorkflowVersionNotAvailableAction = OrchestratorVersionNotAvailableAction
+// TerminateOrchestrationAction is the deprecated name for TerminateWorkflowAction.
+// Deprecated: Use TerminateWorkflowAction instead.
+type TerminateOrchestrationAction = TerminateWorkflowAction
 
-// AbandonWorkflowTaskRequest is the new name for AbandonOrchestrationTaskRequest.
-type AbandonWorkflowTaskRequest = AbandonOrchestrationTaskRequest
+// OrchestratorVersionNotAvailableAction is the deprecated name for WorkflowVersionNotAvailableAction.
+// Deprecated: Use WorkflowVersionNotAvailableAction instead.
+type OrchestratorVersionNotAvailableAction = WorkflowVersionNotAvailableAction
 
-// AbandonWorkflowTaskResponse is the new name for AbandonOrchestrationTaskResponse.
-type AbandonWorkflowTaskResponse = AbandonOrchestrationTaskResponse
+// AbandonOrchestrationTaskRequest is the deprecated name for AbandonWorkflowTaskRequest.
+// Deprecated: Use AbandonWorkflowTaskRequest instead.
+type AbandonOrchestrationTaskRequest = AbandonWorkflowTaskRequest
 
-// Backward-compatible aliases (old names → new underlying types in backend_service.pb.go)
+// AbandonOrchestrationTaskResponse is the deprecated name for AbandonWorkflowTaskResponse.
+// Deprecated: Use AbandonWorkflowTaskResponse instead.
+type AbandonOrchestrationTaskResponse = AbandonWorkflowTaskResponse
 
 // OrchestratorMessage is the deprecated name for WorkflowMessage.
 // Deprecated: Use WorkflowMessage instead.
@@ -98,8 +119,6 @@ type GetOrchestrationRuntimeStateRequest = GetWorkflowRuntimeStateRequest
 // Deprecated: Use GetWorkflowRuntimeStateResponse instead.
 type GetOrchestrationRuntimeStateResponse = GetWorkflowRuntimeStateResponse
 
-// Backward-compatible aliases for runtime state types
-
 // OrchestrationRuntimeState is the deprecated name for WorkflowRuntimeState.
 // Deprecated: Use WorkflowRuntimeState instead.
 type OrchestrationRuntimeState = WorkflowRuntimeState
@@ -108,23 +127,46 @@ type OrchestrationRuntimeState = WorkflowRuntimeState
 // Deprecated: Use WorkflowRuntimeStateMessage instead.
 type OrchestrationRuntimeStateMessage = WorkflowRuntimeStateMessage
 
-// New enum constants using the WORKFLOW_STATUS_* naming convention.
-// These map directly to the ORCHESTRATION_STATUS_* constants.
+// Deprecated enum constant aliases for OrchestrationStatus.
 const (
-	WorkflowStatus_WORKFLOW_STATUS_RUNNING          WorkflowStatus = OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING
-	WorkflowStatus_WORKFLOW_STATUS_COMPLETED        WorkflowStatus = OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
-	WorkflowStatus_WORKFLOW_STATUS_CONTINUED_AS_NEW WorkflowStatus = OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW
-	WorkflowStatus_WORKFLOW_STATUS_FAILED           WorkflowStatus = OrchestrationStatus_ORCHESTRATION_STATUS_FAILED
-	WorkflowStatus_WORKFLOW_STATUS_CANCELED         WorkflowStatus = OrchestrationStatus_ORCHESTRATION_STATUS_CANCELED
-	WorkflowStatus_WORKFLOW_STATUS_TERMINATED       WorkflowStatus = OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED
-	WorkflowStatus_WORKFLOW_STATUS_PENDING          WorkflowStatus = OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
-	WorkflowStatus_WORKFLOW_STATUS_SUSPENDED        WorkflowStatus = OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED
-	WorkflowStatus_WORKFLOW_STATUS_STALLED          WorkflowStatus = OrchestrationStatus_ORCHESTRATION_STATUS_STALLED
+	OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING          = WorkflowStatus_WORKFLOW_STATUS_RUNNING
+	OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED        = WorkflowStatus_WORKFLOW_STATUS_COMPLETED
+	OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW = WorkflowStatus_WORKFLOW_STATUS_CONTINUED_AS_NEW
+	OrchestrationStatus_ORCHESTRATION_STATUS_FAILED           = WorkflowStatus_WORKFLOW_STATUS_FAILED
+	OrchestrationStatus_ORCHESTRATION_STATUS_CANCELED         = WorkflowStatus_WORKFLOW_STATUS_CANCELED
+	OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED       = WorkflowStatus_WORKFLOW_STATUS_TERMINATED
+	OrchestrationStatus_ORCHESTRATION_STATUS_PENDING          = WorkflowStatus_WORKFLOW_STATUS_PENDING
+	OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED        = WorkflowStatus_WORKFLOW_STATUS_SUSPENDED
+	OrchestrationStatus_ORCHESTRATION_STATUS_STALLED          = WorkflowStatus_WORKFLOW_STATUS_STALLED
 )
 
-// New enum constants using the workflow-centric naming convention for CreateWorkflowAction.
+// Deprecated enum constant aliases for CreateOrchestrationAction.
 const (
-	CreateWorkflowAction_ERROR     CreateWorkflowAction = CreateOrchestrationAction_ERROR
-	CreateWorkflowAction_IGNORE    CreateWorkflowAction = CreateOrchestrationAction_IGNORE
-	CreateWorkflowAction_TERMINATE CreateWorkflowAction = CreateOrchestrationAction_TERMINATE
+	CreateOrchestrationAction_ERROR     = CreateWorkflowAction_ERROR
+	CreateOrchestrationAction_IGNORE    = CreateWorkflowAction_IGNORE
+	CreateOrchestrationAction_TERMINATE = CreateWorkflowAction_TERMINATE
 )
+
+// OrchestratorAction oneof type aliases.
+type (
+	OrchestratorAction_ScheduleTask                    = WorkflowAction_ScheduleTask
+	OrchestratorAction_CreateSubOrchestration          = WorkflowAction_CreateSubWorkflow
+	OrchestratorAction_CreateTimer                     = WorkflowAction_CreateTimer
+	OrchestratorAction_SendEvent                       = WorkflowAction_SendEvent
+	OrchestratorAction_CompleteOrchestration           = WorkflowAction_CompleteWorkflow
+	OrchestratorAction_TerminateOrchestration          = WorkflowAction_TerminateWorkflow
+	OrchestratorAction_SendEntityMessage               = WorkflowAction_SendEntityMessage
+	OrchestratorAction_OrchestratorVersionNotAvailable = WorkflowAction_WorkflowVersionNotAvailable
+)
+
+// HistoryEvent oneof type aliases.
+type (
+	HistoryEvent_OrchestratorStarted               = HistoryEvent_WorkflowExecutorStarted
+	HistoryEvent_OrchestratorCompleted             = HistoryEvent_WorkflowExecutorCompleted
+	HistoryEvent_SubOrchestrationInstanceCreated   = HistoryEvent_SubWorkflowInstanceCreated
+	HistoryEvent_SubOrchestrationInstanceCompleted = HistoryEvent_SubWorkflowInstanceCompleted
+	HistoryEvent_SubOrchestrationInstanceFailed    = HistoryEvent_SubWorkflowInstanceFailed
+)
+
+// WorkItem oneof type alias.
+type WorkItem_OrchestratorRequest = WorkItem_WorkflowRequest

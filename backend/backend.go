@@ -250,12 +250,12 @@ func terminateSubOrchestrationInstances(ctx context.Context, be Backend, iid api
 func getSubOrchestrationInstances(oldEvents []*HistoryEvent, newEvents []*HistoryEvent) []api.InstanceID {
 	subOrchestrationInstancesMap := make(map[api.InstanceID]struct{}, len(oldEvents)+len(newEvents))
 	for _, e := range oldEvents {
-		if created := e.GetSubOrchestrationInstanceCreated(); created != nil {
+		if created := e.GetSubWorkflowInstanceCreated(); created != nil {
 			subOrchestrationInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
 		}
 	}
 	for _, e := range newEvents {
-		if created := e.GetSubOrchestrationInstanceCreated(); created != nil {
+		if created := e.GetSubWorkflowInstanceCreated(); created != nil {
 			subOrchestrationInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
 		}
 	}

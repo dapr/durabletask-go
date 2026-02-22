@@ -31,7 +31,7 @@ func HistoryListSummary(list []*protos.HistoryEvent) string {
 	return sb.String()
 }
 
-func ActionListSummary(actions []*protos.OrchestratorAction) string {
+func ActionListSummary(actions []*protos.WorkflowAction) string {
 	var sb strings.Builder
 	sb.WriteString("[")
 	for i, a := range actions {
@@ -60,9 +60,9 @@ func GetTaskId(e *protos.HistoryEvent) int32 {
 		return x.TaskScheduledId
 	} else if x := e.GetTaskFailed(); x != nil {
 		return x.TaskScheduledId
-	} else if x := e.GetSubOrchestrationInstanceCompleted(); x != nil {
+	} else if x := e.GetSubWorkflowInstanceCompleted(); x != nil {
 		return x.TaskScheduledId
-	} else if x := e.GetSubOrchestrationInstanceFailed(); x != nil {
+	} else if x := e.GetSubWorkflowInstanceFailed(); x != nil {
 		return x.TaskScheduledId
 	} else if x := e.GetTimerFired(); x != nil {
 		return x.TimerId
@@ -73,14 +73,14 @@ func GetTaskId(e *protos.HistoryEvent) int32 {
 	}
 }
 
-func ToRuntimeStatusString(status protos.OrchestrationStatus) string {
-	name := protos.OrchestrationStatus_name[int32(status)]
-	return name[len("ORCHESTRATION_STATUS_"):]
+func ToRuntimeStatusString(status protos.WorkflowStatus) string {
+	name := protos.WorkflowStatus_name[int32(status)]
+	return name[len("WORKFLOW_STATUS_"):]
 }
 
-func FromRuntimeStatusString(status string) protos.OrchestrationStatus {
-	runtimeStatus := "ORCHESTRATION_STATUS_" + status
-	return protos.OrchestrationStatus(protos.OrchestrationStatus_value[runtimeStatus])
+func FromRuntimeStatusString(status string) protos.WorkflowStatus {
+	runtimeStatus := "WORKFLOW_STATUS_" + status
+	return protos.WorkflowStatus(protos.WorkflowStatus_value[runtimeStatus])
 }
 
 func getHistoryEventTypeName(e *protos.HistoryEvent) string {
@@ -88,7 +88,7 @@ func getHistoryEventTypeName(e *protos.HistoryEvent) string {
 	return reflect.TypeOf(e.EventType).Elem().Name()[len("HistoryEvent_"):]
 }
 
-func getActionTypeName(a *protos.OrchestratorAction) string {
+func getActionTypeName(a *protos.WorkflowAction) string {
 	// PERFORMANCE: Replace this with a switch statement or a map lookup to avoid this use of reflection
-	return reflect.TypeOf(a.OrchestratorActionType).Elem().Name()[len("OrchestratorAction_"):]
+	return reflect.TypeOf(a.WorkflowActionType).Elem().Name()[len("WorkflowAction_"):]
 }

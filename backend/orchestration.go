@@ -106,7 +106,7 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 
 			if version := results.GetVersion(); version != nil && (version.GetPatches() != nil || version.Name != nil) {
 				for _, e := range wi.State.NewEvents {
-					if os := e.GetOrchestratorStarted(); os != nil {
+					if os := e.GetWorkflowExecutorStarted(); os != nil {
 						os.Version = version
 						if len(version.GetPatches()) > 0 {
 							span.SetAttributes(attribute.StringSlice("applied_patches", version.GetPatches()))
@@ -179,7 +179,7 @@ func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *Orchestra
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
 		EventType: &protos.HistoryEvent_OrchestratorStarted{
-			OrchestratorStarted: &protos.OrchestratorStartedEvent{},
+			WorkflowExecutorStarted: &protos.OrchestratorStartedEvent{},
 		},
 	})
 
@@ -203,7 +203,7 @@ func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *Orchestra
 
 		// Special case logic for specific event types
 		if es := e.GetExecutionStarted(); es != nil {
-			w.logger.Infof("%v: starting new '%s' instance with ID = '%s'.", wi.InstanceID, es.Name, es.OrchestrationInstance.InstanceId)
+			w.logger.Infof("%v: starting new '%s' instance with ID = '%s'.", wi.InstanceID, es.Name, es.WorkflowInstance.InstanceId)
 		} else if timerFired := e.GetTimerFired(); timerFired != nil {
 			// Timer spans are created and completed once the TimerFired event is received.
 			// TODO: Ideally we don't emit spans for cancelled timers. Is there a way to support this?
@@ -275,16 +275,16 @@ func (w *orchestratorProcessor) startOrResumeOrchestratorSpan(ctx context.Contex
 	ctx, span = helpers.StartNewRunOrchestrationSpan(ctx, es, runtimestate.GetStartedTime(wi.State))
 
 	// Assign or rehydrate the long-running orchestration span ID
-	if es.OrchestrationSpanID == nil {
+	if es.WorkflowSpanID == nil {
 		// On the initial execution, assign the orchestration span ID to be the
 		// randomly generated span ID value. This will be persisted in the orchestration history
 		// and referenced on the next replay.
-		es.OrchestrationSpanID = wrapperspb.String(span.SpanContext().SpanID().String())
+		es.WorkflowSpanID = wrapperspb.String(span.SpanContext().SpanID().String())
 	} else {
 		// On subsequent executions, replace the auto-generated span ID with the orchestration
 		// span ID. This allows us to have one long-running span that survives multiple replays
 		// and process failures.
-		if orchestratorSpanID, err := trace.SpanIDFromHex(es.OrchestrationSpanID.Value); err == nil {
+		if orchestratorSpanID, err := trace.SpanIDFromHex(es.WorkflowSpanID.Value); err == nil {
 			helpers.ChangeSpanID(span, orchestratorSpanID)
 		}
 	}
