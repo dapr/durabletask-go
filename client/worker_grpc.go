@@ -141,11 +141,11 @@ func (c *TaskHubGrpcClient) processOrchestrationWorkItem(
 	if err != nil {
 		// NOTE: At the time of writing, there's no known case where this error is returned.
 		//       We add error handling here anyways, just in case.
-		resp.Actions = []*protos.OrchestratorAction{
+		resp.Actions = []*protos.WorkflowAction{
 			{
 				Id: -1,
-				WorkflowActionType: &protos.OrchestratorAction_CompleteOrchestration{
-					CompleteWorkflow: &protos.CompleteOrchestrationAction{
+				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+					CompleteWorkflow: &protos.CompleteWorkflowAction{
 						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED,
 						Result:              wrapperspb.String("An internal error occured while executing the orchestration."),
 						FailureDetails: &protos.TaskFailureDetails{

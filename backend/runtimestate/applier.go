@@ -43,8 +43,8 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 				_ = AddEvent(newState, &protos.HistoryEvent{
 					EventId:   -1,
 					Timestamp: timestamppb.Now(),
-					EventType: &protos.HistoryEvent_OrchestratorStarted{
-						WorkflowExecutorStarted: &protos.OrchestratorStartedEvent{},
+					EventType: &protos.HistoryEvent_WorkflowExecutorStarted{
+						WorkflowExecutorStarted: &protos.WorkflowExecutorStartedEvent{},
 					},
 					Router: action.Router,
 				})
@@ -59,7 +59,7 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 								Name:           s.StartEvent.Name,
 								ParentInstance: s.StartEvent.ParentInstance,
 								Input:          completedAction.Result,
-								WorkflowInstance: &protos.OrchestrationInstance{
+								WorkflowInstance: &protos.WorkflowInstance{
 									InstanceId:  s.InstanceId,
 									ExecutionId: wrapperspb.String(uuid.New().String()),
 								},
@@ -114,16 +114,16 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 						TargetInstanceID: s.StartEvent.GetParentInstance().WorkflowInstance.InstanceId,
 					}
 					if completedAction.WorkflowStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED {
-						msg.HistoryEvent.EventType = &protos.HistoryEvent_SubOrchestrationInstanceCompleted{
-							SubWorkflowInstanceCompleted: &protos.SubOrchestrationInstanceCompletedEvent{
+						msg.HistoryEvent.EventType = &protos.HistoryEvent_SubWorkflowInstanceCompleted{
+							SubWorkflowInstanceCompleted: &protos.SubWorkflowInstanceCompletedEvent{
 								TaskScheduledId: s.StartEvent.ParentInstance.TaskScheduledId,
 								Result:          completedAction.Result,
 							},
 						}
 					} else {
 						// TODO: What is the expected result for termination?
-						msg.HistoryEvent.EventType = &protos.HistoryEvent_SubOrchestrationInstanceFailed{
-							SubWorkflowInstanceFailed: &protos.SubOrchestrationInstanceFailedEvent{
+						msg.HistoryEvent.EventType = &protos.HistoryEvent_SubWorkflowInstanceFailed{
+							SubWorkflowInstanceFailed: &protos.SubWorkflowInstanceFailedEvent{
 								TaskScheduledId: s.StartEvent.ParentInstance.TaskScheduledId,
 								FailureDetails:  completedAction.FailureDetails,
 							},
@@ -181,8 +181,8 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,
 				Timestamp: timestamppb.New(time.Now()),
-				EventType: &protos.HistoryEvent_SubOrchestrationInstanceCreated{
-					SubWorkflowInstanceCreated: &protos.SubOrchestrationInstanceCreatedEvent{
+				EventType: &protos.HistoryEvent_SubWorkflowInstanceCreated{
+					SubWorkflowInstanceCreated: &protos.SubWorkflowInstanceCreatedEvent{
 						Name:               createSO.Name,
 						Version:            createSO.Version,
 						Input:              createSO.Input,
@@ -201,11 +201,11 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 						ParentInstance: &protos.ParentInstanceInfo{
 							TaskScheduledId:       action.Id,
 							Name:                  wrapperspb.String(s.StartEvent.Name),
-						WorkflowInstance: &protos.OrchestrationInstance{InstanceId: string(s.InstanceId)},
+						WorkflowInstance: &protos.WorkflowInstance{InstanceId: string(s.InstanceId)},
 							AppID:                 ptr.Of(action.Router.GetSourceAppID()),
 						},
 						Input: createSO.Input,
-						WorkflowInstance: &protos.OrchestrationInstance{
+						WorkflowInstance: &protos.WorkflowInstance{
 							InstanceId:  createSO.InstanceId,
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},

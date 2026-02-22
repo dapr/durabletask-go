@@ -178,8 +178,8 @@ func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *Orchestra
 	_ = runtimestate.AddEvent(wi.State, &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
-		EventType: &protos.HistoryEvent_OrchestratorStarted{
-			WorkflowExecutorStarted: &protos.OrchestratorStartedEvent{},
+		EventType: &protos.HistoryEvent_WorkflowExecutorStarted{
+			WorkflowExecutorStarted: &protos.WorkflowExecutorStartedEvent{},
 		},
 	})
 

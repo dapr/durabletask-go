@@ -67,7 +67,7 @@ func (c *backendClient) ScheduleNewOrchestration(ctx context.Context, orchestrat
 			ExecutionStarted: &protos.ExecutionStartedEvent{
 				Name:  req.Name,
 				Input: req.Input,
-				WorkflowInstance: &protos.OrchestrationInstance{
+				WorkflowInstance: &protos.WorkflowInstance{
 					InstanceId:  req.InstanceId,
 					ExecutionId: wrapperspb.String(uuid.New().String()),
 				},

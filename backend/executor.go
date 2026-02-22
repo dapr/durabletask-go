@@ -176,7 +176,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		Name:                  task.Name,
 		Version:               task.Version,
 		Input:                 task.Input,
-		WorkflowInstance: &protos.OrchestrationInstance{InstanceId: string(iid)},
+		WorkflowInstance: &protos.WorkflowInstance{InstanceId: string(iid)},
 		TaskId:                e.EventId,
 		TaskExecutionId:       task.TaskExecutionId,
 		ParentTraceContext:    task.ParentTraceContext,
@@ -518,7 +518,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 			ExecutionStarted: &protos.ExecutionStartedEvent{
 				Name:  req.Name,
 				Input: req.Input,
-				WorkflowInstance: &protos.OrchestrationInstance{
+				WorkflowInstance: &protos.WorkflowInstance{
 					InstanceId:  instanceID,
 					ExecutionId: wrapperspb.String(uuid.New().String()),
 				},

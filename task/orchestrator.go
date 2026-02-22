@@ -39,7 +39,7 @@ type OrchestrationContext struct {
 	isSuspended         bool
 	historyIndex        int
 	sequenceNumber      int32
-	pendingActions      map[int32]*protos.OrchestratorAction
+	pendingActions      map[int32]*protos.WorkflowAction
 	pendingTasks        map[int32]*completableTask
 	continuedAsNew      bool
 	continuedAsNewInput any
@@ -143,10 +143,10 @@ func NewOrchestrationContext(registry *TaskRegistry, id api.InstanceID, oldEvent
 	}
 }
 
-func (ctx *OrchestrationContext) start() (actions []*protos.OrchestratorAction) {
+func (ctx *OrchestrationContext) start() (actions []*protos.WorkflowAction) {
 	ctx.historyIndex = 0
 	ctx.sequenceNumber = 0
-	ctx.pendingActions = make(map[int32]*protos.OrchestratorAction)
+	ctx.pendingActions = make(map[int32]*protos.WorkflowAction)
 	ctx.pendingTasks = make(map[int32]*completableTask)
 
 	defer func() {
@@ -301,9 +301,9 @@ func (ctx *OrchestrationContext) CallActivity(activity interface{}, opts ...Call
 }
 
 func (ctx *OrchestrationContext) internalScheduleActivity(activityName, taskExecutionId string, options *callActivityOptions) Task {
-	scheduleTaskAction := &protos.OrchestratorAction{
+	scheduleTaskAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
-		WorkflowActionType: &protos.OrchestratorAction_ScheduleTask{
+		WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
 			ScheduleTask: &protos.ScheduleTaskAction{Name: activityName, TaskExecutionId: taskExecutionId, Input: options.rawInput},
 		},
 	}
@@ -346,10 +346,10 @@ func (ctx *OrchestrationContext) CallSubOrchestrator(orchestrator interface{}, o
 }
 
 func (ctx *OrchestrationContext) internalCallSubOrchestrator(orchestratorName string, options *callSubOrchestratorOptions) Task {
-	createSubOrchestrationAction := &protos.OrchestratorAction{
+	createSubOrchestrationAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
-		WorkflowActionType: &protos.OrchestratorAction_CreateSubOrchestration{
-			CreateSubWorkflow: &protos.CreateSubOrchestrationAction{
+		WorkflowActionType: &protos.WorkflowAction_CreateSubWorkflow{
+			CreateSubWorkflow: &protos.CreateSubWorkflowAction{
 				Name:       orchestratorName,
 				Input:      options.rawInput,
 				InstanceId: options.instanceID,
@@ -439,9 +439,9 @@ func (ctx *OrchestrationContext) CreateTimer(delay time.Duration, opts ...Create
 
 func (ctx *OrchestrationContext) createTimerInternal(name *string, delay time.Duration) *completableTask {
 	fireAt := ctx.CurrentTimeUtc.Add(delay)
-	timerAction := &protos.OrchestratorAction{
+	timerAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
-		WorkflowActionType: &protos.OrchestratorAction_CreateTimer{
+		WorkflowActionType: &protos.WorkflowAction_CreateTimer{
 			CreateTimer: &protos.CreateTimerAction{
 				FireAt: timestamppb.New(fireAt),
 				Name:   name,
@@ -831,10 +831,10 @@ func (ctx *OrchestrationContext) setCompleteInternal(
 	failureDetails *protos.TaskFailureDetails,
 ) error {
 	sequenceNumber := ctx.getNextSequenceNumber()
-	completedAction := &protos.OrchestratorAction{
+	completedAction := &protos.WorkflowAction{
 		Id: sequenceNumber,
-		WorkflowActionType: &protos.OrchestratorAction_CompleteOrchestration{
-			CompleteWorkflow: &protos.CompleteOrchestrationAction{
+		WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+			CompleteWorkflow: &protos.CompleteWorkflowAction{
 				WorkflowStatus: status,
 				Result:              rawResult,
 				FailureDetails:      failureDetails,
@@ -848,10 +848,10 @@ func (ctx *OrchestrationContext) setCompleteInternal(
 
 func (ctx *OrchestrationContext) setVersionNotRegistered() error {
 	sequenceNumber := ctx.getNextSequenceNumber()
-	ctx.pendingActions[sequenceNumber] = &protos.OrchestratorAction{
+	ctx.pendingActions[sequenceNumber] = &protos.WorkflowAction{
 		Id: sequenceNumber,
-		WorkflowActionType: &protos.OrchestratorAction_OrchestratorVersionNotAvailable{
-			WorkflowVersionNotAvailable: &protos.OrchestratorVersionNotAvailableAction{},
+		WorkflowActionType: &protos.WorkflowAction_WorkflowVersionNotAvailable{
+			WorkflowVersionNotAvailable: &protos.WorkflowVersionNotAvailableAction{},
 		},
 	}
 	return nil
@@ -863,12 +863,12 @@ func (ctx *OrchestrationContext) getNextSequenceNumber() int32 {
 	return current
 }
 
-func (ctx *OrchestrationContext) actions() []*protos.OrchestratorAction {
+func (ctx *OrchestrationContext) actions() []*protos.WorkflowAction {
 	if ctx.isSuspended {
 		return nil
 	}
 
-	var actions []*protos.OrchestratorAction
+	var actions []*protos.WorkflowAction
 	for _, a := range ctx.pendingActions {
 		actions = append(actions, a)
 		if ctx.continuedAsNew && ctx.saveBufferedExternalEvents {
