@@ -89,7 +89,7 @@ func (x *RuntimeStateStalled) GetDescription() string {
 	return ""
 }
 
-// WorkflowRuntimeState holds the current state for an orchestration.
+// WorkflowRuntimeState holds the current state for a workflow.
 type WorkflowRuntimeState struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -249,7 +249,7 @@ func (x *WorkflowRuntimeState) GetStalled() *RuntimeStateStalled {
 	return nil
 }
 
-// WorkflowRuntimeStateMessage holds an OrchestratorMessage and the target instance ID.
+// WorkflowRuntimeStateMessage holds a WorkflowMessage and the target instance ID.
 type WorkflowRuntimeStateMessage struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

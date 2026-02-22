@@ -26,12 +26,12 @@ type (
 	WorkflowState                    = protos.BackendWorkflowState
 	CreateWorkflowInstanceRequest    = protos.CreateWorkflowInstanceRequest
 	ActivityRequest                  = protos.ActivityRequest
-	OrchestrationMetadata            = protos.OrchestrationMetadata
+	OrchestrationMetadata            = protos.WorkflowMetadata
 	OrchestrationStatus              = protos.OrchestrationStatus
 	WorkflowStateMetadata            = protos.WorkflowStateMetadata
 	DurableTimer                     = protos.DurableTimer
-	OrchestrationRuntimeState        = protos.OrchestrationRuntimeState
-	OrchestrationRuntimeStateMessage = protos.OrchestrationRuntimeStateMessage
+	OrchestrationRuntimeState        = protos.WorkflowRuntimeState
+	OrchestrationRuntimeStateMessage = protos.WorkflowRuntimeStateMessage
 	WorkflowRuntimeState             = protos.WorkflowRuntimeState
 	WorkflowRuntimeStateMessage      = protos.WorkflowRuntimeStateMessage
 	WorkflowMetadata                 = protos.WorkflowMetadata
