@@ -177,7 +177,7 @@ func TestAddEvent_StalledReplacedByNewStalled(t *testing.T) {
 	require.NotNil(t, s.Stalled)
 	assert.Equal(t, "first stall", s.Stalled.GetDescription())
 
-	// A second stalled event should first clear, then set the new stalled state.
+	// A second stalled event should replace the existing stalled state with the new one.
 	require.NoError(t, AddEvent(s, stalledEvent(protos.StalledReason_VERSION_NOT_AVAILABLE, "second stall")))
 	require.NotNil(t, s.Stalled)
 	assert.Equal(t, protos.StalledReason_VERSION_NOT_AVAILABLE, s.Stalled.Reason)
