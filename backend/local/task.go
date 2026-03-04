@@ -47,7 +47,7 @@ func (be *TasksBackend) CancelActivityTask(ctx context.Context, instanceID api.I
 }
 
 func (be *TasksBackend) WaitForActivityCompletion(request *protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error) {
-	key := backend.GetActivityExecutionKey(request.GetOrchestrationInstance().GetInstanceId(), request.GetTaskId())
+	key := backend.GetActivityExecutionKey(request.GetWorkflowInstance().GetInstanceId(), request.GetTaskId())
 	pending := &pendingActivity{
 		response: nil,
 		complete: make(chan struct{}, 1),

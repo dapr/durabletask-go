@@ -36,7 +36,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 				EventType: &protos.HistoryEvent_ExecutionStarted{
 					ExecutionStarted: &protos.ExecutionStartedEvent{
 						Name: "MyOrch",
-						OrchestrationInstance: &protos.OrchestrationInstance{
+						WorkflowInstance: &protos.WorkflowInstance{
 							InstanceId:  "test123",
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
@@ -82,7 +82,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 
 	t.Logf("state.NewEvents: %v", state.NewEvents)
 	require.Len(t, state.NewEvents, 2)
-	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[0].GetWorkflowExecutorStarted())
 	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
 }
 
@@ -97,7 +97,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 				EventType: &protos.HistoryEvent_ExecutionStarted{
 					ExecutionStarted: &protos.ExecutionStartedEvent{
 						Name: "MyOrch",
-						OrchestrationInstance: &protos.OrchestrationInstance{
+						WorkflowInstance: &protos.WorkflowInstance{
 							InstanceId:  workflowID,
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
@@ -152,9 +152,9 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 
 	t.Logf("state.NewEvents: %v", wi.State.NewEvents)
 	require.Len(t, wi.State.NewEvents, 3)
-	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[0].GetWorkflowExecutorStarted())
 	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
-	require.NotNil(t, wi.State.NewEvents[2].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[2].GetWorkflowExecutorStarted())
 }
 
 func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *testing.T) {
@@ -171,7 +171,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 				EventType: &protos.HistoryEvent_ExecutionStarted{
 					ExecutionStarted: &protos.ExecutionStartedEvent{
 						Name: "MyOrchestration",
-						OrchestrationInstance: &protos.OrchestrationInstance{
+						WorkflowInstance: &protos.WorkflowInstance{
 							InstanceId:  string(iid),
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
@@ -198,12 +198,12 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 	// Return an execution completed action to simulate the completion of the orchestration (a no-op)
 	resultValue := "done"
 	result := &protos.OrchestratorResponse{
-		Actions: []*protos.OrchestratorAction{
+		Actions: []*protos.WorkflowAction{
 			{
 				Id: -1,
-				OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-					CompleteOrchestration: &protos.CompleteOrchestrationAction{
-						OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+					CompleteWorkflow: &protos.CompleteWorkflowAction{
+						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
 						Result:              wrapperspb.String(resultValue),
 					},
 				},
@@ -245,7 +245,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 
 	t.Logf("state.NewEvents: %v", state.NewEvents)
 	require.Len(t, state.NewEvents, 3)
-	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[0].GetWorkflowExecutorStarted())
 	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
 	require.NotNil(t, wi.State.NewEvents[2].GetExecutionCompleted())
 }

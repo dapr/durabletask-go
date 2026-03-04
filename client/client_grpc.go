@@ -304,19 +304,19 @@ func makeOrchestrationMetadata(resp *protos.GetInstanceResponse) (*backend.Orche
 	if !resp.Exists {
 		return nil, api.ErrInstanceNotFound
 	}
-	if resp.OrchestrationState == nil {
+	if resp.WorkflowState == nil {
 		return nil, fmt.Errorf("orchestration state is nil")
 	}
 	metadata := &backend.OrchestrationMetadata{
-		InstanceId:     resp.OrchestrationState.InstanceId,
-		Name:           resp.OrchestrationState.Name,
-		RuntimeStatus:  resp.OrchestrationState.OrchestrationStatus,
-		Input:          resp.OrchestrationState.Input,
-		CustomStatus:   resp.OrchestrationState.CustomStatus,
-		Output:         resp.OrchestrationState.Output,
-		CreatedAt:      resp.OrchestrationState.CreatedTimestamp,
-		LastUpdatedAt:  resp.OrchestrationState.LastUpdatedTimestamp,
-		FailureDetails: resp.OrchestrationState.FailureDetails,
+		InstanceId:     resp.WorkflowState.InstanceId,
+		Name:           resp.WorkflowState.Name,
+		RuntimeStatus:  resp.WorkflowState.WorkflowStatus,
+		Input:          resp.WorkflowState.Input,
+		CustomStatus:   resp.WorkflowState.CustomStatus,
+		Output:         resp.WorkflowState.Output,
+		CreatedAt:      resp.WorkflowState.CreatedTimestamp,
+		LastUpdatedAt:  resp.WorkflowState.LastUpdatedTimestamp,
+		FailureDetails: resp.WorkflowState.FailureDetails,
 	}
 	return metadata, nil
 }

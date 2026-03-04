@@ -66,7 +66,7 @@ func Test_NewOrchestrationWorkItem_Single(t *testing.T) {
 				if assert.Equal(t, 1, len(wi.NewEvents)) {
 					startEvent := wi.NewEvents[0].GetExecutionStarted()
 					if assert.NotNil(t, startEvent) {
-						assert.Equal(t, expectedID, startEvent.OrchestrationInstance.GetInstanceId())
+						assert.Equal(t, expectedID, startEvent.WorkflowInstance.GetInstanceId())
 						assert.Equal(t, defaultName, startEvent.Name)
 						assert.Equal(t, defaultInput, startEvent.Input.GetValue())
 					}
@@ -107,7 +107,7 @@ func Test_NewOrchestrationWorkItem_Multiple(t *testing.T) {
 				if assert.Equal(t, 1, len(wi.NewEvents)) {
 					startEvent := wi.NewEvents[0].GetExecutionStarted()
 					if assert.NotNil(t, startEvent) {
-						assert.Equal(t, expectedID, startEvent.OrchestrationInstance.GetInstanceId())
+						assert.Equal(t, expectedID, startEvent.WorkflowInstance.GetInstanceId())
 						assert.Equal(t, defaultName, startEvent.Name)
 						assert.Equal(t, defaultInput, startEvent.Input.GetValue())
 					}
@@ -136,8 +136,8 @@ func Test_CompleteOrchestration(t *testing.T) {
 			var expectedStackTrace string = ""
 
 			// Produce an ExecutionCompleted event with a particular output
-			getOrchestratorActions := func() []*protos.OrchestratorAction {
-				completeAction := &protos.CompleteOrchestrationAction{OrchestrationStatus: expectedStatus}
+			getOrchestratorActions := func() []*protos.WorkflowAction {
+				completeAction := &protos.CompleteOrchestrationAction{WorkflowStatus: expectedStatus}
 				if expectedStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED {
 					runtime.Stack(stackTraceBuffer, false)
 					expectedStackTrace = string(stackTraceBuffer)
@@ -150,9 +150,9 @@ func Test_CompleteOrchestration(t *testing.T) {
 					completeAction.Result = wrapperspb.String(expectedResult)
 				}
 
-				return []*protos.OrchestratorAction{{
-					OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-						CompleteOrchestration: completeAction,
+				return []*protos.WorkflowAction{{
+					WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+						CompleteWorkflow: completeAction,
 					},
 				}}
 			}
@@ -186,11 +186,11 @@ func Test_ScheduleActivityTasks(t *testing.T) {
 		initTest(t, be, i, true)
 
 		// Produce a TaskScheduled event with a particular input
-		getOrchestratorActions := func() []*protos.OrchestratorAction {
-			return []*protos.OrchestratorAction{
+		getOrchestratorActions := func() []*protos.WorkflowAction {
+			return []*protos.WorkflowAction{
 				{
 					Id: expectedTaskID,
-					OrchestratorActionType: &protos.OrchestratorAction_ScheduleTask{
+					WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
 						ScheduleTask: &protos.ScheduleTaskAction{Name: expectedName, Input: wrapperspb.String(expectedInput)},
 					},
 				},
@@ -243,9 +243,9 @@ func Test_ScheduleTimerTasks(t *testing.T) {
 		expectedFireAt := time.Now().Add(timerDuration)
 
 		// Produce a TimerCreated event with a particular fireat time
-		getOrchestratorActions := func() []*protos.OrchestratorAction {
-			return []*protos.OrchestratorAction{{
-				OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+		getOrchestratorActions := func() []*protos.WorkflowAction {
+			return []*protos.WorkflowAction{{
+				WorkflowActionType: &protos.WorkflowAction_CreateTimer{
 					CreateTimer: &protos.CreateTimerAction{FireAt: timestamppb.New(expectedFireAt)},
 				},
 			}}
@@ -295,11 +295,11 @@ func Test_AbandonActivityWorkItem(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, true)
 
-		getOrchestratorActions := func() []*protos.OrchestratorAction {
-			return []*protos.OrchestratorAction{
+		getOrchestratorActions := func() []*protos.WorkflowAction {
+			return []*protos.WorkflowAction{
 				{
 					Id: 123,
-					OrchestratorActionType: &protos.OrchestratorAction_ScheduleTask{
+					WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
 						ScheduleTask: &protos.ScheduleTaskAction{Name: "MyActivity"},
 					},
 				},
@@ -365,11 +365,11 @@ func Test_PurgeOrchestrationState(t *testing.T) {
 		expectedResult := "done!"
 
 		// Produce an ExecutionCompleted event with a particular output
-		getOrchestratorActions := func() []*protos.OrchestratorAction {
-			return []*protos.OrchestratorAction{{
-				OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-					CompleteOrchestration: &protos.CompleteOrchestrationAction{
-						OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+		getOrchestratorActions := func() []*protos.WorkflowAction {
+			return []*protos.WorkflowAction{{
+				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+					CompleteWorkflow: &protos.CompleteWorkflowAction{
+						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
 						Result:              wrapperspb.String(expectedResult),
 					},
 				},
@@ -427,7 +427,7 @@ func initTest(t *testing.T, be backend.Backend, testIteration int, createTaskHub
 func workItemProcessingTestLogic(
 	t *testing.T,
 	be backend.Backend,
-	getOrchestratorActions func() []*protos.OrchestratorAction,
+	getOrchestratorActions func() []*protos.WorkflowAction,
 	validateMetadata func(metadata *backend.OrchestrationMetadata),
 ) {
 	expectedID := "myinstance"
@@ -482,7 +482,7 @@ func createOrchestrationInstance(t assert.TestingT, be backend.Backend, instance
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
 				Name:                  defaultName,
-				OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: instanceID},
+				WorkflowInstance: &protos.WorkflowInstance{InstanceId: instanceID},
 				Input:                 wrapperspb.String(defaultInput),
 			},
 		},

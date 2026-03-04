@@ -23,15 +23,18 @@ var (
 type (
 	HistoryEvent                     = protos.HistoryEvent
 	TaskFailureDetails               = protos.TaskFailureDetails
-	WorkflowState                    = protos.WorkflowState
+	WorkflowState                    = protos.BackendWorkflowState
 	CreateWorkflowInstanceRequest    = protos.CreateWorkflowInstanceRequest
 	ActivityRequest                  = protos.ActivityRequest
-	OrchestrationMetadata            = protos.OrchestrationMetadata
+	OrchestrationMetadata            = protos.WorkflowMetadata
 	OrchestrationStatus              = protos.OrchestrationStatus
 	WorkflowStateMetadata            = protos.WorkflowStateMetadata
 	DurableTimer                     = protos.DurableTimer
-	OrchestrationRuntimeState        = protos.OrchestrationRuntimeState
-	OrchestrationRuntimeStateMessage = protos.OrchestrationRuntimeStateMessage
+	OrchestrationRuntimeState        = protos.WorkflowRuntimeState
+	OrchestrationRuntimeStateMessage = protos.WorkflowRuntimeStateMessage
+	WorkflowRuntimeState             = protos.WorkflowRuntimeState
+	WorkflowRuntimeStateMessage      = protos.WorkflowRuntimeStateMessage
+	WorkflowMetadata                 = protos.WorkflowMetadata
 	RerunWorkflowFromEventRequest    = protos.RerunWorkflowFromEventRequest
 	ListInstanceIDsRequest           = protos.ListInstanceIDsRequest
 	ListInstanceIDsResponse          = protos.ListInstanceIDsResponse
@@ -247,12 +250,12 @@ func terminateSubOrchestrationInstances(ctx context.Context, be Backend, iid api
 func getSubOrchestrationInstances(oldEvents []*HistoryEvent, newEvents []*HistoryEvent) []api.InstanceID {
 	subOrchestrationInstancesMap := make(map[api.InstanceID]struct{}, len(oldEvents)+len(newEvents))
 	for _, e := range oldEvents {
-		if created := e.GetSubOrchestrationInstanceCreated(); created != nil {
+		if created := e.GetSubWorkflowInstanceCreated(); created != nil {
 			subOrchestrationInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
 		}
 	}
 	for _, e := range newEvents {
-		if created := e.GetSubOrchestrationInstanceCreated(); created != nil {
+		if created := e.GetSubWorkflowInstanceCreated(); created != nil {
 			subOrchestrationInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
 		}
 	}

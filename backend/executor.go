@@ -135,7 +135,7 @@ func (executor *grpcExecutor) ExecuteOrchestrator(ctx context.Context, iid api.I
 
 	workItem := &protos.WorkItem{
 		Request: &protos.WorkItem_OrchestratorRequest{
-			OrchestratorRequest: req,
+			WorkflowRequest: req,
 		},
 	}
 
@@ -176,7 +176,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		Name:                  task.Name,
 		Version:               task.Version,
 		Input:                 task.Input,
-		OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: string(iid)},
+		WorkflowInstance: &protos.WorkflowInstance{InstanceId: string(iid)},
 		TaskId:                e.EventId,
 		TaskExecutionId:       task.TaskExecutionId,
 		ParentTraceContext:    task.ParentTraceContext,
@@ -352,14 +352,14 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 
 			switch x := wi.Request.(type) {
 			case *protos.WorkItem_OrchestratorRequest:
-				key := x.OrchestratorRequest.GetInstanceId()
+				key := x.WorkflowRequest.GetInstanceId()
 				if value, ok := g.pendingOrchestrators.Load(api.InstanceID(key)); ok {
 					if p, ok := value.(*pendingOrchestrator); ok {
 						p.streamID = streamID
 					}
 				}
 			case *protos.WorkItem_ActivityRequest:
-				key := GetActivityExecutionKey(x.ActivityRequest.GetOrchestrationInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
+				key := GetActivityExecutionKey(x.ActivityRequest.GetWorkflowInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
 				if value, ok := g.pendingActivities.Load(key); ok {
 					if p, ok := value.(*pendingActivity); ok {
 						p.streamID = streamID
@@ -518,7 +518,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 			ExecutionStarted: &protos.ExecutionStartedEvent{
 				Name:  req.Name,
 				Input: req.Input,
-				OrchestrationInstance: &protos.OrchestrationInstance{
+				WorkflowInstance: &protos.WorkflowInstance{
 					InstanceId:  instanceID,
 					ExecutionId: wrapperspb.String(uuid.New().String()),
 				},
@@ -527,7 +527,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 			},
 		},
 	}
-	if err := g.backend.CreateOrchestrationInstance(ctx, e, WithOrchestrationIdReusePolicy(req.OrchestrationIdReusePolicy)); err != nil {
+	if err := g.backend.CreateOrchestrationInstance(ctx, e, WithOrchestrationIdReusePolicy(req.WorkflowIdReusePolicy)); err != nil {
 		return nil, fmt.Errorf("failed to create orchestration instance: %w", err)
 	}
 
@@ -681,7 +681,7 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Orchest
 	state := &protos.OrchestrationState{
 		InstanceId:           req.InstanceId,
 		Name:                 metadata.Name,
-		OrchestrationStatus:  metadata.RuntimeStatus,
+		WorkflowStatus:       metadata.RuntimeStatus,
 		CreatedTimestamp:     metadata.CreatedAt,
 		LastUpdatedTimestamp: metadata.LastUpdatedAt,
 	}
@@ -693,7 +693,7 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Orchest
 		state.FailureDetails = metadata.FailureDetails
 	}
 
-	return &protos.GetInstanceResponse{Exists: true, OrchestrationState: state}
+	return &protos.GetInstanceResponse{Exists: true, WorkflowState: state}
 }
 
 func (executor *grpcExecutor) AbandonTaskActivityWorkItem(ctx context.Context, in *protos.AbandonActivityTaskRequest) (*protos.AbandonActivityTaskResponse, error) {

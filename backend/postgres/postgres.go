@@ -478,7 +478,7 @@ func (be *postgresBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi
 						be.logger.Warnf(
 							"%v: dropping sub-orchestration creation event because an instance with the target ID (%v) already exists.",
 							wi.InstanceID,
-							es.OrchestrationInstance.InstanceId)
+							es.WorkflowInstance.InstanceId)
 					} else {
 						return err
 					}
@@ -582,7 +582,7 @@ func (be *postgresBackend) createOrchestrationInstanceInternal(ctx context.Conte
 	if startEvent == nil {
 		return "", errors.New("HistoryEvent must be an ExecutionStartedEvent")
 	}
-	instanceID := startEvent.OrchestrationInstance.InstanceId
+	instanceID := startEvent.WorkflowInstance.InstanceId
 
 	policy := &protos.OrchestrationIdReusePolicy{}
 
@@ -616,8 +616,8 @@ func insertOrIgnoreInstanceTableInternal(ctx context.Context, tx pgx.Tx, e *back
 		) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
 		startEvent.Name,
 		startEvent.Version.GetValue(),
-		startEvent.OrchestrationInstance.InstanceId,
-		startEvent.OrchestrationInstance.ExecutionId.GetValue(),
+		startEvent.WorkflowInstance.InstanceId,
+		startEvent.WorkflowInstance.ExecutionId.GetValue(),
 		startEvent.Input.GetValue(),
 		"PENDING",
 		e.Timestamp.AsTime(),
@@ -638,7 +638,7 @@ func (be *postgresBackend) handleInstanceExists(ctx context.Context, tx pgx.Tx, 
 	queryRow := tx.QueryRow(
 		ctx,
 		`SELECT RuntimeStatus FROM Instances WHERE InstanceID = $1`,
-		startEvent.OrchestrationInstance.InstanceId,
+		startEvent.WorkflowInstance.InstanceId,
 	)
 	var runtimeStatus *string
 	err := queryRow.Scan(&runtimeStatus)
@@ -657,11 +657,11 @@ func (be *postgresBackend) handleInstanceExists(ctx context.Context, tx pgx.Tx, 
 	switch policy.Action {
 	case protos.CreateOrchestrationAction_IGNORE:
 		// Log an warning message and ignore creating new instance
-		be.logger.Warnf("An instance with ID '%s' already exists; dropping duplicate create request", startEvent.OrchestrationInstance.InstanceId)
+		be.logger.Warnf("An instance with ID '%s' already exists; dropping duplicate create request", startEvent.WorkflowInstance.InstanceId)
 		return api.ErrIgnoreInstance
 	case protos.CreateOrchestrationAction_TERMINATE:
 		// terminate existing instance
-		if err := be.cleanupOrchestrationStateInternal(ctx, tx, api.InstanceID(startEvent.OrchestrationInstance.InstanceId), false); err != nil {
+		if err := be.cleanupOrchestrationStateInternal(ctx, tx, api.InstanceID(startEvent.WorkflowInstance.InstanceId), false); err != nil {
 			return fmt.Errorf("failed to cleanup orchestration status: %w", err)
 		}
 		// create a new instance

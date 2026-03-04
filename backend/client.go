@@ -67,7 +67,7 @@ func (c *backendClient) ScheduleNewOrchestration(ctx context.Context, orchestrat
 			ExecutionStarted: &protos.ExecutionStartedEvent{
 				Name:  req.Name,
 				Input: req.Input,
-				OrchestrationInstance: &protos.OrchestrationInstance{
+				WorkflowInstance: &protos.WorkflowInstance{
 					InstanceId:  req.InstanceId,
 					ExecutionId: wrapperspb.String(uuid.New().String()),
 				},
@@ -76,7 +76,7 @@ func (c *backendClient) ScheduleNewOrchestration(ctx context.Context, orchestrat
 			},
 		},
 	}
-	if err := c.be.CreateOrchestrationInstance(ctx, e, WithOrchestrationIdReusePolicy(req.OrchestrationIdReusePolicy)); err != nil {
+	if err := c.be.CreateOrchestrationInstance(ctx, e, WithOrchestrationIdReusePolicy(req.WorkflowIdReusePolicy)); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return api.EmptyInstanceID, fmt.Errorf("failed to start orchestration: %w", err)

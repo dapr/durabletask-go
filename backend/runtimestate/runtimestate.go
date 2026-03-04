@@ -114,11 +114,11 @@ func Output(s *protos.OrchestrationRuntimeState) (*wrapperspb.StringValue, error
 	return s.CompletedEvent.Result, nil
 }
 
-func RuntimeStatus(s *protos.OrchestrationRuntimeState) protos.OrchestrationStatus {
+func RuntimeStatus(s *protos.OrchestrationRuntimeState) protos.WorkflowStatus {
 	if s.StartEvent == nil {
 		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
 	} else if s.CompletedEvent != nil {
-		return s.CompletedEvent.GetOrchestrationStatus()
+		return s.CompletedEvent.GetWorkflowStatus()
 	} else if s.Stalled != nil {
 		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED
 	} else if s.IsSuspended {
