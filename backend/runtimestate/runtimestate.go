@@ -52,13 +52,19 @@ func addEvent(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent, isNew
 		s.IsSuspended = true
 	} else if e.GetExecutionResumed() != nil {
 		s.IsSuspended = false
-	} else if e.GetExecutionStalled() != nil {
+	} else if stalledEvent := e.GetExecutionStalled(); stalledEvent != nil {
 		s.Stalled = &protos.RuntimeStateStalled{
-			Reason:      e.GetExecutionStalled().Reason,
-			Description: e.GetExecutionStalled().Description,
+			Reason:      stalledEvent.Reason,
+			Description: stalledEvent.Description,
 		}
 	} else {
 		// TODO: Check for other possible duplicates using task IDs
+	}
+
+	// Any successfully processed event clears a prior stalled state, unless
+	// the event itself is a stalled event.
+	if e.GetExecutionStalled() == nil {
+		s.Stalled = nil
 	}
 
 	if isNew {
