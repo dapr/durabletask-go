@@ -32,6 +32,10 @@ type RetryPolicy struct {
 	RetryTimeout time.Duration
 	// Optional function to control if retries should proceed
 	Handle func(error) bool
+	// JitterFactor adds randomness to retry delays to desynchronize concurrent retries.
+	// Must be in [0.0, 1.0]: 0.0 disables jitter, 1.0 allows up to 100% reduction of the delay.
+	// The jitter is deterministic across orchestrator replays (seeded by firstAttempt + attempt).
+	JitterFactor float64
 }
 
 func (policy *RetryPolicy) Validate() error {
@@ -55,6 +59,11 @@ func (policy *RetryPolicy) Validate() error {
 		policy.Handle = func(err error) bool {
 			return true
 		}
+	}
+	if policy.JitterFactor < 0 {
+		policy.JitterFactor = 0
+	} else if policy.JitterFactor > 1 {
+		policy.JitterFactor = 1
 	}
 	return nil
 }
