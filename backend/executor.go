@@ -435,16 +435,6 @@ func GetActivityExecutionKey(iid string, taskID int32) string {
 	return iid + "/" + strconv.FormatInt(int64(taskID), 10)
 }
 
-// CreateTaskHub implements protos.TaskHubSidecarServiceServer
-func (grpcExecutor) CreateTaskHub(context.Context, *protos.CreateTaskHubRequest) (*protos.CreateTaskHubResponse, error) {
-	return nil, errors.New("unimplemented")
-}
-
-// DeleteTaskHub implements protos.TaskHubSidecarServiceServer
-func (grpcExecutor) DeleteTaskHub(context.Context, *protos.DeleteTaskHubRequest) (*protos.DeleteTaskHubResponse, error) {
-	return nil, errors.New("unimplemented")
-}
-
 // GetInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) GetInstance(ctx context.Context, req *protos.GetInstanceRequest) (*protos.GetInstanceResponse, error) {
 	metadata, err := g.backend.GetOrchestrationMetadata(ctx, api.InstanceID(req.InstanceId))
@@ -474,11 +464,6 @@ func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInst
 	}
 
 	return resp, nil
-}
-
-// QueryInstances implements protos.TaskHubSidecarServiceServer
-func (grpcExecutor) QueryInstances(context.Context, *protos.QueryInstancesRequest) (*protos.QueryInstancesResponse, error) {
-	return nil, errors.New("unimplemented")
 }
 
 // RaiseEvent implements protos.TaskHubSidecarServiceServer
@@ -696,42 +681,3 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Orchest
 	return &protos.GetInstanceResponse{Exists: true, OrchestrationState: state}
 }
 
-func (executor *grpcExecutor) AbandonTaskActivityWorkItem(ctx context.Context, in *protos.AbandonActivityTaskRequest) (*protos.AbandonActivityTaskResponse, error) {
-	return nil, nil
-}
-
-func (*grpcExecutor) AbandonTaskEntityWorkItem(ctx context.Context, in *protos.AbandonEntityTaskRequest) (*protos.AbandonEntityTaskResponse, error) {
-	return nil, nil
-}
-
-func (*grpcExecutor) AbandonTaskOrchestratorWorkItem(ctx context.Context, in *protos.AbandonOrchestrationTaskRequest) (*protos.AbandonOrchestrationTaskResponse, error) {
-	return nil, nil
-}
-
-func (*grpcExecutor) CleanEntityStorage(ctx context.Context, in *protos.CleanEntityStorageRequest) (*protos.CleanEntityStorageResponse, error) {
-	return nil, nil
-}
-
-func (*grpcExecutor) CompleteEntityTask(ctx context.Context, in *protos.EntityBatchResult) (*protos.CompleteTaskResponse, error) {
-	return nil, nil
-}
-
-func (*grpcExecutor) GetEntity(ctx context.Context, in *protos.GetEntityRequest) (*protos.GetEntityResponse, error) {
-	return nil, nil
-}
-
-func (*grpcExecutor) QueryEntities(ctx context.Context, in *protos.QueryEntitiesRequest) (*protos.QueryEntitiesResponse, error) {
-	return nil, nil
-}
-
-func (*grpcExecutor) RewindInstance(ctx context.Context, in *protos.RewindInstanceRequest) (*protos.RewindInstanceResponse, error) {
-	return nil, nil
-}
-
-func (*grpcExecutor) SignalEntity(ctx context.Context, in *protos.SignalEntityRequest) (*protos.SignalEntityResponse, error) {
-	return nil, nil
-}
-
-func (*grpcExecutor) StreamInstanceHistory(in *protos.StreamInstanceHistoryRequest, srv protos.TaskHubSidecarService_StreamInstanceHistoryServer) error {
-	return nil
-}
