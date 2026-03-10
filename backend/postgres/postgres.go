@@ -1149,12 +1149,14 @@ func (be *postgresBackend) PurgeOrchestrationState(ctx context.Context, id api.I
 }
 
 // Start implements backend.Backend
-func (*postgresBackend) Start(context.Context) error {
+func (be *postgresBackend) Start(ctx context.Context) error {
+	go be.TasksBackend.Run(ctx)
 	return nil
 }
 
 // Stop implements backend.Backend
-func (*postgresBackend) Stop(context.Context) error {
+func (be *postgresBackend) Stop(context.Context) error {
+	be.TasksBackend.Close()
 	return nil
 }
 
