@@ -51,11 +51,10 @@ func TestMain(m *testing.M) {
 
 	activityWorker := backend.NewActivityTaskWorker(be, grpcExecutor, logger)
 	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
-	if err := taskHubWorker.Start(ctx); err != nil {
-		log.Fatalf("failed to start worker: %v", err)
-	}
-	executorCtx, executorCancel := context.WithCancel(ctx)
-	go grpcExecutor.Start(executorCtx)
+
+	workerCtx, workerCancel := context.WithCancel(ctx)
+	go taskHubWorker.Start(workerCtx)
+	go grpcExecutor.Start(workerCtx)
 
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -81,12 +80,7 @@ func TestMain(m *testing.M) {
 	// Run the test exitCode
 	exitCode := m.Run()
 
-	executorCancel()
-	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if err := taskHubWorker.Shutdown(timeoutCtx); err != nil {
-		log.Fatalf("failed to shutdown worker: %v", err)
-	}
+	workerCancel()
 	grpcServer.Stop()
 	os.Exit(exitCode)
 }

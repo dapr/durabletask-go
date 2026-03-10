@@ -37,8 +37,8 @@ func Test_EmptyOrchestration(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "EmptyOrchestrator")
@@ -66,8 +66,8 @@ func Test_SingleTimer(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "SingleTimer")
@@ -108,8 +108,8 @@ func Test_ConcurrentTimers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "TimerFanOut")
@@ -147,8 +147,8 @@ func Test_IsReplaying(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "IsReplayingOrch")
@@ -193,8 +193,8 @@ func Test_SingleActivity(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"))
@@ -242,8 +242,8 @@ func Test_SingleActivity_TaskSpan(t *testing.T) {
 	ctx := context.Background()
 	exporter := utils.InitTracing()
 
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"))
@@ -290,8 +290,8 @@ func Test_ActivityChain(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "ActivityChain")
@@ -333,8 +333,8 @@ func Test_ActivityRetries(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "ActivityRetries")
@@ -391,8 +391,8 @@ func Test_ActivityFanOut(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r, backend.WithMaxParallelism(10))
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r, backend.WithMaxParallelism(10))
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "ActivityFanOut")
@@ -439,8 +439,8 @@ func Test_SingleSubOrchestrator_Completed(t *testing.T) {
 
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	id, err := client.ScheduleNewOrchestration(ctx, "Parent", api.WithInput("Hello, world!"))
 	require.NoError(t, err)
@@ -471,8 +471,8 @@ func Test_SingleSubOrchestrator_Failed(t *testing.T) {
 
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	id, err := client.ScheduleNewOrchestration(ctx, "Parent")
 	require.NoError(t, err)
@@ -510,8 +510,8 @@ func Test_SingleSubOrchestrator_Failed_Retries(t *testing.T) {
 
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	id, err := client.ScheduleNewOrchestration(ctx, "Parent")
 	require.NoError(t, err)
@@ -555,8 +555,8 @@ func Test_ContinueAsNew(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "ContinueAsNewTest", api.WithInput(0))
@@ -607,8 +607,8 @@ func Test_ContinueAsNew_Events(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "ContinueAsNewTest", api.WithInput(0))
@@ -647,8 +647,8 @@ func Test_ExternalEventContention(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "ContinueAsNewTest")
@@ -691,8 +691,8 @@ func Test_ExternalEventOrchestration(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "ExternalEventOrchestration", api.WithInput(0))
@@ -744,8 +744,8 @@ func Test_ExternalEventTimeout(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run two variations, one where we raise the external event and one where we don't (timeout)
 	for _, raiseEvent := range []bool{true, false} {
@@ -816,8 +816,8 @@ func Test_SuspendResumeOrchestration(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration, which will block waiting for external events
 	id, err := client.ScheduleNewOrchestration(ctx, "SuspendResumeOrchestration", api.WithInput(0))
@@ -889,8 +889,8 @@ func Test_TerminateOrchestration(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration, which will block waiting for external events
 	id, err := client.ScheduleNewOrchestration(ctx, "MyOrchestrator")
@@ -945,8 +945,8 @@ func Test_TerminateOrchestration_Recursive(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Test terminating with and without recursion
 	for _, recurse := range []bool{true, false} {
@@ -1021,8 +1021,8 @@ func Test_TerminateOrchestration_Recursive_TerminateCompletedSubOrchestration(t 
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Test terminating with and without recursion
 	for _, recurse := range []bool{true, false} {
@@ -1101,8 +1101,8 @@ func Test_PurgeCompletedOrchestration(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "ExternalEventOrchestration")
@@ -1160,8 +1160,8 @@ func Test_PurgeOrchestration_Recursive(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Test terminating with and without recursion
 	for _, recurse := range []bool{true, false} {
@@ -1229,8 +1229,8 @@ func Test_RecreateCompletedOrchestration(t *testing.T) {
 	// Initialization
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the first orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "HelloOrchestration", api.WithInput("世界"))
@@ -1284,8 +1284,8 @@ func Test_SingleActivity_ReuseInstanceIDIgnore(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	instanceID := api.InstanceID("IGNORE_IF_RUNNING_OR_COMPLETED")
 	reuseIdPolicy := &api.OrchestrationIdReusePolicy{
@@ -1335,8 +1335,8 @@ func Test_SingleActivity_ReuseInstanceIDTerminate(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	instanceID := api.InstanceID("TERMINATE_IF_RUNNING_OR_COMPLETED")
 	reuseIdPolicy := &api.OrchestrationIdReusePolicy{
@@ -1386,8 +1386,8 @@ func Test_SingleActivity_ReuseInstanceIDError(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	instanceID := api.InstanceID("ERROR_IF_RUNNING_OR_COMPLETED")
 
@@ -1428,8 +1428,8 @@ func Test_TaskExecutionId(t *testing.T) {
 		// Initialization
 		ctx := context.Background()
 
-		client, worker := initTaskHubWorker(ctx, r)
-		defer worker.Shutdown(ctx)
+		client, shutdown := initTaskHubWorker(ctx, r)
+		defer shutdown()
 
 		// Run the orchestration
 		id, err := client.ScheduleNewOrchestration(ctx, "TaskExecutionID")
@@ -1489,8 +1489,8 @@ func Test_TaskExecutionId(t *testing.T) {
 		// Initialization
 		ctx := context.Background()
 
-		client, worker := initTaskHubWorker(ctx, r)
-		defer worker.Shutdown(ctx)
+		client, shutdown := initTaskHubWorker(ctx, r)
+		defer shutdown()
 
 		// Run the orchestration
 		id, err := client.ScheduleNewOrchestration(ctx, "TaskExecutionID")
@@ -1530,8 +1530,8 @@ func Test_TaskExecutionId(t *testing.T) {
 		// Initialization
 		ctx := context.Background()
 
-		client, worker := initTaskHubWorker(ctx, r)
-		defer worker.Shutdown(ctx)
+		client, shutdown := initTaskHubWorker(ctx, r)
+		defer shutdown()
 
 		// Run the orchestration
 		id, err := client.ScheduleNewOrchestration(ctx, "TaskExecutionID")
@@ -1587,8 +1587,8 @@ func Test_ActivityTraceContext(t *testing.T) {
 		ctx := context.Background()
 		exporter := utils.InitTracing()
 
-		client, worker := initTaskHubWorker(ctx, r)
-		defer worker.Shutdown(ctx)
+		client, shutdown := initTaskHubWorker(ctx, r)
+		defer shutdown()
 
 		// Run the orchestration
 		id, err := client.ScheduleNewOrchestration(ctx, "TraceContextOrchestration")
@@ -1623,8 +1623,8 @@ func Test_OrchestrationPatching_DefaultToPatched(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
@@ -1658,8 +1658,8 @@ func Test_OrchestrationPatching_RunUnpatchedVersion(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
@@ -1695,8 +1695,8 @@ func Test_OrchestrationPatching_MultiplePatches(t *testing.T) {
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
@@ -1735,8 +1735,8 @@ func Test_OrchestrationPatching_ContinueAsNewDoNotCarryOverChoices(t *testing.T)
 
 	// Initialization
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	// Run the orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
@@ -1777,8 +1777,8 @@ func Test_OrchestrationPatching_PatchPersistsAcrossReplays(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
 	require.NoError(t, err)
@@ -1830,8 +1830,8 @@ func Test_OrchestrationPatching_PatchRemembersToStayFalse(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
 	require.NoError(t, err)
@@ -1868,8 +1868,8 @@ func Test_OrchestrationPatching_TracingSpans(t *testing.T) {
 
 	ctx := context.Background()
 	exporter := utils.InitTracing()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
+	client, shutdown := initTaskHubWorker(ctx, r)
+	defer shutdown()
 
 	id, err := client.ScheduleNewOrchestration(ctx, "PatchTracingOrchestrator")
 	require.NoError(t, err)
@@ -1889,7 +1889,7 @@ func Test_OrchestrationPatching_TracingSpans(t *testing.T) {
 	)
 }
 
-func initTaskHubWorker(ctx context.Context, r *task.TaskRegistry, opts ...backend.NewTaskWorkerOptions) (backend.TaskHubClient, backend.TaskHubWorker) {
+func initTaskHubWorker(ctx context.Context, r *task.TaskRegistry, opts ...backend.NewTaskWorkerOptions) (backend.TaskHubClient, context.CancelFunc) {
 	// TODO: Switch to options pattern
 	logger := backend.DefaultLogger()
 	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(""), logger)
@@ -1902,9 +1902,18 @@ func initTaskHubWorker(ctx context.Context, r *task.TaskRegistry, opts ...backen
 	}, opts...)
 	activityWorker := backend.NewActivityTaskWorker(be, executor, logger, opts...)
 	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
-	if err := taskHubWorker.Start(ctx); err != nil {
-		panic(err)
-	}
+	ctx, cancel := context.WithCancel(ctx)
+	ready := make(chan struct{})
+	go func() {
+		// CreateTaskHub initializes the DB. Signal readiness so the test
+		// can proceed once the backend is initialized.
+		if err := be.CreateTaskHub(ctx); err != nil {
+			panic(err)
+		}
+		close(ready)
+		taskHubWorker.Start(ctx)
+	}()
+	<-ready
 	taskHubClient := backend.NewTaskHubClient(be)
-	return taskHubClient, taskHubWorker
+	return taskHubClient, cancel
 }

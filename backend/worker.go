@@ -2,33 +2,34 @@ package backend
 
 import (
 	"context"
-	"sync"
+	"sync/atomic"
+
+	"github.com/dapr/durabletask-go/backend/loops"
+	loopworker "github.com/dapr/durabletask-go/backend/loops/worker"
+	"github.com/dapr/kit/concurrency"
+	"github.com/dapr/kit/events/loop"
 )
 
 type TaskWorker[T WorkItem] interface {
-	// Start starts background polling for the activity work items.
-	Start(context.Context)
+	// Start starts the worker loops and blocks until the context is cancelled.
+	Start(context.Context) error
 
-	// StopAndDrain stops the worker and waits for all outstanding work items to finish.
-	StopAndDrain()
+	// Dispatch pushes a work item directly to a worker loop. The callback
+	// channel receives nil on completion or an error if the work item was
+	// abandoned. Dispatch round-robins across worker loops.
+	Dispatch(wi T, callback chan<- error)
 }
 
 type TaskProcessor[T WorkItem] interface {
 	Name() string
 	ProcessWorkItem(context.Context, T) error
-	NextWorkItem(context.Context) (T, error)
 	AbandonWorkItem(context.Context, T) error
 	CompleteWorkItem(context.Context, T) error
 }
 
-type worker[T WorkItem] struct {
-	logger Logger
-
-	processor    TaskProcessor[T]
-	closeCh      chan struct{}
-	wg           sync.WaitGroup
-	workItems    chan T
-	parallelLock chan struct{}
+type taskWorker[T WorkItem] struct {
+	workers    []loop.Interface[loops.EventWorker]
+	nextWorker atomic.Uint64
 }
 
 type NewTaskWorkerOptions func(*WorkerOptions)
@@ -53,104 +54,48 @@ func NewTaskWorker[T WorkItem](p TaskProcessor[T], logger Logger, opts ...NewTas
 		configure(options)
 	}
 
-	var parallelLock chan struct{}
-	if options.MaxParallelWorkItems != nil {
-		parallelLock = make(chan struct{}, *options.MaxParallelWorkItems)
+	n := int32(1)
+	if options.MaxParallelWorkItems != nil && *options.MaxParallelWorkItems > 1 {
+		n = *options.MaxParallelWorkItems
 	}
 
-	return &worker[T]{
-		processor:    p,
-		logger:       logger,
-		workItems:    make(chan T),
-		parallelLock: parallelLock,
-		closeCh:      make(chan struct{}),
+	workers := make([]loop.Interface[loops.EventWorker], n)
+	for i := range workers {
+		handler := loopworker.New(loopworker.Options[T]{
+			Processor: p,
+			Logger:    logger,
+		})
+		workers[i] = loop.New[loops.EventWorker](64).NewLoop(handler)
+	}
+
+	return &taskWorker[T]{
+		workers: workers,
 	}
 }
 
-func (w *worker[T]) Name() string {
-	return w.processor.Name()
-}
-
-func (w *worker[T]) Start(ctx context.Context) {
-	w.wg.Add(2)
-
-	ctx, cancel := context.WithCancel(ctx)
-
-	go func() {
-		defer w.wg.Done()
-		defer cancel()
-
-		select {
-		case <-w.closeCh:
-		case <-ctx.Done():
-		}
-	}()
-
-	go func() {
-		defer w.wg.Done()
-		defer w.logger.Infof("%v: worker stopped", w.Name())
-
-		for {
-
-			if w.parallelLock != nil {
-				select {
-				case w.parallelLock <- struct{}{}:
-				case <-ctx.Done():
-					return
-				}
-			}
-
-			wi, err := w.processor.NextWorkItem(ctx)
-			if err != nil {
-				if w.parallelLock != nil {
-					<-w.parallelLock
-				}
-
-				if ctx.Err() != nil {
-					return
-				}
-
-				w.logger.Errorf("%v: failed to get next work item: %v", w.Name(), err)
-				continue
-			}
-
-			w.wg.Add(1)
-			go func() {
-				defer func() {
-					if w.parallelLock != nil {
-						<-w.parallelLock
-					}
-					w.wg.Done()
-				}()
-				w.processWorkItem(ctx, wi)
-			}()
-		}
-	}()
-}
-
-func (w *worker[T]) StopAndDrain() {
-	close(w.closeCh)
-	w.wg.Wait()
-}
-
-func (w *worker[T]) processWorkItem(ctx context.Context, wi T) {
-	w.logger.Debugf("%v: processing work item: %s", w.Name(), wi)
-
-	if err := w.processor.ProcessWorkItem(ctx, wi); err != nil {
-		w.logger.Errorf("%v: failed to process work item: %v", w.Name(), err)
-		if err = w.processor.AbandonWorkItem(context.Background(), wi); err != nil {
-			w.logger.Errorf("%v: failed to abandon work item: %v", w.Name(), err)
-		}
-		return
+func (w *taskWorker[T]) Start(ctx context.Context) error {
+	manager := concurrency.NewRunnerManager()
+	for _, worker := range w.workers {
+		manager.Add(worker.Run)
 	}
-
-	if err := w.processor.CompleteWorkItem(ctx, wi); err != nil {
-		w.logger.Errorf("%v: failed to complete work item: %v", w.Name(), err)
-		if err = w.processor.AbandonWorkItem(context.Background(), wi); err != nil {
-			w.logger.Errorf("%v: failed to abandon work item: %v", w.Name(), err)
+	// When context is cancelled, close all worker loops so their Run methods
+	// unblock from the channel read and return.
+	manager.Add(func(ctx context.Context) error {
+		<-ctx.Done()
+		for _, worker := range w.workers {
+			worker.Close(new(loops.Shutdown))
 		}
-		return
-	}
-
-	w.logger.Debugf("%v: work item processed successfully", w.Name())
+		return nil
+	})
+	return manager.Run(ctx)
 }
+
+func (w *taskWorker[T]) Dispatch(wi T, callback chan<- error) {
+	// Round-robin across worker loops.
+	idx := w.nextWorker.Add(1) - 1
+	w.workers[idx%uint64(len(w.workers))].Enqueue(&loops.DispatchWorkItem{
+		WorkItem: wi,
+		Callback: callback,
+	})
+}
+

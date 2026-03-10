@@ -16,9 +16,6 @@ type TestTaskProcessor[T backend.WorkItem] struct {
 
 	processingBlocked atomic.Bool
 
-	workItemMu sync.Mutex
-	workItems  []T
-
 	abandonedWorkItemMu sync.Mutex
 	abandonedWorkItems  []T
 
@@ -40,14 +37,6 @@ func (t *TestTaskProcessor[T]) UnblockProcessing() {
 	t.processingBlocked.Store(false)
 }
 
-func (t *TestTaskProcessor[T]) PendingWorkItems() []T {
-	t.workItemMu.Lock()
-	defer t.workItemMu.Unlock()
-
-	// copy array
-	return append([]T{}, t.workItems...)
-}
-
 func (t *TestTaskProcessor[T]) AbandonedWorkItems() []T {
 	t.abandonedWorkItemMu.Lock()
 	defer t.abandonedWorkItemMu.Unlock()
@@ -64,30 +53,8 @@ func (t *TestTaskProcessor[T]) CompletedWorkItems() []T {
 	return append([]T{}, t.completedWorkItems...)
 }
 
-func (t *TestTaskProcessor[T]) AddWorkItems(wis ...T) {
-	t.workItemMu.Lock()
-	defer t.workItemMu.Unlock()
-
-	t.workItems = append(t.workItems, wis...)
-}
-
 func (t *TestTaskProcessor[T]) Name() string {
 	return t.name
-}
-
-func (t *TestTaskProcessor[T]) NextWorkItem(context.Context) (T, error) {
-	t.workItemMu.Lock()
-	defer t.workItemMu.Unlock()
-
-	if len(t.workItems) == 0 {
-		var tt T
-		return tt, errors.New("no work items")
-	}
-
-	wi := t.workItems[0]
-	t.workItems = t.workItems[1:]
-
-	return wi, nil
 }
 
 func (t *TestTaskProcessor[T]) ProcessWorkItem(ctx context.Context, wi T) error {

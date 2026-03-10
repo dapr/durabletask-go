@@ -1094,8 +1094,7 @@ func (be *sqliteBackend) PurgeOrchestrationState(ctx context.Context, id api.Ins
 
 // Start implements backend.Backend
 func (be *sqliteBackend) Start(ctx context.Context) error {
-	go be.TasksBackend.Run(ctx)
-	return nil
+	return be.TasksBackend.Run(ctx)
 }
 
 // Stop implements backend.Backend
