@@ -25,6 +25,31 @@ type workItemsStream interface {
 	Recv() (*protos.WorkItem, error)
 }
 
+const keepaliveInterval = 30 * time.Second
+const keepaliveTimeout = 5 * time.Second
+
+func (c *TaskHubGrpcClient) startKeepaliveLoop(ctx context.Context) context.CancelFunc {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(keepaliveInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				callCtx, callCancel := context.WithTimeout(ctx, keepaliveTimeout)
+				_, err := c.client.Hello(callCtx, &emptypb.Empty{})
+				callCancel()
+				if err != nil && ctx.Err() == nil {
+					c.logger.Debugf("keepalive failed: %v", err)
+				}
+			}
+		}
+	}()
+	return cancel
+}
+
 func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.TaskRegistry) error {
 	executor := task.NewTaskExecutor(r)
 
@@ -52,7 +77,9 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 
 	go func() {
 		c.logger.Info("starting background processor")
+		cancelKeepalive := c.startKeepaliveLoop(ctx)
 		defer func() {
+			cancelKeepalive()
 			c.logger.Info("stopping background processor")
 			// We must use a background context here as the stream's context is likely canceled
 			shutdownErr := executor.Shutdown(context.Background())
@@ -114,6 +141,8 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 					return
 				}
 				c.logger.Infof("successfully reconnected work item listener stream...")
+				cancelKeepalive()
+				cancelKeepalive = c.startKeepaliveLoop(ctx)
 				// continue iterating
 				continue
 			}
