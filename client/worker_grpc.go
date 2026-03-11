@@ -25,6 +25,30 @@ type workItemsStream interface {
 	Recv() (*protos.WorkItem, error)
 }
 
+func (c *TaskHubGrpcClient) startKeepaliveLoop(ctx context.Context) context.CancelFunc {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_, err := c.client.Hello(ctx, &emptypb.Empty{})
+				if err != nil {
+					if s, ok := status.FromError(err); ok && s.Code() == codes.Unimplemented {
+						c.logger.Info("server does not support keepalive Hello RPC; disabling application-level keepalive")
+						return
+					}
+					c.logger.Debugf("keepalive failed: %v", err)
+				}
+			}
+		}
+	}()
+	return cancel
+}
+
 func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.TaskRegistry) error {
 	executor := task.NewTaskExecutor(r)
 
@@ -52,7 +76,9 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 
 	go func() {
 		c.logger.Info("starting background processor")
+		cancelKeepalive := c.startKeepaliveLoop(ctx)
 		defer func() {
+			cancelKeepalive()
 			c.logger.Info("stopping background processor")
 			// We must use a background context here as the stream's context is likely canceled
 			shutdownErr := executor.Shutdown(context.Background())
@@ -114,6 +140,8 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 					return
 				}
 				c.logger.Infof("successfully reconnected work item listener stream...")
+				cancelKeepalive()
+				cancelKeepalive = c.startKeepaliveLoop(ctx)
 				// continue iterating
 				continue
 			}
