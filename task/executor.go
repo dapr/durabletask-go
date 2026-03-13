@@ -154,6 +154,12 @@ func (te *taskExecutor) ExecuteOrchestrator(ctx context.Context, id api.Instance
 	return response, nil
 }
 
+func (te taskExecutor) Start(ctx context.Context) error {
+	// In-process executor has no background work. Block until context is cancelled.
+	<-ctx.Done()
+	return nil
+}
+
 func (te taskExecutor) Shutdown(ctx context.Context) error {
 	// Nothing to do
 	return nil
