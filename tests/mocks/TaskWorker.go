@@ -23,9 +23,56 @@ func (_m *TaskWorker[T]) EXPECT() *TaskWorker_Expecter[T] {
 	return &TaskWorker_Expecter[T]{mock: &_m.Mock}
 }
 
+// Dispatch provides a mock function with given fields: wi, callback
+func (_m *TaskWorker[T]) Dispatch(wi T, callback chan<- error) {
+	_m.Called(wi, callback)
+}
+
+// TaskWorker_Dispatch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Dispatch'
+type TaskWorker_Dispatch_Call[T backend.WorkItem] struct {
+	*mock.Call
+}
+
+// Dispatch is a helper method to define mock.On call
+//   - wi T
+//   - callback chan<- error
+func (_e *TaskWorker_Expecter[T]) Dispatch(wi interface{}, callback interface{}) *TaskWorker_Dispatch_Call[T] {
+	return &TaskWorker_Dispatch_Call[T]{Call: _e.mock.On("Dispatch", wi, callback)}
+}
+
+func (_c *TaskWorker_Dispatch_Call[T]) Run(run func(wi T, callback chan<- error)) *TaskWorker_Dispatch_Call[T] {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(T), args[1].(chan<- error))
+	})
+	return _c
+}
+
+func (_c *TaskWorker_Dispatch_Call[T]) Return() *TaskWorker_Dispatch_Call[T] {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *TaskWorker_Dispatch_Call[T]) RunAndReturn(run func(T, chan<- error)) *TaskWorker_Dispatch_Call[T] {
+	_c.Run(run)
+	return _c
+}
+
 // Start provides a mock function with given fields: _a0
-func (_m *TaskWorker[T]) Start(_a0 context.Context) {
-	_m.Called(_a0)
+func (_m *TaskWorker[T]) Start(_a0 context.Context) error {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Start")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // TaskWorker_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
@@ -46,45 +93,13 @@ func (_c *TaskWorker_Start_Call[T]) Run(run func(_a0 context.Context)) *TaskWork
 	return _c
 }
 
-func (_c *TaskWorker_Start_Call[T]) Return() *TaskWorker_Start_Call[T] {
-	_c.Call.Return()
+func (_c *TaskWorker_Start_Call[T]) Return(_a0 error) *TaskWorker_Start_Call[T] {
+	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *TaskWorker_Start_Call[T]) RunAndReturn(run func(context.Context)) *TaskWorker_Start_Call[T] {
-	_c.Run(run)
-	return _c
-}
-
-// StopAndDrain provides a mock function with no fields
-func (_m *TaskWorker[T]) StopAndDrain() {
-	_m.Called()
-}
-
-// TaskWorker_StopAndDrain_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopAndDrain'
-type TaskWorker_StopAndDrain_Call[T backend.WorkItem] struct {
-	*mock.Call
-}
-
-// StopAndDrain is a helper method to define mock.On call
-func (_e *TaskWorker_Expecter[T]) StopAndDrain() *TaskWorker_StopAndDrain_Call[T] {
-	return &TaskWorker_StopAndDrain_Call[T]{Call: _e.mock.On("StopAndDrain")}
-}
-
-func (_c *TaskWorker_StopAndDrain_Call[T]) Run(run func()) *TaskWorker_StopAndDrain_Call[T] {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *TaskWorker_StopAndDrain_Call[T]) Return() *TaskWorker_StopAndDrain_Call[T] {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *TaskWorker_StopAndDrain_Call[T]) RunAndReturn(run func()) *TaskWorker_StopAndDrain_Call[T] {
-	_c.Run(run)
+func (_c *TaskWorker_Start_Call[T]) RunAndReturn(run func(context.Context) error) *TaskWorker_Start_Call[T] {
+	_c.Call.Return(run)
 	return _c
 }
 

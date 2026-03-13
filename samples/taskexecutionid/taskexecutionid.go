@@ -23,13 +23,11 @@ func main() {
 
 	// Init the client
 	ctx := context.Background()
-	client, worker, err := Init(ctx, r)
+	client, shutdown, err := Init(ctx, r)
 	if err != nil {
 		log.Fatalf("Failed to initialize the client: %v", err)
 	}
-	defer func() {
-		must(worker.Shutdown(ctx))
-	}()
+	defer shutdown()
 
 	// Start a new orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, RetryActivityOrchestrator)
@@ -52,7 +50,7 @@ func main() {
 }
 
 // Init creates and initializes an in-memory client and worker pair with default configuration.
-func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, backend.TaskHubWorker, error) {
+func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, context.CancelFunc, error) {
 	logger := backend.DefaultLogger()
 
 	// Create an executor
@@ -61,20 +59,21 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	// Create a new backend
 	// Use the in-memory sqlite provider by specifying ""
 	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(""), logger)
-	orchestrationWorker := backend.NewOrchestrationWorker(be, executor, logger)
+	orchestrationWorker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+		Backend:  be,
+		Executor: executor,
+		Logger:   logger,
+		AppID:    "sample",
+	})
 	activityWorker := backend.NewActivityTaskWorker(be, executor, logger)
 	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
 
-	// Start the worker
-	err := taskHubWorker.Start(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
+	ctx, cancel := context.WithCancel(ctx)
+	go taskHubWorker.Start(ctx)
 
-	// Get the client to the backend
 	taskHubClient := backend.NewTaskHubClient(be)
 
-	return taskHubClient, taskHubWorker, nil
+	return taskHubClient, cancel, nil
 }
 
 func RetryActivityOrchestrator(ctx *task.OrchestrationContext) (any, error) {

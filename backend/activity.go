@@ -38,12 +38,7 @@ func (*activityProcessor) Name() string {
 	return "activity-processor"
 }
 
-// NextWorkItem implements TaskDispatcher
-func (ap *activityProcessor) NextWorkItem(ctx context.Context) (*ActivityWorkItem, error) {
-	return ap.be.NextActivityWorkItem(ctx)
-}
-
-// ProcessWorkItem implements TaskDispatcher
+// ProcessWorkItem implements TaskProcessor
 func (p *activityProcessor) ProcessWorkItem(ctx context.Context, awi *ActivityWorkItem) error {
 	ts := awi.NewEvent.GetTaskScheduled()
 	if ts == nil {
