@@ -3,8 +3,9 @@ package workflow
 import (
 	"time"
 
-	"github.com/dapr/durabletask-go/task"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/dapr/durabletask-go/task"
 )
 
 type CallActivityOption task.CallActivityOption
@@ -22,6 +23,10 @@ type RetryPolicy struct {
 	RetryTimeout time.Duration
 	// Optional function to control if retries should proceed
 	Handle func(error) bool
+	// JitterFactor adds randomness to retry delays to desynchronize concurrent retries.
+	// Must be in [0.0, 1.0]: 0.0 disables jitter, 1.0 allows up to 100% reduction of the delay.
+	// The jitter is deterministic across orchestrator replays (seeded by firstAttempt + attempt).
+	JitterFactor float64
 }
 
 func WithActivityAppID(targetAppID string) CallActivityOption {
@@ -40,7 +45,19 @@ func WithRawActivityInput(input *wrapperspb.StringValue) CallActivityOption {
 }
 
 func WithActivityRetryPolicy(policy *RetryPolicy) CallActivityOption {
-	return CallActivityOption(task.WithActivityRetryPolicy((*task.RetryPolicy)(policy)))
+	if policy == nil {
+		return CallActivityOption(task.WithActivityRetryPolicy(nil))
+	}
+
+	return CallActivityOption(task.WithActivityRetryPolicy(&task.RetryPolicy{
+		MaxAttempts:          policy.MaxAttempts,
+		InitialRetryInterval: policy.InitialRetryInterval,
+		BackoffCoefficient:   policy.BackoffCoefficient,
+		MaxRetryInterval:     policy.MaxRetryInterval,
+		RetryTimeout:         policy.RetryTimeout,
+		Handle:               policy.Handle,
+		JitterFactor:         policy.JitterFactor,
+	}))
 }
 
 // ActivityContext is the context parameter type for activity implementations.

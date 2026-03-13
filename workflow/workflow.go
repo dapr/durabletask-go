@@ -3,8 +3,9 @@ package workflow
 import (
 	"time"
 
-	"github.com/dapr/durabletask-go/task"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/dapr/durabletask-go/task"
 )
 
 // Workflow is the functional interface for workflow functions.
@@ -144,6 +145,9 @@ func WithChildWorkflowInstanceID(instanceID string) ChildWorkflowOption {
 }
 
 func WithChildWorkflowRetryPolicy(policy *RetryPolicy) ChildWorkflowOption {
+	if policy == nil {
+		return ChildWorkflowOption(task.WithSubOrchestrationRetryPolicy(nil))
+	}
 	return ChildWorkflowOption(task.WithSubOrchestrationRetryPolicy(&task.RetryPolicy{
 		MaxAttempts:          policy.MaxAttempts,
 		InitialRetryInterval: policy.InitialRetryInterval,
@@ -151,5 +155,6 @@ func WithChildWorkflowRetryPolicy(policy *RetryPolicy) ChildWorkflowOption {
 		MaxRetryInterval:     policy.MaxRetryInterval,
 		RetryTimeout:         policy.RetryTimeout,
 		Handle:               policy.Handle,
+		JitterFactor:         policy.JitterFactor,
 	}))
 }

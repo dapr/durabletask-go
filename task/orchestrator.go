@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/rand"
 	"reflect"
 	"strings"
 	"time"
@@ -412,10 +413,19 @@ func computeNextDelay(currentTimeUtc time.Time, policy RetryPolicy, attempt int,
 		}
 		if !isExpired {
 			nextDelayMs := float64(policy.InitialRetryInterval.Milliseconds()) * math.Pow(policy.BackoffCoefficient, float64(attempt))
-			if nextDelayMs < float64(policy.MaxRetryInterval.Milliseconds()) {
-				return time.Duration(int64(nextDelayMs) * int64(time.Millisecond))
+			if nextDelayMs > float64(policy.MaxRetryInterval.Milliseconds()) {
+				nextDelayMs = float64(policy.MaxRetryInterval.Milliseconds())
 			}
-			return policy.MaxRetryInterval
+			if policy.JitterFactor > 0 {
+				// Seed is deterministic so replays produce identical delays.
+				seed := firstAttempt.UnixNano() + int64(attempt)
+				jitter := rand.New(rand.NewSource(seed)).Float64() * policy.JitterFactor
+				nextDelayMs *= 1 - jitter
+			}
+			if nextDelayMs < 1 {
+				nextDelayMs = 1
+			}
+			return time.Duration(int64(nextDelayMs) * int64(time.Millisecond))
 		}
 	}
 	return 0
