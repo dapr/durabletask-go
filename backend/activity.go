@@ -15,6 +15,7 @@ import (
 type activityProcessor struct {
 	be       Backend
 	executor ActivityExecutor
+	logger   Logger
 }
 
 type ActivityExecutor interface {
@@ -22,14 +23,15 @@ type ActivityExecutor interface {
 }
 
 func NewActivityTaskWorker(be Backend, executor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
-	processor := newActivityProcessor(be, executor)
+	processor := newActivityProcessor(be, executor, logger)
 	return NewTaskWorker(processor, logger, opts...)
 }
 
-func newActivityProcessor(be Backend, executor ActivityExecutor) TaskProcessor[*ActivityWorkItem] {
+func newActivityProcessor(be Backend, executor ActivityExecutor, logger Logger) TaskProcessor[*ActivityWorkItem] {
 	return &activityProcessor{
 		be:       be,
 		executor: executor,
+		logger:   logger,
 	}
 }
 
@@ -65,7 +67,7 @@ func (p *activityProcessor) ProcessWorkItem(ctx context.Context, awi *ActivityWo
 		}()
 	}
 
-	// set the parent trace context to be the newly created activity span
+	// Set the parent trace context to be the current span for downstream propagation
 	ts.ParentTraceContext = helpers.TraceContextFromSpan(span)
 
 	// Execute the activity and get its result
