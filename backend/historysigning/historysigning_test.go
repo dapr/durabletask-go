@@ -1015,10 +1015,28 @@ func TestNewSignerErrors(t *testing.T) {
 	t.Run("empty cert", func(t *testing.T) {
 		_, err := NewSigner(nil, ed25519.NewKeyFromSeed(make([]byte, 32)))
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "certificate DER is empty")
 	})
 
 	t.Run("nil key", func(t *testing.T) {
-		_, err := NewSigner([]byte("cert"), nil)
+		certDER, _ := generateEd25519Cert(t)
+		_, err := NewSigner(certDER, nil)
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "private key is nil")
+	})
+
+	t.Run("invalid DER", func(t *testing.T) {
+		_, err := NewSigner([]byte("not-der"), ed25519.NewKeyFromSeed(make([]byte, 32)))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to parse certificate chain")
+	})
+
+	t.Run("key mismatch", func(t *testing.T) {
+		certDER, _ := generateEd25519Cert(t)
+		// Use a different key than the one that signed the cert.
+		wrongKey := ed25519.NewKeyFromSeed(make([]byte, 32))
+		_, err := NewSigner(certDER, wrongKey)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "key mismatch")
 	})
 }

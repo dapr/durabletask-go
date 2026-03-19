@@ -46,6 +46,8 @@ type Signer struct {
 // NewSigner creates a Signer from a DER-encoded certificate chain and private
 // key. The certChainDER should contain the leaf certificate first, optionally
 // followed by intermediate certificates, all concatenated as raw DER.
+// The certificate chain is parsed and validated upfront, and the leaf
+// certificate's public key is checked against the private key.
 func NewSigner(certChainDER []byte, privateKey crypto.Signer) (*Signer, error) {
 	if len(certChainDER) == 0 {
 		return nil, errors.New("certificate DER is empty")
@@ -53,10 +55,43 @@ func NewSigner(certChainDER []byte, privateKey crypto.Signer) (*Signer, error) {
 	if privateKey == nil {
 		return nil, errors.New("private key is nil")
 	}
+
+	leaf, err := parseCertificateChainDER(certChainDER)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate chain: %w", err)
+	}
+
+	if err := verifyKeyPair(leaf.PublicKey, privateKey); err != nil {
+		return nil, fmt.Errorf("key mismatch: %w", err)
+	}
+
 	return &Signer{
 		certChainDER: certChainDER,
 		privateKey:   privateKey,
 	}, nil
+}
+
+// verifyKeyPair checks that the public key from the certificate matches the
+// private key's public component.
+func verifyKeyPair(certPub crypto.PublicKey, priv crypto.Signer) error {
+	privPub := priv.Public()
+	switch pub := certPub.(type) {
+	case ed25519.PublicKey:
+		if privKey, ok := privPub.(ed25519.PublicKey); ok && pub.Equal(privKey) {
+			return nil
+		}
+	case *ecdsa.PublicKey:
+		if privKey, ok := privPub.(*ecdsa.PublicKey); ok && pub.Equal(privKey) {
+			return nil
+		}
+	case *rsa.PublicKey:
+		if privKey, ok := privPub.(*rsa.PublicKey); ok && pub.Equal(privKey) {
+			return nil
+		}
+	default:
+		return fmt.Errorf("unsupported certificate key type: %T", certPub)
+	}
+	return errors.New("private key does not match certificate public key")
 }
 
 // SignResult is the output of a signing operation.
@@ -269,6 +304,10 @@ func VerifyChain(opts VerifyChainOptions) error {
 		return errors.New("trust bundle source is required")
 	}
 
+	// Cache certificate chain-of-trust verification results per certificate
+	// index to avoid redundant X.509 parsing and verification on long histories.
+	verifiedCertIndices := make(map[uint64]bool)
+
 	var expectedStart uint64
 	for i, sig := range opts.Signatures {
 		// Verify chain linkage
@@ -296,9 +335,13 @@ func VerifyChain(opts VerifyChainOptions) error {
 			return fmt.Errorf("signature %d: %w", i, err)
 		}
 
-		// Verify certificate chain-of-trust against trust bundle
-		if err := verifyCertChainOfTrust(opts.Certs[sig.GetCertificateIndex()].GetCertificate(), opts.TrustBundleSource); err != nil {
-			return fmt.Errorf("signature %d: %w", i, err)
+		// Verify certificate chain-of-trust against trust bundle (cached per cert index).
+		certIdx := sig.GetCertificateIndex()
+		if !verifiedCertIndices[certIdx] {
+			if err := verifyCertChainOfTrust(opts.Certs[certIdx].GetCertificate(), opts.TrustBundleSource); err != nil {
+				return fmt.Errorf("signature %d: %w", i, err)
+			}
+			verifiedCertIndices[certIdx] = true
 		}
 	}
 
