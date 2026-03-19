@@ -34,24 +34,27 @@ import (
 // Signer produces HistorySignature entries for a contiguous range of history
 // events, chaining to the previous signature in the chain.
 type Signer struct {
-	// certDER is the DER-encoded X.509 leaf certificate.
-	certDER []byte
+	// certChainDER is the DER-encoded X.509 certificate chain (leaf first,
+	// followed by intermediates). Multiple DER certificates are concatenated.
+	certChainDER []byte
 
-	// privateKey is the signing key.
+	// privateKey is the signing key corresponding to the leaf certificate.
 	privateKey crypto.Signer
 }
 
-// NewSigner creates a Signer from a DER-encoded certificate and private key.
-func NewSigner(certDER []byte, privateKey crypto.Signer) (*Signer, error) {
-	if len(certDER) == 0 {
+// NewSigner creates a Signer from a DER-encoded certificate chain and private
+// key. The certChainDER should contain the leaf certificate first, optionally
+// followed by intermediate certificates, all concatenated as raw DER.
+func NewSigner(certChainDER []byte, privateKey crypto.Signer) (*Signer, error) {
+	if len(certChainDER) == 0 {
 		return nil, errors.New("certificate DER is empty")
 	}
 	if privateKey == nil {
 		return nil, errors.New("private key is nil")
 	}
 	return &Signer{
-		certDER:    certDER,
-		privateKey: privateKey,
+		certChainDER: certChainDER,
+		privateKey:   privateKey,
 	}, nil
 }
 
@@ -135,11 +138,11 @@ type SignOptions struct {
 func (s *Signer) resolveCertificateIndex(existingCerts []*protos.SigningCertificate) (uint32, *protos.SigningCertificate) {
 	if len(existingCerts) > 0 {
 		last := existingCerts[len(existingCerts)-1]
-		if bytes.Equal(last.GetCertificate(), s.certDER) {
+		if bytes.Equal(last.GetCertificate(), s.certChainDER) {
 			return uint32(len(existingCerts) - 1), nil
 		}
 	}
-	newCert := &protos.SigningCertificate{Certificate: s.certDER}
+	newCert := &protos.SigningCertificate{Certificate: s.certChainDER}
 	return uint32(len(existingCerts)), newCert
 }
 
@@ -180,7 +183,7 @@ func VerifySignature(sig *protos.HistorySignature, certs []*protos.SigningCertif
 	}
 
 	certEntry := certs[sig.GetCertificateIndex()]
-	cert, err := parseCertificateDER(certEntry.GetCertificate())
+	cert, err := parseCertificateChainDER(certEntry.GetCertificate())
 	if err != nil {
 		return fmt.Errorf("failed to parse certificate: %w", err)
 	}
@@ -232,8 +235,8 @@ func VerifyChain(signatures []*protos.HistorySignature, certs []*protos.SigningC
 	for i, sig := range signatures {
 		// Verify chain linkage
 		if i == 0 {
-			if len(sig.GetPreviousSignatureDigest()) != 0 {
-				return fmt.Errorf("root signature (index 0) must have empty previousSignatureDigest")
+			if sig.GetPreviousSignatureDigest() != nil {
+				return fmt.Errorf("root signature (index 0) must have nil previousSignatureDigest")
 			}
 		} else {
 			expectedPrevDigest, err := SignatureDigest(signatures[i-1])
@@ -253,9 +256,17 @@ func VerifyChain(signatures []*protos.HistorySignature, certs []*protos.SigningC
 	return nil
 }
 
-// parseCertificateDER parses a DER-encoded X.509 certificate.
-func parseCertificateDER(certDER []byte) (*x509.Certificate, error) {
-	return x509.ParseCertificate(certDER)
+// parseCertificateChainDER parses a DER-encoded X.509 certificate chain and
+// returns the leaf certificate (the first in the chain).
+func parseCertificateChainDER(chainDER []byte) (*x509.Certificate, error) {
+	certs, err := x509.ParseCertificates(chainDER)
+	if err != nil {
+		return nil, err
+	}
+	if len(certs) == 0 {
+		return nil, errors.New("certificate chain is empty")
+	}
+	return certs[0], nil
 }
 
 // verifyBytes verifies a signature against the given digest and public key.

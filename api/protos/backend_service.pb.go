@@ -775,8 +775,10 @@ type SigningCertificate struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// X.509 certificate chain (DER-encoded) of the signing identity. The SPIFFE
-	// ID is extracted from the certificate's SAN field during verification.
+	// DER-encoded X.509 certificate chain of the signing identity. Certificates
+	// are concatenated in order: leaf first, followed by intermediates. Each
+	// certificate is a DER-encoded ASN.1 structure, concatenated directly
+	// (standard TLS/X.509 chain encoding).
 	Certificate []byte `protobuf:"bytes,1,opt,name=certificate,proto3" json:"certificate,omitempty"`
 }
 
@@ -834,10 +836,12 @@ type HistorySignature struct {
 	StartEventIndex uint32 `protobuf:"varint,1,opt,name=startEventIndex,proto3" json:"startEventIndex,omitempty"`
 	// Number of events covered by this signature.
 	EventCount uint32 `protobuf:"varint,2,opt,name=eventCount,proto3" json:"eventCount,omitempty"`
-	// SHA-256 digest of the previous signature in the chain. Empty bytes for the
-	// root signature (first identity in the chain).
-	PreviousSignatureDigest []byte `protobuf:"bytes,3,opt,name=previousSignatureDigest,proto3" json:"previousSignatureDigest,omitempty"`
-	// SHA-256 digest of history storage in this range.
+	// SHA-256 digest of the previous signature in the chain. Absent for the
+	// root signature (first in the chain).
+	PreviousSignatureDigest []byte `protobuf:"bytes,3,opt,name=previousSignatureDigest,proto3,oneof" json:"previousSignatureDigest,omitempty"`
+	// SHA-256 digest over the concatenation of the raw serialized bytes of each
+	// history event in this range, in order. The bytes are the exact values
+	// persisted to the state store (one per history-NNNNNN key).
 	EventsDigest []byte `protobuf:"bytes,4,opt,name=eventsDigest,proto3" json:"eventsDigest,omitempty"`
 	// Index into the SigningCertificate table (sigcert-NNNNNN keys).
 	// Multiple signatures from the same identity share the same index.

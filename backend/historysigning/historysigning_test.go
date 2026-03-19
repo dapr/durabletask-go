@@ -552,6 +552,240 @@ func TestRawBytesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// generateCACert creates a self-signed CA certificate and returns its DER
+// bytes, parsed certificate, and private key.
+func generateCACert(t *testing.T) ([]byte, *x509.Certificate, ed25519.PrivateKey) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	nb, na := testCertValidity()
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test CA"},
+		NotBefore:             nb,
+		NotAfter:              na,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+
+	caDER, err := x509.CreateCertificate(rand.Reader, template, template, pub, priv)
+	require.NoError(t, err)
+
+	ca, err := x509.ParseCertificate(caDER)
+	require.NoError(t, err)
+
+	return caDER, ca, priv
+}
+
+// generateLeafCertSignedByCA creates a leaf certificate signed by the given CA.
+func generateLeafCertSignedByCA(t *testing.T, ca *x509.Certificate, caKey ed25519.PrivateKey) ([]byte, ed25519.PrivateKey) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	nb, na := testCertValidity()
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "test leaf"},
+		NotBefore:    nb,
+		NotAfter:     na,
+		URIs:         []*url.URL{{Scheme: "spiffe", Host: "example.org", Path: "/ns/default/app-a"}},
+	}
+
+	leafDER, err := x509.CreateCertificate(rand.Reader, template, ca, pub, caKey)
+	require.NoError(t, err)
+
+	return leafDER, priv
+}
+
+func TestSignAndVerifyWithCertChain(t *testing.T) {
+	// Create CA and leaf signed by CA.
+	caDER, ca, caKey := generateCACert(t)
+	leafDER, leafPriv := generateLeafCertSignedByCA(t, ca, caKey)
+
+	// Build chain: leaf + CA concatenated DER.
+	chainDER := append(leafDER, caDER...)
+
+	events := testEvents()
+	raw := marshalEvents(t, events)
+
+	signer, err := NewSigner(chainDER, leafPriv)
+	require.NoError(t, err)
+
+	result, err := signer.Sign(SignOptions{
+		RawEvents:       raw,
+		StartEventIndex: 0,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result.NewCert)
+
+	// The stored certificate should be the full chain.
+	assert.Equal(t, chainDER, result.NewCert.GetCertificate())
+
+	// Verification should succeed — parseCertificateChainDER extracts the leaf.
+	certs := []*protos.SigningCertificate{result.NewCert}
+	err = VerifySignature(result.Signature, certs, raw)
+	require.NoError(t, err)
+}
+
+func TestSignChainVerifyWithCertChain(t *testing.T) {
+	// Full signing chain with certificate chains (leaf+CA).
+	caDER, ca, caKey := generateCACert(t)
+	leafDER, leafPriv := generateLeafCertSignedByCA(t, ca, caKey)
+	chainDER := append(leafDER, caDER...)
+
+	events := testEvents()
+	raw := marshalEvents(t, events)
+
+	signer, err := NewSigner(chainDER, leafPriv)
+	require.NoError(t, err)
+
+	// Sign first batch.
+	result1, err := signer.Sign(SignOptions{
+		RawEvents:       raw[:2],
+		StartEventIndex: 0,
+	})
+	require.NoError(t, err)
+
+	certs := []*protos.SigningCertificate{result1.NewCert}
+
+	// Sign second batch chained to first — cert should be reused.
+	result2, err := signer.Sign(SignOptions{
+		RawEvents:         raw[2:],
+		StartEventIndex:   2,
+		PreviousSignature: result1.Signature,
+		ExistingCerts:     certs,
+	})
+	require.NoError(t, err)
+	assert.Nil(t, result2.NewCert, "cert chain should be reused")
+	assert.Equal(t, uint32(0), result2.CertificateIndex)
+
+	sigs := []*protos.HistorySignature{result1.Signature, result2.Signature}
+	err = VerifyChain(sigs, certs, raw)
+	require.NoError(t, err)
+}
+
+func TestCertificateRotationWithChains(t *testing.T) {
+	// Two different CAs, each signing a leaf. Simulate rotation between them.
+	caDER1, ca1, caKey1 := generateCACert(t)
+	leafDER1, leafPriv1 := generateLeafCertSignedByCA(t, ca1, caKey1)
+	chainDER1 := append(leafDER1, caDER1...)
+
+	caDER2, ca2, caKey2 := generateCACert(t)
+	leafDER2, leafPriv2 := generateLeafCertSignedByCA(t, ca2, caKey2)
+	chainDER2 := append(leafDER2, caDER2...)
+
+	events := testEvents()
+	raw := marshalEvents(t, events)
+
+	signer1, err := NewSigner(chainDER1, leafPriv1)
+	require.NoError(t, err)
+
+	result1, err := signer1.Sign(SignOptions{
+		RawEvents:       raw[:2],
+		StartEventIndex: 0,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result1.NewCert)
+
+	certs := []*protos.SigningCertificate{result1.NewCert}
+
+	// Rotate to second identity.
+	signer2, err := NewSigner(chainDER2, leafPriv2)
+	require.NoError(t, err)
+
+	result2, err := signer2.Sign(SignOptions{
+		RawEvents:         raw[2:],
+		StartEventIndex:   2,
+		PreviousSignature: result1.Signature,
+		ExistingCerts:     certs,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result2.NewCert, "rotation should produce a new cert entry")
+	assert.Equal(t, uint32(1), result2.CertificateIndex)
+
+	certs = append(certs, result2.NewCert)
+
+	sigs := []*protos.HistorySignature{result1.Signature, result2.Signature}
+	err = VerifyChain(sigs, certs, raw)
+	require.NoError(t, err)
+}
+
+func TestSignWithIntermediateCertChain(t *testing.T) {
+	// Root CA -> Intermediate CA -> Leaf, stored as leaf+intermediate+root.
+	rootPub, rootPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	nb, na := testCertValidity()
+	rootTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Root CA"},
+		NotBefore:             nb,
+		NotAfter:              na,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, rootPub, rootPriv)
+	require.NoError(t, err)
+	rootCert, err := x509.ParseCertificate(rootDER)
+	require.NoError(t, err)
+
+	intermPub, intermPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	intermTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "Intermediate CA"},
+		NotBefore:             nb,
+		NotAfter:              na,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	intermDER, err := x509.CreateCertificate(rand.Reader, intermTemplate, rootCert, intermPub, rootPriv)
+	require.NoError(t, err)
+	intermCert, err := x509.ParseCertificate(intermDER)
+	require.NoError(t, err)
+
+	leafPub, leafPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: "leaf"},
+		NotBefore:    nb,
+		NotAfter:     na,
+		URIs:         []*url.URL{{Scheme: "spiffe", Host: "example.org", Path: "/ns/default/app-a"}},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, intermCert, leafPub, intermPriv)
+	require.NoError(t, err)
+
+	// Chain: leaf + intermediate + root
+	var chainDER []byte
+	chainDER = append(chainDER, leafDER...)
+	chainDER = append(chainDER, intermDER...)
+	chainDER = append(chainDER, rootDER...)
+
+	events := testEvents()
+	raw := marshalEvents(t, events)
+
+	signer, err := NewSigner(chainDER, leafPriv)
+	require.NoError(t, err)
+
+	result, err := signer.Sign(SignOptions{
+		RawEvents:       raw,
+		StartEventIndex: 0,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result.NewCert)
+
+	// Verify — the leaf's public key should be used for verification.
+	certs := []*protos.SigningCertificate{result.NewCert}
+	err = VerifySignature(result.Signature, certs, raw)
+	require.NoError(t, err)
+}
+
 func TestNewSignerErrors(t *testing.T) {
 	t.Run("empty cert", func(t *testing.T) {
 		_, err := NewSigner(nil, ed25519.NewKeyFromSeed(make([]byte, 32)))
