@@ -32,6 +32,8 @@ type (
 	DurableTimer                     = protos.DurableTimer
 	OrchestrationRuntimeState        = protos.OrchestrationRuntimeState
 	OrchestrationRuntimeStateMessage = protos.OrchestrationRuntimeStateMessage
+	SigningCertificate               = protos.SigningCertificate
+	HistorySignature                 = protos.HistorySignature
 	RerunWorkflowFromEventRequest    = protos.RerunWorkflowFromEventRequest
 	ListInstanceIDsRequest           = protos.ListInstanceIDsRequest
 	ListInstanceIDsResponse          = protos.ListInstanceIDsResponse
