@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
@@ -218,10 +219,12 @@ func verifyCertChainOfTrust(chainDER []byte, bundleSource x509bundle.Source) err
 		Roots:         roots,
 		Intermediates: intermediates,
 		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-		// Use the cert's own NotBefore as the verification time to avoid
-		// failing on expired short-lived SVIDs. The temporal validity against
-		// event timestamps is already checked in VerifySignature.
-		CurrentTime: leaf.NotBefore,
+		// Use the leaf's NotAfter (minus one minute) as the verification time.
+		// This avoids failures both from expired short-lived SVIDs and from
+		// backdated NotBefore (sentry backdates SVIDs for clock-skew tolerance,
+		// which can place NotBefore before the CA cert's NotBefore). The temporal
+		// validity against event timestamps is already checked in VerifySignature.
+		CurrentTime: leaf.NotAfter.Add(-time.Minute),
 	})
 	if err != nil {
 		return fmt.Errorf("certificate chain-of-trust verification failed: %w", err)
