@@ -15,6 +15,7 @@ package historysigning
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
@@ -31,11 +32,16 @@ func MarshalEvent(event *protos.HistoryEvent) ([]byte, error) {
 }
 
 // EventsDigest computes the SHA-256 digest of pre-marshaled history event
-// bytes. The raw bytes should come from MarshalEvent (at sign time) or
-// directly from the state store (at verification time).
+// bytes. Each event is length-prefixed (big-endian uint64) before being
+// written to the hash, preventing ambiguity from concatenation.
+// The raw bytes should come from MarshalEvent (at sign time) or directly
+// from the state store (at verification time).
 func EventsDigest(rawEvents [][]byte) []byte {
 	h := sha256.New()
+	var lenBuf [8]byte
 	for _, b := range rawEvents {
+		binary.BigEndian.PutUint64(lenBuf[:], uint64(len(b)))
+		h.Write(lenBuf[:])
 		h.Write(b)
 	}
 	return h.Sum(nil)

@@ -25,6 +25,8 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
+	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/dapr/durabletask-go/api/protos"
@@ -236,18 +238,46 @@ func VerifySignature(sig *protos.HistorySignature, certs []*protos.SigningCertif
 	return nil
 }
 
+// VerifyChainOptions are the parameters for chain verification.
+type VerifyChainOptions struct {
+	// Signatures is the ordered list of HistorySignature entries.
+	Signatures []*protos.HistorySignature
+	// Certs is the certificate table (sigcert entries).
+	Certs []*protos.SigningCertificate
+	// AllRawEvents is the raw marshaled bytes of all history events, in order.
+	AllRawEvents [][]byte
+	// TrustBundleSource provides the X.509 trust bundle for verifying signing
+	// certificates. The trust domain is extracted from each signing
+	// certificate's SPIFFE ID (URI SAN).
+	TrustBundleSource x509bundle.Source
+}
+
 // VerifyChain walks the full signature chain and verifies each signature,
-// including chain linkage via previousSignatureDigest. The allRawEvents slice
-// must contain the raw marshaled bytes as stored in the state store.
-func VerifyChain(signatures []*protos.HistorySignature, certs []*protos.SigningCertificate, allRawEvents [][]byte) error {
-	for i, sig := range signatures {
+// including chain linkage via previousSignatureDigest, contiguity of event
+// ranges, and certificate chain-of-trust against trust anchors.
+// The allRawEvents slice must contain the raw marshaled bytes as stored in the
+// state store.
+func VerifyChain(opts VerifyChainOptions) error {
+	if len(opts.Signatures) == 0 {
+		if len(opts.AllRawEvents) == 0 {
+			return nil
+		}
+		return fmt.Errorf("no signatures but %d events exist", len(opts.AllRawEvents))
+	}
+
+	if opts.TrustBundleSource == nil {
+		return errors.New("trust bundle source is required")
+	}
+
+	var expectedStart uint64
+	for i, sig := range opts.Signatures {
 		// Verify chain linkage
 		if i == 0 {
 			if sig.GetPreviousSignatureDigest() != nil {
 				return fmt.Errorf("root signature (index 0) must have nil previousSignatureDigest")
 			}
 		} else {
-			expectedPrevDigest, err := SignatureDigest(signatures[i-1])
+			expectedPrevDigest, err := SignatureDigest(opts.Signatures[i-1])
 			if err != nil {
 				return err
 			}
@@ -256,9 +286,81 @@ func VerifyChain(signatures []*protos.HistorySignature, certs []*protos.SigningC
 			}
 		}
 
-		if err := VerifySignature(sig, certs, allRawEvents); err != nil {
+		// Verify contiguity
+		if sig.GetStartEventIndex() != expectedStart {
+			return fmt.Errorf("signature %d: expected start event index %d, got %d", i, expectedStart, sig.GetStartEventIndex())
+		}
+		expectedStart = sig.GetStartEventIndex() + sig.GetEventCount()
+
+		if err := VerifySignature(sig, opts.Certs, opts.AllRawEvents); err != nil {
 			return fmt.Errorf("signature %d: %w", i, err)
 		}
+
+		// Verify certificate chain-of-trust against trust bundle
+		if err := verifyCertChainOfTrust(opts.Certs[sig.GetCertificateIndex()].GetCertificate(), opts.TrustBundleSource); err != nil {
+			return fmt.Errorf("signature %d: %w", i, err)
+		}
+	}
+
+	// Verify full coverage
+	if expectedStart != uint64(len(opts.AllRawEvents)) {
+		return fmt.Errorf("signatures cover events [0, %d) but %d events exist", expectedStart, len(opts.AllRawEvents))
+	}
+
+	return nil
+}
+
+// verifyCertChainOfTrust verifies that the leaf certificate in chainDER
+// chains to a trust anchor from the given bundle source. The trust domain
+// is extracted from the leaf certificate's SPIFFE ID (URI SAN).
+func verifyCertChainOfTrust(chainDER []byte, bundleSource x509bundle.Source) error {
+	certs, err := x509.ParseCertificates(chainDER)
+	if err != nil {
+		return fmt.Errorf("failed to parse certificate chain: %w", err)
+	}
+	if len(certs) == 0 {
+		return errors.New("certificate chain is empty")
+	}
+
+	leaf := certs[0]
+
+	// Extract the SPIFFE ID from the leaf certificate to determine the trust domain.
+	spiffeID, err := x509svid.IDFromCert(leaf)
+	if err != nil {
+		return fmt.Errorf("failed to extract SPIFFE ID from certificate: %w", err)
+	}
+
+	bundle, err := bundleSource.GetX509BundleForTrustDomain(spiffeID.TrustDomain())
+	if err != nil {
+		return fmt.Errorf("failed to get trust bundle for trust domain %q: %w", spiffeID.TrustDomain(), err)
+	}
+
+	trustAnchors := bundle.X509Authorities()
+	if len(trustAnchors) == 0 {
+		return fmt.Errorf("trust bundle for trust domain %q has no X.509 authorities", spiffeID.TrustDomain())
+	}
+
+	roots := x509.NewCertPool()
+	for _, anchor := range trustAnchors {
+		roots.AddCert(anchor)
+	}
+
+	intermediates := x509.NewCertPool()
+	for _, c := range certs[1:] {
+		intermediates.AddCert(c)
+	}
+
+	_, err = leaf.Verify(x509.VerifyOptions{
+		Roots:         roots,
+		Intermediates: intermediates,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+		// Use the cert's own NotBefore as the verification time to avoid
+		// failing on expired short-lived SVIDs. The temporal validity against
+		// event timestamps is already checked in VerifySignature.
+		CurrentTime: leaf.NotBefore,
+	})
+	if err != nil {
+		return fmt.Errorf("certificate chain-of-trust verification failed: %w", err)
 	}
 
 	return nil

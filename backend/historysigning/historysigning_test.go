@@ -26,6 +26,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -35,6 +37,22 @@ import (
 
 	"github.com/dapr/durabletask-go/api/protos"
 )
+
+func parseCert(t *testing.T, der []byte) *x509.Certificate {
+	t.Helper()
+	cert, err := x509.ParseCertificate(der)
+	require.NoError(t, err)
+	return cert
+}
+
+// testTrustDomain is the SPIFFE trust domain used in all test certificates.
+var testTrustDomain = spiffeid.RequireTrustDomainFromString("example.org")
+
+// testTrustBundle creates an x509bundle.Source from the given trust anchor
+// certificates, using the test trust domain.
+func testTrustBundle(authorities ...*x509.Certificate) x509bundle.Source {
+	return x509bundle.FromX509Authorities(testTrustDomain, authorities)
+}
 
 func testEvents() []*protos.HistoryEvent {
 	return []*protos.HistoryEvent{
@@ -251,7 +269,7 @@ func TestSignChainAndVerify(t *testing.T) {
 
 	// Verify chain
 	sigs := []*protos.HistorySignature{result1.Signature, result2.Signature}
-	err = VerifyChain(sigs, certs, raw)
+	err = VerifyChain(VerifyChainOptions{Signatures: sigs, Certs: certs, AllRawEvents: raw, TrustBundleSource: testTrustBundle(parseCert(t, certDER))})
 	require.NoError(t, err)
 }
 
@@ -291,9 +309,9 @@ func TestCertificateRotation(t *testing.T) {
 
 	certs = append(certs, result2.NewCert)
 
-	// Verify chain
+	// Verify chain — both self-signed certs are trust anchors.
 	sigs := []*protos.HistorySignature{result1.Signature, result2.Signature}
-	err = VerifyChain(sigs, certs, raw)
+	err = VerifyChain(VerifyChainOptions{Signatures: sigs, Certs: certs, AllRawEvents: raw, TrustBundleSource: testTrustBundle(parseCert(t, certDER1), parseCert(t, certDER2))})
 	require.NoError(t, err)
 }
 
@@ -349,9 +367,10 @@ func TestTruncatedChainDetection(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Try to verify chain with first signature removed
+	// Try to verify chain with first signature removed — fails because
+	// the second signature has a non-nil previousSignatureDigest at index 0.
 	sigs := []*protos.HistorySignature{result2.Signature}
-	err = VerifyChain(sigs, certs, raw)
+	err = VerifyChain(VerifyChainOptions{Signatures: sigs, Certs: certs, AllRawEvents: raw, TrustBundleSource: testTrustBundle(parseCert(t, certDER))})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "root signature")
 }
@@ -663,7 +682,7 @@ func TestSignChainVerifyWithCertChain(t *testing.T) {
 	assert.Equal(t, uint64(0), result2.CertificateIndex)
 
 	sigs := []*protos.HistorySignature{result1.Signature, result2.Signature}
-	err = VerifyChain(sigs, certs, raw)
+	err = VerifyChain(VerifyChainOptions{Signatures: sigs, Certs: certs, AllRawEvents: raw, TrustBundleSource: testTrustBundle(ca)})
 	require.NoError(t, err)
 }
 
@@ -709,7 +728,7 @@ func TestCertificateRotationWithChains(t *testing.T) {
 	certs = append(certs, result2.NewCert)
 
 	sigs := []*protos.HistorySignature{result1.Signature, result2.Signature}
-	err = VerifyChain(sigs, certs, raw)
+	err = VerifyChain(VerifyChainOptions{Signatures: sigs, Certs: certs, AllRawEvents: raw, TrustBundleSource: testTrustBundle(ca1, ca2)})
 	require.NoError(t, err)
 }
 
@@ -783,6 +802,212 @@ func TestSignWithIntermediateCertChain(t *testing.T) {
 	// Verify — the leaf's public key should be used for verification.
 	certs := []*protos.SigningCertificate{result.NewCert}
 	err = VerifySignature(result.Signature, certs, raw)
+	require.NoError(t, err)
+}
+
+func TestVerifyChainContiguityGap(t *testing.T) {
+	certDER, priv := generateEd25519Cert(t)
+	events := testEvents()
+	raw := marshalEvents(t, events)
+
+	signer, err := NewSigner(certDER, priv)
+	require.NoError(t, err)
+
+	// Sign events [0,1) and [2,3) — skipping event 1.
+	result1, err := signer.Sign(SignOptions{
+		RawEvents:       raw[:1],
+		StartEventIndex: 0,
+	})
+	require.NoError(t, err)
+
+	certs := []*protos.SigningCertificate{result1.NewCert}
+
+	result2, err := signer.Sign(SignOptions{
+		RawEvents:         raw[2:3],
+		StartEventIndex:   2, // gap: should be 1
+		PreviousSignature: result1.Signature,
+		ExistingCerts:     certs,
+	})
+	require.NoError(t, err)
+
+	sigs := []*protos.HistorySignature{result1.Signature, result2.Signature}
+	err = VerifyChain(VerifyChainOptions{Signatures: sigs, Certs: certs, AllRawEvents: raw, TrustBundleSource: testTrustBundle(parseCert(t, certDER))})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expected start event index")
+}
+
+func TestVerifyChainCoverageShort(t *testing.T) {
+	certDER, priv := generateEd25519Cert(t)
+	events := testEvents()
+	raw := marshalEvents(t, events)
+
+	signer, err := NewSigner(certDER, priv)
+	require.NoError(t, err)
+
+	// Only sign the first 2 events, but pass all 3 to VerifyChain.
+	result, err := signer.Sign(SignOptions{
+		RawEvents:       raw[:2],
+		StartEventIndex: 0,
+	})
+	require.NoError(t, err)
+
+	certs := []*protos.SigningCertificate{result.NewCert}
+	sigs := []*protos.HistorySignature{result.Signature}
+	err = VerifyChain(VerifyChainOptions{Signatures: sigs, Certs: certs, AllRawEvents: raw, TrustBundleSource: testTrustBundle(parseCert(t, certDER))})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "signatures cover events")
+}
+
+func TestVerifyChainEmptyNoEvents(t *testing.T) {
+	err := VerifyChain(VerifyChainOptions{})
+	require.NoError(t, err)
+}
+
+func TestVerifyChainEmptyWithEvents(t *testing.T) {
+	err := VerifyChain(VerifyChainOptions{AllRawEvents: [][]byte{{1}}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no signatures but")
+}
+
+func TestVerifyChainWithTrustAnchors(t *testing.T) {
+	caDER, ca, caKey := generateCACert(t)
+	leafDER, leafPriv := generateLeafCertSignedByCA(t, ca, caKey)
+	chainDER := append(leafDER, caDER...)
+
+	events := testEvents()
+	raw := marshalEvents(t, events)
+
+	signer, err := NewSigner(chainDER, leafPriv)
+	require.NoError(t, err)
+
+	result, err := signer.Sign(SignOptions{
+		RawEvents:       raw,
+		StartEventIndex: 0,
+	})
+	require.NoError(t, err)
+
+	certs := []*protos.SigningCertificate{result.NewCert}
+	sigs := []*protos.HistorySignature{result.Signature}
+
+	// Verify with the correct CA as trust anchor — should pass.
+	err = VerifyChain(VerifyChainOptions{
+		Signatures:   sigs,
+		Certs:        certs,
+		AllRawEvents: raw,
+		TrustBundleSource: testTrustBundle(ca),
+	})
+	require.NoError(t, err)
+}
+
+func TestVerifyChainWithWrongTrustAnchor(t *testing.T) {
+	caDER, ca, caKey := generateCACert(t)
+	leafDER, leafPriv := generateLeafCertSignedByCA(t, ca, caKey)
+	chainDER := append(leafDER, caDER...)
+
+	// Create a different CA that did NOT sign the leaf.
+	_, wrongCA, _ := generateCACert(t)
+
+	events := testEvents()
+	raw := marshalEvents(t, events)
+
+	signer, err := NewSigner(chainDER, leafPriv)
+	require.NoError(t, err)
+
+	result, err := signer.Sign(SignOptions{
+		RawEvents:       raw,
+		StartEventIndex: 0,
+	})
+	require.NoError(t, err)
+
+	certs := []*protos.SigningCertificate{result.NewCert}
+	sigs := []*protos.HistorySignature{result.Signature}
+
+	// Verify with the wrong CA — should fail.
+	err = VerifyChain(VerifyChainOptions{
+		Signatures:   sigs,
+		Certs:        certs,
+		AllRawEvents: raw,
+		TrustBundleSource: testTrustBundle(wrongCA),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chain-of-trust verification failed")
+}
+
+func TestVerifyChainWithIntermediateAndTrustAnchor(t *testing.T) {
+	// Root CA -> Intermediate -> Leaf, trust anchor is root.
+	rootPub, rootPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	nb, na := testCertValidity()
+	rootTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Root CA"},
+		NotBefore:             nb,
+		NotAfter:              na,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, rootPub, rootPriv)
+	require.NoError(t, err)
+	rootCert, err := x509.ParseCertificate(rootDER)
+	require.NoError(t, err)
+
+	intermPub, intermPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	intermTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "Intermediate"},
+		NotBefore:             nb,
+		NotAfter:              na,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	intermDER, err := x509.CreateCertificate(rand.Reader, intermTemplate, rootCert, intermPub, rootPriv)
+	require.NoError(t, err)
+	intermCert, err := x509.ParseCertificate(intermDER)
+	require.NoError(t, err)
+
+	leafPub, leafPriv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: "leaf"},
+		NotBefore:    nb,
+		NotAfter:     na,
+		URIs:         []*url.URL{{Scheme: "spiffe", Host: "example.org", Path: "/ns/default/app-a"}},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, intermCert, leafPub, intermPriv)
+	require.NoError(t, err)
+
+	// Chain: leaf + intermediate (root is the trust anchor, not in chain)
+	var chainDER []byte
+	chainDER = append(chainDER, leafDER...)
+	chainDER = append(chainDER, intermDER...)
+
+	events := testEvents()
+	raw := marshalEvents(t, events)
+
+	signer, err := NewSigner(chainDER, leafPriv)
+	require.NoError(t, err)
+
+	result, err := signer.Sign(SignOptions{
+		RawEvents:       raw,
+		StartEventIndex: 0,
+	})
+	require.NoError(t, err)
+
+	certs := []*protos.SigningCertificate{result.NewCert}
+	sigs := []*protos.HistorySignature{result.Signature}
+
+	// Verify with root as trust anchor — should pass via intermediate chain.
+	err = VerifyChain(VerifyChainOptions{
+		Signatures:   sigs,
+		Certs:        certs,
+		AllRawEvents: raw,
+		TrustBundleSource: testTrustBundle(rootCert),
+	})
 	require.NoError(t, err)
 }
 
