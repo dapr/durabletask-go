@@ -46,7 +46,7 @@ func EventsDigest(rawEvents [][]byte) []byte {
 func SignatureDigest(sig *protos.HistorySignature) ([]byte, error) {
 	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(sig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal HistorySignature: %v", err)
+		return nil, fmt.Errorf("failed to marshal HistorySignature: %w", err)
 	}
 	d := sha256.Sum256(b)
 	return d[:], nil

@@ -20,7 +20,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -68,7 +67,7 @@ type SignResult struct {
 	NewCert *protos.SigningCertificate
 
 	// CertificateIndex is the index used in the signature's certificate_index field.
-	CertificateIndex uint32
+	CertificateIndex uint64
 }
 
 // Sign creates a HistorySignature covering a range of events. The RawEvents
@@ -80,7 +79,7 @@ func (s *Signer) Sign(opts SignOptions) (*SignResult, error) {
 		return nil, errors.New("raw events must not be empty")
 	}
 
-	eventCount := uint32(len(opts.RawEvents))
+	eventCount := uint64(len(opts.RawEvents))
 	eventsDigest := EventsDigest(opts.RawEvents)
 
 	// Determine previous signature digest
@@ -125,7 +124,7 @@ type SignOptions struct {
 	// These must come from MarshalEvent.
 	RawEvents [][]byte
 	// StartEventIndex is the index of the first event in the overall history.
-	StartEventIndex uint32
+	StartEventIndex uint64
 	// PreviousSignature is the previous signature in the chain (nil for root).
 	PreviousSignature *protos.HistorySignature
 	// ExistingCerts is the current certificate table.
@@ -135,26 +134,26 @@ type SignOptions struct {
 // resolveCertificateIndex checks if the current certificate matches the last
 // entry in the certificate table. If so, returns that index. Otherwise,
 // returns a new index and the certificate to append.
-func (s *Signer) resolveCertificateIndex(existingCerts []*protos.SigningCertificate) (uint32, *protos.SigningCertificate) {
+func (s *Signer) resolveCertificateIndex(existingCerts []*protos.SigningCertificate) (uint64, *protos.SigningCertificate) {
 	if len(existingCerts) > 0 {
 		last := existingCerts[len(existingCerts)-1]
 		if bytes.Equal(last.GetCertificate(), s.certChainDER) {
-			return uint32(len(existingCerts) - 1), nil
+			return uint64(len(existingCerts) - 1), nil
 		}
 	}
 	newCert := &protos.SigningCertificate{Certificate: s.certChainDER}
-	return uint32(len(existingCerts)), newCert
+	return uint64(len(existingCerts)), newCert
 }
 
-// signBytes signs the given digest bytes with the private key.
+// signBytes signs the given digest with the private key. The digest must
+// already be a SHA-256 hash (as returned by SignatureInput).
 func (s *Signer) signBytes(digest []byte) ([]byte, error) {
 	switch k := s.privateKey.(type) {
 	case ed25519.PrivateKey:
 		return ed25519.Sign(k, digest), nil
 	case *ecdsa.PrivateKey:
-		// For ECDSA, hash the input first
-		hash := sha256.Sum256(digest)
-		r, ss, err := ecdsa.Sign(rand.Reader, k, hash[:])
+		// digest is already SHA-256; use it directly as the hash input.
+		r, ss, err := ecdsa.Sign(rand.Reader, k, digest)
 		if err != nil {
 			return nil, err
 		}
@@ -167,8 +166,8 @@ func (s *Signer) signBytes(digest []byte) ([]byte, error) {
 		copy(sig[2*byteLen-len(sBytes):], sBytes)
 		return sig, nil
 	case *rsa.PrivateKey:
-		hash := sha256.Sum256(digest)
-		return rsa.SignPKCS1v15(rand.Reader, k, crypto.SHA256, hash[:])
+		// digest is already SHA-256; pass it directly.
+		return rsa.SignPKCS1v15(rand.Reader, k, crypto.SHA256, digest)
 	default:
 		return nil, fmt.Errorf("unsupported key type: %T", s.privateKey)
 	}
@@ -178,7 +177,11 @@ func (s *Signer) signBytes(digest []byte) ([]byte, error) {
 // bytes and certificate table. The allRawEvents slice must contain the
 // deterministically marshaled bytes of every history event, in order.
 func VerifySignature(sig *protos.HistorySignature, certs []*protos.SigningCertificate, allRawEvents [][]byte) error {
-	if int(sig.GetCertificateIndex()) >= len(certs) {
+	if sig.GetEventCount() == 0 {
+		return errors.New("signature has zero event count")
+	}
+
+	if sig.GetCertificateIndex() >= uint64(len(certs)) {
 		return fmt.Errorf("certificate index %d out of range [0, %d)", sig.GetCertificateIndex(), len(certs))
 	}
 
@@ -188,13 +191,14 @@ func VerifySignature(sig *protos.HistorySignature, certs []*protos.SigningCertif
 		return fmt.Errorf("failed to parse certificate: %w", err)
 	}
 
-	end := sig.GetStartEventIndex() + sig.GetEventCount()
-	if end > uint32(len(allRawEvents)) {
+	start := sig.GetStartEventIndex()
+	end := start + sig.GetEventCount()
+	if end > uint64(len(allRawEvents)) {
 		return fmt.Errorf("signature event range [%d, %d) exceeds events length %d",
-			sig.GetStartEventIndex(), end, len(allRawEvents))
+			start, end, len(allRawEvents))
 	}
 
-	rawSlice := allRawEvents[sig.GetStartEventIndex():end]
+	rawSlice := allRawEvents[start:end]
 
 	// Verify the certificate was valid at the time of the last event in the
 	// signed range. We unmarshal only the last event to extract its timestamp.
@@ -202,6 +206,10 @@ func VerifySignature(sig *protos.HistorySignature, certs []*protos.SigningCertif
 	var lastEvent protos.HistoryEvent
 	if err := proto.Unmarshal(lastRaw, &lastEvent); err != nil {
 		return fmt.Errorf("failed to unmarshal last event in range: %w", err)
+	}
+
+	if lastEvent.GetTimestamp() == nil {
+		return fmt.Errorf("last event in range [%d, %d) has no timestamp", start, end)
 	}
 
 	eventTime := lastEvent.GetTimestamp().AsTime()
@@ -270,6 +278,7 @@ func parseCertificateChainDER(chainDER []byte) (*x509.Certificate, error) {
 }
 
 // verifyBytes verifies a signature against the given digest and public key.
+// The digest must already be a SHA-256 hash (as returned by SignatureInput).
 func verifyBytes(pubKey crypto.PublicKey, digest, sig []byte) error {
 	switch k := pubKey.(type) {
 	case ed25519.PublicKey:
@@ -278,20 +287,18 @@ func verifyBytes(pubKey crypto.PublicKey, digest, sig []byte) error {
 		}
 		return nil
 	case *ecdsa.PublicKey:
-		hash := sha256.Sum256(digest)
 		byteLen := (k.Curve.Params().BitSize + 7) / 8
 		if len(sig) != 2*byteLen {
 			return fmt.Errorf("invalid ECDSA signature length: got %d, want %d", len(sig), 2*byteLen)
 		}
 		r := new(big.Int).SetBytes(sig[:byteLen])
 		s := new(big.Int).SetBytes(sig[byteLen:])
-		if !ecdsa.Verify(k, hash[:], r, s) {
+		if !ecdsa.Verify(k, digest, r, s) {
 			return errors.New("ecdsa signature verification failed")
 		}
 		return nil
 	case *rsa.PublicKey:
-		hash := sha256.Sum256(digest)
-		return rsa.VerifyPKCS1v15(k, crypto.SHA256, hash[:], sig)
+		return rsa.VerifyPKCS1v15(k, crypto.SHA256, digest, sig)
 	default:
 		return fmt.Errorf("unsupported public key type: %T", pubKey)
 	}

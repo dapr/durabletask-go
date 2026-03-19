@@ -172,7 +172,7 @@ func TestSignAndVerifyEd25519(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result.NewCert)
-	assert.Equal(t, uint32(0), result.CertificateIndex)
+	assert.Equal(t, uint64(0), result.CertificateIndex)
 
 	// Verify
 	certs := []*protos.SigningCertificate{result.NewCert}
@@ -247,7 +247,7 @@ func TestSignChainAndVerify(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Nil(t, result2.NewCert, "cert should be reused")
-	assert.Equal(t, uint32(0), result2.CertificateIndex)
+	assert.Equal(t, uint64(0), result2.CertificateIndex)
 
 	// Verify chain
 	sigs := []*protos.HistorySignature{result1.Signature, result2.Signature}
@@ -287,7 +287,7 @@ func TestCertificateRotation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result2.NewCert, "new cert should be added on rotation")
-	assert.Equal(t, uint32(1), result2.CertificateIndex)
+	assert.Equal(t, uint64(1), result2.CertificateIndex)
 
 	certs = append(certs, result2.NewCert)
 
@@ -660,7 +660,7 @@ func TestSignChainVerifyWithCertChain(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Nil(t, result2.NewCert, "cert chain should be reused")
-	assert.Equal(t, uint32(0), result2.CertificateIndex)
+	assert.Equal(t, uint64(0), result2.CertificateIndex)
 
 	sigs := []*protos.HistorySignature{result1.Signature, result2.Signature}
 	err = VerifyChain(sigs, certs, raw)
@@ -704,7 +704,7 @@ func TestCertificateRotationWithChains(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, result2.NewCert, "rotation should produce a new cert entry")
-	assert.Equal(t, uint32(1), result2.CertificateIndex)
+	assert.Equal(t, uint64(1), result2.CertificateIndex)
 
 	certs = append(certs, result2.NewCert)
 
