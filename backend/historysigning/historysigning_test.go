@@ -14,7 +14,9 @@ limitations under the License.
 package historysigning
 
 import (
+	"crypto"
 	"crypto/ecdsa"
+	"errors"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -28,6 +30,7 @@ import (
 
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
+	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -37,6 +40,31 @@ import (
 
 	"github.com/dapr/durabletask-go/api/protos"
 )
+
+// staticSVIDSource is a test implementation of x509svid.Source that returns
+// a fixed SVID.
+type staticSVIDSource struct {
+	svid *x509svid.SVID
+}
+
+func (s *staticSVIDSource) GetX509SVID() (*x509svid.SVID, error) {
+	return s.svid, nil
+}
+
+// testSVIDSource creates an x509svid.Source from DER-encoded certificates and
+// a private key.
+func testSVIDSource(t *testing.T, certDER []byte, key crypto.Signer) x509svid.Source {
+	t.Helper()
+	certs, err := x509.ParseCertificates(certDER)
+	require.NoError(t, err)
+	id, err := x509svid.IDFromCert(certs[0])
+	require.NoError(t, err)
+	return &staticSVIDSource{svid: &x509svid.SVID{
+		ID:           id,
+		Certificates: certs,
+		PrivateKey:   key,
+	}}
+}
 
 func parseCert(t *testing.T, der []byte) *x509.Certificate {
 	t.Helper()
@@ -180,8 +208,7 @@ func TestSignAndVerifyEd25519(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -203,8 +230,7 @@ func TestSignAndVerifyECDSA(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -223,8 +249,7 @@ func TestSignAndVerifyRSA(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -243,8 +268,7 @@ func TestSignChainAndVerify(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	// Sign first 2 events
 	result1, err := signer.Sign(SignOptions{
@@ -279,8 +303,7 @@ func TestCertificateRotation(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer1, err := NewSigner(certDER1, priv1)
-	require.NoError(t, err)
+	signer1 := NewSigner(testSVIDSource(t, certDER1, priv1))
 
 	// Sign with first cert
 	result1, err := signer1.Sign(SignOptions{
@@ -294,8 +317,7 @@ func TestCertificateRotation(t *testing.T) {
 	certs := []*protos.SigningCertificate{result1.NewCert}
 
 	// Sign with second cert (rotation)
-	signer2, err := NewSigner(certDER2, priv2)
-	require.NoError(t, err)
+	signer2 := NewSigner(testSVIDSource(t, certDER2, priv2))
 
 	result2, err := signer2.Sign(SignOptions{
 		RawEvents:         raw[2:],
@@ -320,8 +342,7 @@ func TestTamperedHistoryDetection(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -347,8 +368,7 @@ func TestTruncatedChainDetection(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	result1, err := signer.Sign(SignOptions{
 		RawEvents:       raw[:2],
@@ -404,8 +424,7 @@ func TestCertificateExpiredAtEventTime(t *testing.T) {
 	events := testEvents() // events have timestamps in 2026
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -429,8 +448,7 @@ func TestCertificateNotYetValidAtEventTime(t *testing.T) {
 	events := testEvents() // events have timestamps in 2026
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -454,8 +472,7 @@ func TestCertificateValidAtEventTime(t *testing.T) {
 	events := testEvents() // events have timestamps in 2026
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -548,8 +565,7 @@ func TestRawBytesRoundTrip(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -630,8 +646,7 @@ func TestSignAndVerifyWithCertChain(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(chainDER, leafPriv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, chainDER, leafPriv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -658,8 +673,7 @@ func TestSignChainVerifyWithCertChain(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(chainDER, leafPriv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, chainDER, leafPriv))
 
 	// Sign first batch.
 	result1, err := signer.Sign(SignOptions{
@@ -699,8 +713,7 @@ func TestCertificateRotationWithChains(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer1, err := NewSigner(chainDER1, leafPriv1)
-	require.NoError(t, err)
+	signer1 := NewSigner(testSVIDSource(t, chainDER1, leafPriv1))
 
 	result1, err := signer1.Sign(SignOptions{
 		RawEvents:       raw[:2],
@@ -712,8 +725,7 @@ func TestCertificateRotationWithChains(t *testing.T) {
 	certs := []*protos.SigningCertificate{result1.NewCert}
 
 	// Rotate to second identity.
-	signer2, err := NewSigner(chainDER2, leafPriv2)
-	require.NoError(t, err)
+	signer2 := NewSigner(testSVIDSource(t, chainDER2, leafPriv2))
 
 	result2, err := signer2.Sign(SignOptions{
 		RawEvents:         raw[2:],
@@ -789,8 +801,7 @@ func TestSignWithIntermediateCertChain(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(chainDER, leafPriv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, chainDER, leafPriv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -810,8 +821,7 @@ func TestVerifyChainContiguityGap(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	// Sign events [0,1) and [2,3) — skipping event 1.
 	result1, err := signer.Sign(SignOptions{
@@ -841,8 +851,7 @@ func TestVerifyChainCoverageShort(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(certDER, priv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, certDER, priv))
 
 	// Only sign the first 2 events, but pass all 3 to VerifyChain.
 	result, err := signer.Sign(SignOptions{
@@ -877,8 +886,7 @@ func TestVerifyChainWithTrustAnchors(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(chainDER, leafPriv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, chainDER, leafPriv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -910,8 +918,7 @@ func TestVerifyChainWithWrongTrustAnchor(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(chainDER, leafPriv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, chainDER, leafPriv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -989,8 +996,7 @@ func TestVerifyChainWithIntermediateAndTrustAnchor(t *testing.T) {
 	events := testEvents()
 	raw := marshalEvents(t, events)
 
-	signer, err := NewSigner(chainDER, leafPriv)
-	require.NoError(t, err)
+	signer := NewSigner(testSVIDSource(t, chainDER, leafPriv))
 
 	result, err := signer.Sign(SignOptions{
 		RawEvents:       raw,
@@ -1011,32 +1017,40 @@ func TestVerifyChainWithIntermediateAndTrustAnchor(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestNewSignerErrors(t *testing.T) {
-	t.Run("empty cert", func(t *testing.T) {
-		_, err := NewSigner(nil, ed25519.NewKeyFromSeed(make([]byte, 32)))
+func TestSignErrors(t *testing.T) {
+	events := testEvents()
+	raw := marshalEvents(t, events)
+	opts := SignOptions{
+		RawEvents:       raw,
+		StartEventIndex: 0,
+	}
+
+	t.Run("source error", func(t *testing.T) {
+		signer := NewSigner(&errorSVIDSource{})
+		_, err := signer.Sign(opts)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "certificate DER is empty")
+		assert.Contains(t, err.Error(), "failed to get X.509 SVID")
 	})
 
-	t.Run("nil key", func(t *testing.T) {
-		certDER, _ := generateEd25519Cert(t)
-		_, err := NewSigner(certDER, nil)
+	t.Run("no certificates", func(t *testing.T) {
+		signer := NewSigner(&staticSVIDSource{svid: &x509svid.SVID{}})
+		_, err := signer.Sign(opts)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "private key is nil")
+		assert.Contains(t, err.Error(), "SVID has no certificates")
 	})
 
-	t.Run("invalid DER", func(t *testing.T) {
-		_, err := NewSigner([]byte("not-der"), ed25519.NewKeyFromSeed(make([]byte, 32)))
+	t.Run("empty raw events", func(t *testing.T) {
+		certDER, priv := generateEd25519Cert(t)
+		signer := NewSigner(testSVIDSource(t, certDER, priv))
+		_, err := signer.Sign(SignOptions{})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to parse certificate chain")
+		assert.Contains(t, err.Error(), "raw events must not be empty")
 	})
+}
 
-	t.Run("key mismatch", func(t *testing.T) {
-		certDER, _ := generateEd25519Cert(t)
-		// Use a different key than the one that signed the cert.
-		wrongKey := ed25519.NewKeyFromSeed(make([]byte, 32))
-		_, err := NewSigner(certDER, wrongKey)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "key mismatch")
-	})
+// errorSVIDSource is a test Source that always returns an error.
+type errorSVIDSource struct{}
+
+func (s *errorSVIDSource) GetX509SVID() (*x509svid.SVID, error) {
+	return nil, errors.New("svid unavailable")
 }
