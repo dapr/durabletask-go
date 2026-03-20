@@ -29,6 +29,10 @@ import (
 // bytes and certificate table. The allRawEvents slice must contain the
 // deterministically marshaled bytes of every history event, in order.
 func VerifySignature(s *signer.Signer, sig *protos.HistorySignature, certs []*protos.SigningCertificate, allRawEvents [][]byte) error {
+	if s == nil {
+		return errors.New("signer is required")
+	}
+
 	if sig.GetEventCount() == 0 {
 		return errors.New("signature has zero event count")
 	}
@@ -47,11 +51,18 @@ func VerifySignature(s *signer.Signer, sig *protos.HistorySignature, certs []*pr
 	}
 
 	start := sig.GetStartEventIndex()
-	end := start + sig.GetEventCount()
-	if end > uint64(len(allRawEvents)) {
-		return fmt.Errorf("signature event range [%d, %d) exceeds events length %d",
-			start, end, len(allRawEvents))
+	count := sig.GetEventCount()
+	total := uint64(len(allRawEvents))
+
+	if start > total {
+		return fmt.Errorf("start event index %d exceeds events length %d", start, len(allRawEvents))
 	}
+	if count > total-start {
+		return fmt.Errorf("signature event range [%d, %d) exceeds events length %d",
+			start, start+count, len(allRawEvents))
+	}
+
+	end := start + count
 
 	rawSlice := allRawEvents[start:end]
 
