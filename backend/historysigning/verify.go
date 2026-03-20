@@ -15,27 +15,20 @@ package historysigning
 
 import (
 	"bytes"
-	"crypto"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"math/big"
-	"time"
 
-	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
-	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/kit/crypto/spiffe/signer"
 )
 
 // VerifySignature verifies a single HistorySignature against the raw event
 // bytes and certificate table. The allRawEvents slice must contain the
 // deterministically marshaled bytes of every history event, in order.
-func VerifySignature(sig *protos.HistorySignature, certs []*protos.SigningCertificate, allRawEvents [][]byte) error {
+func VerifySignature(s *signer.Signer, sig *protos.HistorySignature, certs []*protos.SigningCertificate, allRawEvents [][]byte) error {
 	if sig.GetEventCount() == 0 {
 		return errors.New("signature has zero event count")
 	}
@@ -45,7 +38,10 @@ func VerifySignature(sig *protos.HistorySignature, certs []*protos.SigningCertif
 	}
 
 	certEntry := certs[sig.GetCertificateIndex()]
-	cert, err := parseCertificateChainDER(certEntry.GetCertificate())
+	certDER := certEntry.GetCertificate()
+
+	// Parse the leaf certificate for the validity window check.
+	leaf, err := parseCertificateChainDER(certDER)
 	if err != nil {
 		return fmt.Errorf("failed to parse certificate: %w", err)
 	}
@@ -72,9 +68,9 @@ func VerifySignature(sig *protos.HistorySignature, certs []*protos.SigningCertif
 	}
 
 	eventTime := lastEvent.GetTimestamp().AsTime()
-	if eventTime.Before(cert.NotBefore) || eventTime.After(cert.NotAfter) {
+	if eventTime.Before(leaf.NotBefore) || eventTime.After(leaf.NotAfter) {
 		return fmt.Errorf("certificate not valid at event time %v (valid %v to %v)",
-			eventTime, cert.NotBefore, cert.NotAfter)
+			eventTime, leaf.NotBefore, leaf.NotAfter)
 	}
 
 	// Recompute events digest
@@ -88,7 +84,7 @@ func VerifySignature(sig *protos.HistorySignature, certs []*protos.SigningCertif
 	// Verify the cryptographic signature
 	sigInput := SignatureInput(sig.GetPreviousSignatureDigest(), sig.GetEventsDigest())
 
-	if err := verifyBytes(cert.PublicKey, sigInput, sig.GetSignature()); err != nil {
+	if err := s.Verify(sigInput, sig.GetSignature(), certDER); err != nil {
 		return fmt.Errorf("signature verification failed: %w", err)
 	}
 
@@ -103,10 +99,9 @@ type VerifyChainOptions struct {
 	Certs []*protos.SigningCertificate
 	// AllRawEvents is the raw marshaled bytes of all history events, in order.
 	AllRawEvents [][]byte
-	// TrustBundleSource provides the X.509 trust bundle for verifying signing
-	// certificates. The trust domain is extracted from each signing
-	// certificate's SPIFFE ID (URI SAN).
-	TrustBundleSource x509bundle.Source
+	// Signer provides cryptographic verification and certificate chain-of-trust
+	// checking.
+	Signer *signer.Signer
 }
 
 // VerifyChain walks the full signature chain and verifies each signature,
@@ -122,8 +117,8 @@ func VerifyChain(opts VerifyChainOptions) error {
 		return fmt.Errorf("no signatures but %d events exist", len(opts.AllRawEvents))
 	}
 
-	if opts.TrustBundleSource == nil {
-		return errors.New("trust bundle source is required")
+	if opts.Signer == nil {
+		return errors.New("signer is required")
 	}
 
 	// Cache certificate chain-of-trust verification results per certificate
@@ -153,14 +148,14 @@ func VerifyChain(opts VerifyChainOptions) error {
 		}
 		expectedStart = sig.GetStartEventIndex() + sig.GetEventCount()
 
-		if err := VerifySignature(sig, opts.Certs, opts.AllRawEvents); err != nil {
+		if err := VerifySignature(opts.Signer, sig, opts.Certs, opts.AllRawEvents); err != nil {
 			return fmt.Errorf("signature %d: %w", i, err)
 		}
 
 		// Verify certificate chain-of-trust against trust bundle (cached per cert index).
 		certIdx := sig.GetCertificateIndex()
 		if !verifiedCertIndices[certIdx] {
-			if err := verifyCertChainOfTrust(opts.Certs[certIdx].GetCertificate(), opts.TrustBundleSource); err != nil {
+			if err := opts.Signer.VerifyCertChainOfTrust(opts.Certs[certIdx].GetCertificate()); err != nil {
 				return fmt.Errorf("signature %d: %w", i, err)
 			}
 			verifiedCertIndices[certIdx] = true
@@ -170,64 +165,6 @@ func VerifyChain(opts VerifyChainOptions) error {
 	// Verify full coverage
 	if expectedStart != uint64(len(opts.AllRawEvents)) {
 		return fmt.Errorf("signatures cover events [0, %d) but %d events exist", expectedStart, len(opts.AllRawEvents))
-	}
-
-	return nil
-}
-
-// verifyCertChainOfTrust verifies that the leaf certificate in chainDER
-// chains to a trust anchor from the given bundle source. The trust domain
-// is extracted from the leaf certificate's SPIFFE ID (URI SAN).
-func verifyCertChainOfTrust(chainDER []byte, bundleSource x509bundle.Source) error {
-	certs, err := x509.ParseCertificates(chainDER)
-	if err != nil {
-		return fmt.Errorf("failed to parse certificate chain: %w", err)
-	}
-	if len(certs) == 0 {
-		return errors.New("certificate chain is empty")
-	}
-
-	leaf := certs[0]
-
-	// Extract the SPIFFE ID from the leaf certificate to determine the trust domain.
-	spiffeID, err := x509svid.IDFromCert(leaf)
-	if err != nil {
-		return fmt.Errorf("failed to extract SPIFFE ID from certificate: %w", err)
-	}
-
-	bundle, err := bundleSource.GetX509BundleForTrustDomain(spiffeID.TrustDomain())
-	if err != nil {
-		return fmt.Errorf("failed to get trust bundle for trust domain %q: %w", spiffeID.TrustDomain(), err)
-	}
-
-	trustAnchors := bundle.X509Authorities()
-	if len(trustAnchors) == 0 {
-		return fmt.Errorf("trust bundle for trust domain %q has no X.509 authorities", spiffeID.TrustDomain())
-	}
-
-	roots := x509.NewCertPool()
-	for _, anchor := range trustAnchors {
-		roots.AddCert(anchor)
-	}
-
-	intermediates := x509.NewCertPool()
-	for _, c := range certs[1:] {
-		intermediates.AddCert(c)
-	}
-
-	_, err = leaf.Verify(x509.VerifyOptions{
-		Roots:         roots,
-		Intermediates: intermediates,
-		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-		// Use the leaf's NotAfter (minus one minute) as the verification time.
-		// This avoids failures both from expired short-lived SVIDs and from
-		// backdated NotBefore (sentry backdates SVIDs for clock-skew tolerance,
-		// which can place NotBefore before the CA cert's NotBefore). The temporal
-		// validity against event timestamps is already checked in VerifySignature.
-		CurrentTime: leaf.NotAfter.Add(-time.Minute),
-	})
-	if err != nil {
-		return fmt.Errorf("certificate chain-of-trust verification failed: %w", err)
 	}
 
 	return nil
@@ -244,31 +181,4 @@ func parseCertificateChainDER(chainDER []byte) (*x509.Certificate, error) {
 		return nil, errors.New("certificate chain is empty")
 	}
 	return certs[0], nil
-}
-
-// verifyBytes verifies a signature against the given digest and public key.
-// The digest must already be a SHA-256 hash (as returned by SignatureInput).
-func verifyBytes(pubKey crypto.PublicKey, digest, sig []byte) error {
-	switch k := pubKey.(type) {
-	case ed25519.PublicKey:
-		if !ed25519.Verify(k, digest, sig) {
-			return errors.New("ed25519 signature verification failed")
-		}
-		return nil
-	case *ecdsa.PublicKey:
-		byteLen := (k.Curve.Params().BitSize + 7) / 8
-		if len(sig) != 2*byteLen {
-			return fmt.Errorf("invalid ECDSA signature length: got %d, want %d", len(sig), 2*byteLen)
-		}
-		r := new(big.Int).SetBytes(sig[:byteLen])
-		s := new(big.Int).SetBytes(sig[byteLen:])
-		if !ecdsa.Verify(k, digest, r, s) {
-			return errors.New("ecdsa signature verification failed")
-		}
-		return nil
-	case *rsa.PublicKey:
-		return rsa.VerifyPKCS1v15(k, crypto.SHA256, digest, sig)
-	default:
-		return fmt.Errorf("unsupported public key type: %T", pubKey)
-	}
 }
