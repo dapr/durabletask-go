@@ -133,14 +133,24 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 				}
 			}
 		} else if createtimer := action.GetCreateTimer(); createtimer != nil {
+			timerCreated := &protos.TimerCreatedEvent{
+				FireAt: createtimer.FireAt,
+				Name:   createtimer.Name,
+			}
+			if externalEvent := createtimer.GetExternalEvent(); externalEvent != nil {
+				timerCreated.Origin = &protos.TimerCreatedEvent_ExternalEvent{
+					ExternalEvent: externalEvent,
+				}
+			} else if ct := createtimer.GetCreateTimer(); ct != nil {
+				timerCreated.Origin = &protos.TimerCreatedEvent_CreateTimer{
+					CreateTimer: ct,
+				}
+			}
 			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,
 				Timestamp: timestamppb.New(time.Now()),
 				EventType: &protos.HistoryEvent_TimerCreated{
-					TimerCreated: &protos.TimerCreatedEvent{
-						FireAt: createtimer.FireAt,
-						Name:   createtimer.Name,
-					},
+					TimerCreated: timerCreated,
 				},
 				Router: action.Router,
 			})
