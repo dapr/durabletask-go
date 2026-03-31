@@ -337,7 +337,7 @@ func Test_Grpc_ReuseInstanceIDError(t *testing.T) {
 	require.NoError(t, err)
 	id, err = grpcClient.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id))
 	if assert.Error(t, err) {
-		assert.Contains(t, err.Error(), "workflow instance already exists")
+		assert.Contains(t, err.Error(), "orchestration instance already exists")
 	}
 }
 
