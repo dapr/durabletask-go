@@ -36,7 +36,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 				EventType: &protos.HistoryEvent_ExecutionStarted{
 					ExecutionStarted: &protos.ExecutionStartedEvent{
 						Name: "MyOrch",
-						OrchestrationInstance: &protos.OrchestrationInstance{
+						WorkflowInstance: &protos.WorkflowInstance{
 							InstanceId:  "test123",
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
@@ -45,8 +45,8 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 			},
 		},
 	}
-	state := &backend.OrchestrationRuntimeState{}
-	result := &protos.OrchestratorResponse{}
+	state := &backend.WorkflowRuntimeState{}
+	result := &protos.WorkflowResponse{}
 
 	ctx, cancel := context.WithCancel(ctx)
 	completed := atomic.Bool{}
@@ -55,7 +55,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(nil, errors.New("")).Once().Run(func(mock.Arguments) {
 		cancel()
 	})
-	be.EXPECT().GetOrchestrationRuntimeState(anyContext, wi).Return(state, nil).Once()
+	be.EXPECT().GetWorkflowRuntimeState(anyContext, wi).Return(state, nil).Once()
 	be.EXPECT().CompleteOrchestrationWorkItem(anyContext, wi).RunAndReturn(func(ctx context.Context, owi *backend.OrchestrationWorkItem) error {
 		completed.Store(true)
 		return nil
@@ -82,7 +82,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 
 	t.Logf("state.NewEvents: %v", state.NewEvents)
 	require.Len(t, state.NewEvents, 2)
-	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[0].GetWorkflowStarted())
 	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
 }
 
@@ -97,7 +97,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 				EventType: &protos.HistoryEvent_ExecutionStarted{
 					ExecutionStarted: &protos.ExecutionStartedEvent{
 						Name: "MyOrch",
-						OrchestrationInstance: &protos.OrchestrationInstance{
+						WorkflowInstance: &protos.WorkflowInstance{
 							InstanceId:  workflowID,
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
@@ -105,7 +105,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 				},
 			},
 		},
-		State: runtimestate.NewOrchestrationRuntimeState(workflowID, nil, []*protos.HistoryEvent{}),
+		State: runtimestate.NewWorkflowRuntimeState(workflowID, nil, []*protos.HistoryEvent{}),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -116,13 +116,13 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 	ex := mocks.NewExecutor(t)
 
 	callNumber := 0
-	ex.EXPECT().ExecuteOrchestrator(anyContext, wi.InstanceID, wi.State.OldEvents, mock.Anything).RunAndReturn(func(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.OrchestratorResponse, error) {
+	ex.EXPECT().ExecuteOrchestrator(anyContext, wi.InstanceID, wi.State.OldEvents, mock.Anything).RunAndReturn(func(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
 		callNumber++
 		logger.Debugf("execute orchestrator called %d times", callNumber)
 		if callNumber == 1 {
 			return nil, errors.New("dummy error")
 		}
-		return &protos.OrchestratorResponse{}, nil
+		return &protos.WorkflowResponse{}, nil
 	}).Times(2)
 
 	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(wi, nil).Once()
@@ -152,9 +152,9 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 
 	t.Logf("state.NewEvents: %v", wi.State.NewEvents)
 	require.Len(t, wi.State.NewEvents, 3)
-	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[0].GetWorkflowStarted())
 	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
-	require.NotNil(t, wi.State.NewEvents[2].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[2].GetWorkflowStarted())
 }
 
 func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *testing.T) {
@@ -171,7 +171,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 				EventType: &protos.HistoryEvent_ExecutionStarted{
 					ExecutionStarted: &protos.ExecutionStartedEvent{
 						Name: "MyOrchestration",
-						OrchestrationInstance: &protos.OrchestrationInstance{
+						WorkflowInstance: &protos.WorkflowInstance{
 							InstanceId:  string(iid),
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
@@ -182,7 +182,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 	}
 
 	// Empty orchestration runtime state since we're starting a new execution from scratch
-	state := runtimestate.NewOrchestrationRuntimeState(string(iid), nil, []*protos.HistoryEvent{})
+	state := runtimestate.NewWorkflowRuntimeState(string(iid), nil, []*protos.HistoryEvent{})
 
 	ctx, cancel := context.WithCancel(ctx)
 	be := mocks.NewBackend(t)
@@ -191,19 +191,19 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 		cancel()
 	})
 
-	be.EXPECT().GetOrchestrationRuntimeState(anyContext, wi).Return(state, nil).Once()
+	be.EXPECT().GetWorkflowRuntimeState(anyContext, wi).Return(state, nil).Once()
 
 	ex := mocks.NewExecutor(t)
 
 	// Return an execution completed action to simulate the completion of the orchestration (a no-op)
 	resultValue := "done"
-	result := &protos.OrchestratorResponse{
-		Actions: []*protos.OrchestratorAction{
+	result := &protos.WorkflowResponse{
+		Actions: []*protos.WorkflowAction{
 			{
 				Id: -1,
-				OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-					CompleteOrchestration: &protos.CompleteOrchestrationAction{
-						OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+					CompleteWorkflow: &protos.CompleteWorkflowAction{
+						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
 						Result:              wrapperspb.String(resultValue),
 					},
 				},
@@ -245,7 +245,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 
 	t.Logf("state.NewEvents: %v", state.NewEvents)
 	require.Len(t, state.NewEvents, 3)
-	require.NotNil(t, wi.State.NewEvents[0].GetOrchestratorStarted())
+	require.NotNil(t, wi.State.NewEvents[0].GetWorkflowStarted())
 	require.NotNil(t, wi.State.NewEvents[1].GetExecutionStarted())
 	require.NotNil(t, wi.State.NewEvents[2].GetExecutionCompleted())
 }

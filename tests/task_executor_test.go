@@ -28,8 +28,8 @@ func Test_Executor_WaitForEventSchedulesTimer(t *testing.T) {
 	startEvent := &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
-		EventType: &protos.HistoryEvent_OrchestratorStarted{
-			OrchestratorStarted: &protos.OrchestratorStartedEvent{},
+		EventType: &protos.HistoryEvent_WorkflowStarted{
+			WorkflowStarted: &protos.WorkflowStartedEvent{},
 		},
 	}
 	oldEvents := []*protos.HistoryEvent{}
@@ -41,7 +41,7 @@ func Test_Executor_WaitForEventSchedulesTimer(t *testing.T) {
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
 					Name: "Orchestration",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  string(iid),
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -80,8 +80,8 @@ func Test_Executor_SuspendStopsAllActions(t *testing.T) {
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.Now(),
-			EventType: &protos.HistoryEvent_OrchestratorStarted{
-				OrchestratorStarted: &protos.OrchestratorStartedEvent{},
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
 			},
 		},
 		{
@@ -90,7 +90,7 @@ func Test_Executor_SuspendStopsAllActions(t *testing.T) {
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
 					Name: "SuspendResumeOrchestration",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  string(iid),
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},

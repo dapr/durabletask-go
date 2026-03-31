@@ -48,11 +48,11 @@ func (c *Client) ScheduleWorkflow(ctx context.Context, orchestrator string, opts
 // api.ErrInstanceNotFound is returned when the specified workflow doesn't
 // exist.
 func (c *Client) FetchWorkflowMetadata(ctx context.Context, id string, opts ...FetchWorkflowMetadataOptions) (*WorkflowMetadata, error) {
-	oops := make([]api.FetchOrchestrationMetadataOptions, len(opts))
+	oops := make([]api.FetchWorkflowMetadataOptions, len(opts))
 	for i, o := range opts {
-		oops[i] = api.FetchOrchestrationMetadataOptions(o)
+		oops[i] = api.FetchWorkflowMetadataOptions(o)
 	}
-	meta, err := c.thgc.FetchOrchestrationMetadata(ctx, api.InstanceID(id), oops...)
+	meta, err := c.thgc.FetchWorkflowMetadata(ctx, api.InstanceID(id), oops...)
 	return (*WorkflowMetadata)(meta), err
 }
 
@@ -63,9 +63,9 @@ func (c *Client) FetchWorkflowMetadata(ctx context.Context, id string, opts ...F
 // api.ErrInstanceNotFound is returned when the specified workflow doesn't
 // exist.
 func (c *Client) WaitForWorkflowStart(ctx context.Context, id string, opts ...FetchWorkflowMetadataOptions) (*WorkflowMetadata, error) {
-	oops := make([]api.FetchOrchestrationMetadataOptions, len(opts))
+	oops := make([]api.FetchWorkflowMetadataOptions, len(opts))
 	for i, o := range opts {
-		oops[i] = api.FetchOrchestrationMetadataOptions(o)
+		oops[i] = api.FetchWorkflowMetadataOptions(o)
 	}
 	meta, err := c.thgc.WaitForOrchestrationStart(ctx, api.InstanceID(id), oops...)
 	return (*WorkflowMetadata)(meta), err
@@ -78,9 +78,9 @@ func (c *Client) WaitForWorkflowStart(ctx context.Context, id string, opts ...Fe
 // api.ErrInstanceNotFound is returned when the specified workflow doesn't
 // exist.
 func (c *Client) WaitForWorkflowCompletion(ctx context.Context, id string, opts ...FetchWorkflowMetadataOptions) (*WorkflowMetadata, error) {
-	oops := make([]api.FetchOrchestrationMetadataOptions, len(opts))
+	oops := make([]api.FetchWorkflowMetadataOptions, len(opts))
 	for i, o := range opts {
-		oops[i] = api.FetchOrchestrationMetadataOptions(o)
+		oops[i] = api.FetchWorkflowMetadataOptions(o)
 	}
 	meta, err := c.thgc.WaitForOrchestrationCompletion(ctx, api.InstanceID(id), oops...)
 	return (*WorkflowMetadata)(meta), err
@@ -129,7 +129,7 @@ func (c *Client) PurgeWorkflowState(ctx context.Context, id string, opts ...Purg
 	for i, o := range opts {
 		oops[i] = api.PurgeOptions(o)
 	}
-	return c.thgc.PurgeOrchestrationState(ctx, api.InstanceID(id), oops...)
+	return c.thgc.PurgeWorkflowState(ctx, api.InstanceID(id), oops...)
 }
 
 // RerunWorkflowFromEvent reruns a workflow from a specific event ID of some

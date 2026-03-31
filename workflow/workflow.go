@@ -140,7 +140,7 @@ func WithRawChildWorkflowInput(input *wrapperspb.StringValue) ChildWorkflowOptio
 // CallChildWorkflow workflow method that specifies the instance ID of the
 // child-workflow.
 func WithChildWorkflowInstanceID(instanceID string) ChildWorkflowOption {
-	return ChildWorkflowOption(task.WithSubOrchestrationInstanceID(instanceID))
+	return ChildWorkflowOption(task.WithSubWorkflowInstanceID(instanceID))
 }
 
 func WithChildWorkflowRetryPolicy(policy *RetryPolicy) ChildWorkflowOption {

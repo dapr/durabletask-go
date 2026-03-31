@@ -147,7 +147,7 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 				continue
 			}
 
-			if orchReq := workItem.GetOrchestratorRequest(); orchReq != nil {
+			if orchReq := workItem.GetWorkflowRequest(); orchReq != nil {
 				go c.processOrchestrationWorkItem(ctx, executor, orchReq)
 			} else if actReq := workItem.GetActivityRequest(); actReq != nil {
 				go c.processActivityWorkItem(ctx, executor, actReq)
@@ -162,20 +162,20 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 func (c *TaskHubGrpcClient) processOrchestrationWorkItem(
 	ctx context.Context,
 	executor backend.Executor,
-	workItem *protos.OrchestratorRequest,
+	workItem *protos.WorkflowRequest,
 ) {
 	results, err := executor.ExecuteOrchestrator(ctx, api.InstanceID(workItem.InstanceId), workItem.PastEvents, workItem.NewEvents)
 
-	resp := protos.OrchestratorResponse{InstanceId: workItem.InstanceId}
+	resp := protos.WorkflowResponse{InstanceId: workItem.InstanceId}
 	if err != nil {
 		// NOTE: At the time of writing, there's no known case where this error is returned.
 		//       We add error handling here anyways, just in case.
-		resp.Actions = []*protos.OrchestratorAction{
+		resp.Actions = []*protos.WorkflowAction{
 			{
 				Id: -1,
-				OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-					CompleteOrchestration: &protos.CompleteOrchestrationAction{
-						OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED,
+				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+					CompleteWorkflow: &protos.CompleteWorkflowAction{
+						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED,
 						Result:              wrapperspb.String("An internal error occured while executing the orchestration."),
 						FailureDetails: &protos.TaskFailureDetails{
 							ErrorType:    fmt.Sprintf("%T", err),
@@ -191,7 +191,7 @@ func (c *TaskHubGrpcClient) processOrchestrationWorkItem(
 		resp.Version = results.GetVersion()
 	}
 
-	if _, err = c.client.CompleteOrchestratorTask(ctx, &resp); err != nil {
+	if _, err = c.client.CompleteWorkflowTask(ctx, &resp); err != nil {
 		if ctx.Err() != nil {
 			c.logger.Warn("failed to complete orchestration task: context canceled")
 		} else {
@@ -224,9 +224,9 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 			},
 		},
 	}
-	result, err := executor.ExecuteActivity(ctx, api.InstanceID(req.OrchestrationInstance.InstanceId), event)
+	result, err := executor.ExecuteActivity(ctx, api.InstanceID(req.WorkflowInstance.InstanceId), event)
 
-	resp := protos.ActivityResponse{InstanceId: req.OrchestrationInstance.InstanceId, TaskId: req.TaskId}
+	resp := protos.ActivityResponse{InstanceId: req.WorkflowInstance.InstanceId, TaskId: req.TaskId}
 	if err != nil {
 		// NOTE: At the time of writing, there's no known case where this error is returned.
 		//       We add error handling here anyways, just in case.

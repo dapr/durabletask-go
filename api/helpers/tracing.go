@@ -33,7 +33,7 @@ func StartNewRunOrchestrationSpan(
 	ctx context.Context, es *protos.ExecutionStartedEvent, startedTime time.Time,
 ) (context.Context, trace.Span) {
 	name := es.Name
-	instanceID := es.OrchestrationInstance.InstanceId
+	instanceID := es.WorkflowInstance.InstanceId
 	version := es.Version.GetValue()
 	attributes := []attribute.KeyValue{
 		{Key: "durabletask.type", Value: attribute.StringValue("orchestration")},
