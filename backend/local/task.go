@@ -9,8 +9,8 @@ import (
 	"github.com/dapr/durabletask-go/backend"
 )
 
-type pendingOrchestrator struct {
-	response *protos.OrchestratorResponse
+type pendingWorkflow struct {
+	response *protos.WorkflowResponse
 	complete chan struct{}
 }
 
@@ -20,13 +20,13 @@ type pendingActivity struct {
 }
 
 type TasksBackend struct {
-	pendingOrchestrators *sync.Map
+	pendingWorkflows *sync.Map
 	pendingActivities    *sync.Map
 }
 
 func NewTasksBackend() *TasksBackend {
 	return &TasksBackend{
-		pendingOrchestrators: &sync.Map{},
+		pendingWorkflows: &sync.Map{},
 		pendingActivities:    &sync.Map{},
 	}
 }
@@ -47,7 +47,7 @@ func (be *TasksBackend) CancelActivityTask(ctx context.Context, instanceID api.I
 }
 
 func (be *TasksBackend) WaitForActivityCompletion(request *protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error) {
-	key := backend.GetActivityExecutionKey(request.GetOrchestrationInstance().GetInstanceId(), request.GetTaskId())
+	key := backend.GetActivityExecutionKey(request.GetWorkflowInstance().GetInstanceId(), request.GetTaskId())
 	pending := &pendingActivity{
 		response: nil,
 		complete: make(chan struct{}, 1),
@@ -67,28 +67,28 @@ func (be *TasksBackend) WaitForActivityCompletion(request *protos.ActivityReques
 	}
 }
 
-func (be *TasksBackend) CompleteOrchestratorTask(ctx context.Context, response *protos.OrchestratorResponse) error {
-	if be.deletePendingOrchestrator(response.GetInstanceId(), response) {
+func (be *TasksBackend) CompleteWorkflowTask(ctx context.Context, response *protos.WorkflowResponse) error {
+	if be.deletePendingWorkflow(response.GetInstanceId(), response) {
 		return nil
 	}
 	return api.NewUnknownInstanceIDError(response.GetInstanceId())
 }
 
-func (be *TasksBackend) CancelOrchestratorTask(ctx context.Context, instanceID api.InstanceID) error {
-	if be.deletePendingOrchestrator(string(instanceID), nil) {
+func (be *TasksBackend) CancelWorkflowTask(ctx context.Context, instanceID api.InstanceID) error {
+	if be.deletePendingWorkflow(string(instanceID), nil) {
 		return nil
 	}
 	return api.NewUnknownInstanceIDError(instanceID.String())
 }
 
-func (be *TasksBackend) WaitForOrchestratorCompletion(request *protos.OrchestratorRequest) func(context.Context) (*protos.OrchestratorResponse, error) {
-	pending := &pendingOrchestrator{
+func (be *TasksBackend) WaitForWorkflowTaskCompletion(request *protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error) {
+	pending := &pendingWorkflow{
 		response: nil,
 		complete: make(chan struct{}, 1),
 	}
-	be.pendingOrchestrators.Store(request.GetInstanceId(), pending)
+	be.pendingWorkflows.Store(request.GetInstanceId(), pending)
 
-	return func(ctx context.Context) (*protos.OrchestratorResponse, error) {
+	return func(ctx context.Context) (*protos.WorkflowResponse, error) {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -115,14 +115,14 @@ func (be *TasksBackend) deletePendingActivityTask(iid string, taskID int32, res 
 	return true
 }
 
-func (be *TasksBackend) deletePendingOrchestrator(instanceID string, res *protos.OrchestratorResponse) bool {
-	p, ok := be.pendingOrchestrators.LoadAndDelete(instanceID)
+func (be *TasksBackend) deletePendingWorkflow(instanceID string, res *protos.WorkflowResponse) bool {
+	p, ok := be.pendingWorkflows.LoadAndDelete(instanceID)
 	if !ok {
 		return false
 	}
 
 	// Note that res can be nil in case of certain failures
-	pending := p.(*pendingOrchestrator)
+	pending := p.(*pendingWorkflow)
 	pending.response = res
 	close(pending.complete)
 	return true

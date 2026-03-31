@@ -17,14 +17,14 @@ import (
 )
 
 type TaskHubClient interface {
-	ScheduleNewOrchestration(ctx context.Context, orchestrator interface{}, opts ...api.NewOrchestrationOptions) (api.InstanceID, error)
+	ScheduleNewWorkflow(ctx context.Context, workflow interface{}, opts ...api.NewWorkflowOptions) (api.InstanceID, error)
 	FetchWorkflowMetadata(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error)
-	WaitForOrchestrationStart(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error)
-	WaitForOrchestrationCompletion(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error)
-	TerminateOrchestration(ctx context.Context, id api.InstanceID, opts ...api.TerminateOptions) error
+	WaitForWorkflowStart(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error)
+	WaitForWorkflowCompletion(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error)
+	TerminateWorkflow(ctx context.Context, id api.InstanceID, opts ...api.TerminateOptions) error
 	RaiseEvent(ctx context.Context, id api.InstanceID, eventName string, opts ...api.RaiseEventOptions) error
-	SuspendOrchestration(ctx context.Context, id api.InstanceID, reason string) error
-	ResumeOrchestration(ctx context.Context, id api.InstanceID, reason string) error
+	SuspendWorkflow(ctx context.Context, id api.InstanceID, reason string) error
+	ResumeWorkflow(ctx context.Context, id api.InstanceID, reason string) error
 	PurgeWorkflowState(ctx context.Context, id api.InstanceID, opts ...api.PurgeOptions) error
 	RerunWorkflowFromEvent(ctx context.Context, source api.InstanceID, eventID uint32, opts ...api.RerunOptions) (api.InstanceID, error)
 }
@@ -39,8 +39,8 @@ func NewTaskHubClient(be Backend) TaskHubClient {
 	}
 }
 
-func (c *backendClient) ScheduleNewOrchestration(ctx context.Context, orchestrator interface{}, opts ...api.NewOrchestrationOptions) (api.InstanceID, error) {
-	name := helpers.GetTaskFunctionName(orchestrator)
+func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interface{}, opts ...api.NewWorkflowOptions) (api.InstanceID, error) {
+	name := helpers.GetTaskFunctionName(workflow)
 	req := &protos.CreateInstanceRequest{Name: name}
 	for _, configure := range opts {
 		if err := configure(req); err != nil {
@@ -56,7 +56,7 @@ func (c *backendClient) ScheduleNewOrchestration(ctx context.Context, orchestrat
 	}
 
 	var span trace.Span
-	ctx, span = helpers.StartNewCreateOrchestrationSpan(ctx, req.Name, req.Version.GetValue(), req.InstanceId)
+	ctx, span = helpers.StartNewCreateWorkflowSpan(ctx, req.Name, req.Version.GetValue(), req.InstanceId)
 	defer span.End()
 
 	tc := helpers.TraceContextFromSpan(span)
@@ -79,43 +79,43 @@ func (c *backendClient) ScheduleNewOrchestration(ctx context.Context, orchestrat
 	if err := c.be.CreateWorkflowInstance(ctx, e); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return api.EmptyInstanceID, fmt.Errorf("failed to start orchestration: %w", err)
+		return api.EmptyInstanceID, fmt.Errorf("failed to start workflow: %w", err)
 	}
 	return api.InstanceID(req.InstanceId), nil
 }
 
-// FetchWorkflowMetadata fetches metadata for the specified orchestration from the configured task hub.
+// FetchWorkflowMetadata fetches metadata for the specified workflow from the configured task hub.
 //
-// ErrInstanceNotFound is returned when the specified orchestration doesn't exist.
+// ErrInstanceNotFound is returned when the specified workflow doesn't exist.
 func (c *backendClient) FetchWorkflowMetadata(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error) {
 	metadata, err := c.be.GetWorkflowMetadata(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch orchestration metadata: %w", err)
+		return nil, fmt.Errorf("failed to fetch workflow metadata: %w", err)
 	}
 	return metadata, nil
 }
 
-// WaitForOrchestrationStart waits for an orchestration to start running and returns an [WorkflowMetadata] object that contains
+// WaitForWorkflowStart waits for a workflow to start running and returns an [WorkflowMetadata] object that contains
 // metadata about the started instance.
 //
-// ErrInstanceNotFound is returned when the specified orchestration doesn't exist.
-func (c *backendClient) WaitForOrchestrationStart(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error) {
-	return c.waitForOrchestrationCondition(ctx, id, func(metadata *WorkflowMetadata) bool {
+// ErrInstanceNotFound is returned when the specified workflow doesn't exist.
+func (c *backendClient) WaitForWorkflowStart(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error) {
+	return c.waitForWorkflowCondition(ctx, id, func(metadata *WorkflowMetadata) bool {
 		return metadata.RuntimeStatus != protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
 	})
 }
 
-// WaitForOrchestrationCompletion waits for an orchestration to complete and returns an [WorkflowMetadata] object that contains
+// WaitForWorkflowCompletion waits for a workflow to complete and returns an [WorkflowMetadata] object that contains
 // metadata about the completed instance.
 //
-// ErrInstanceNotFound is returned when the specified orchestration doesn't exist.
-func (c *backendClient) WaitForOrchestrationCompletion(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error) {
-	return c.waitForOrchestrationCondition(ctx, id, api.WorkflowMetadataIsComplete)
+// ErrInstanceNotFound is returned when the specified workflow doesn't exist.
+func (c *backendClient) WaitForWorkflowCompletion(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error) {
+	return c.waitForWorkflowCondition(ctx, id, api.WorkflowMetadataIsComplete)
 }
 
-func (c *backendClient) waitForOrchestrationCondition(ctx context.Context, id api.InstanceID, condition func(metadata *WorkflowMetadata) bool) (*WorkflowMetadata, error) {
+func (c *backendClient) waitForWorkflowCondition(ctx context.Context, id api.InstanceID, condition func(metadata *WorkflowMetadata) bool) (*WorkflowMetadata, error) {
 	var metadata *protos.WorkflowMetadata
-	err := c.be.WatchOrchestrationRuntimeStatus(ctx, id, func(m *WorkflowMetadata) bool {
+	err := c.be.WatchWorkflowRuntimeStatus(ctx, id, func(m *WorkflowMetadata) bool {
 		metadata = m
 		return condition(m)
 	})
@@ -123,10 +123,10 @@ func (c *backendClient) waitForOrchestrationCondition(ctx context.Context, id ap
 	return metadata, err
 }
 
-// TerminateOrchestration enqueues a message to terminate a running orchestration, causing it to stop receiving new events and
-// go directly into the TERMINATED state. This operation is asynchronous. An orchestration worker must
-// dequeue the termination event before the orchestration will be terminated.
-func (c *backendClient) TerminateOrchestration(ctx context.Context, id api.InstanceID, opts ...api.TerminateOptions) error {
+// TerminateWorkflow enqueues a message to terminate a running workflow, causing it to stop receiving new events and
+// go directly into the TERMINATED state. This operation is asynchronous. An workflow worker must
+// dequeue the termination event before the workflow will be terminated.
+func (c *backendClient) TerminateWorkflow(ctx context.Context, id api.InstanceID, opts ...api.TerminateOptions) error {
 	req := &protos.TerminateRequest{InstanceId: string(id), Recursive: true}
 	for _, configure := range opts {
 		if err := configure(req); err != nil {
@@ -143,20 +143,20 @@ func (c *backendClient) TerminateOrchestration(ctx context.Context, id api.Insta
 			},
 		},
 	}
-	if err := c.be.AddNewOrchestrationEvent(ctx, id, e); err != nil {
+	if err := c.be.AddNewWorkflowEvent(ctx, id, e); err != nil {
 		return fmt.Errorf("failed to submit termination request:: %w", err)
 	}
 	return nil
 }
 
-// RaiseEvent implements TaskHubClient and sends an asynchronous event notification to a waiting orchestration.
+// RaiseEvent implements TaskHubClient and sends an asynchronous event notification to a waiting workflow.
 //
-// In order to handle the event, the target orchestration instance must be waiting for an event named [eventName]
-// using the [WaitForSingleEvent] method of the orchestration context parameter. If the target orchestration instance
+// In order to handle the event, the target workflow instance must be waiting for an event named [eventName]
+// using the [WaitForSingleEvent] method of the workflow context parameter. If the target workflow instance
 // is not yet waiting for an event named [eventName], then the event will be bufferred in memory until a task
 // subscribing to that event name is created.
 //
-// Raised events for a completed or non-existent orchestration instance will be silently discarded.
+// Raised events for a completed or non-existent workflow instance will be silently discarded.
 func (c *backendClient) RaiseEvent(ctx context.Context, id api.InstanceID, eventName string, opts ...api.RaiseEventOptions) error {
 	req := &protos.RaiseEventRequest{InstanceId: string(id), Name: eventName}
 	for _, configure := range opts {
@@ -172,16 +172,16 @@ func (c *backendClient) RaiseEvent(ctx context.Context, id api.InstanceID, event
 			EventRaised: &protos.EventRaisedEvent{Name: req.Name, Input: req.Input},
 		},
 	}
-	if err := c.be.AddNewOrchestrationEvent(ctx, id, e); err != nil {
+	if err := c.be.AddNewWorkflowEvent(ctx, id, e); err != nil {
 		return fmt.Errorf("failed to raise event: %w", err)
 	}
 	return nil
 }
 
-// SuspendOrchestration suspends an orchestration instance, halting processing of its events until a "resume" operation resumes it.
+// SuspendWorkflow suspends a workflow instance, halting processing of its events until a "resume" operation resumes it.
 //
-// Note that suspended orchestrations are still considered to be "running" even though they will not process events.
-func (c *backendClient) SuspendOrchestration(ctx context.Context, id api.InstanceID, reason string) error {
+// Note that suspended workflows are still considered to be "running" even though they will not process events.
+func (c *backendClient) SuspendWorkflow(ctx context.Context, id api.InstanceID, reason string) error {
 	var input *wrapperspb.StringValue
 	if reason != "" {
 		input = wrapperspb.String(reason)
@@ -195,14 +195,14 @@ func (c *backendClient) SuspendOrchestration(ctx context.Context, id api.Instanc
 			},
 		},
 	}
-	if err := c.be.AddNewOrchestrationEvent(ctx, id, e); err != nil {
-		return fmt.Errorf("failed to suspend orchestration: %w", err)
+	if err := c.be.AddNewWorkflowEvent(ctx, id, e); err != nil {
+		return fmt.Errorf("failed to suspend workflow: %w", err)
 	}
 	return nil
 }
 
-// ResumeOrchestration resumes an orchestration instance that was previously suspended.
-func (c *backendClient) ResumeOrchestration(ctx context.Context, id api.InstanceID, reason string) error {
+// ResumeWorkflow resumes a workflow instance that was previously suspended.
+func (c *backendClient) ResumeWorkflow(ctx context.Context, id api.InstanceID, reason string) error {
 	var input *wrapperspb.StringValue
 	if reason != "" {
 		input = wrapperspb.String(reason)
@@ -216,16 +216,16 @@ func (c *backendClient) ResumeOrchestration(ctx context.Context, id api.Instance
 			},
 		},
 	}
-	if err := c.be.AddNewOrchestrationEvent(ctx, id, e); err != nil {
-		return fmt.Errorf("failed to resume orchestration: %w", err)
+	if err := c.be.AddNewWorkflowEvent(ctx, id, e); err != nil {
+		return fmt.Errorf("failed to resume workflow: %w", err)
 	}
 	return nil
 }
 
-// PurgeWorkflowState deletes the state of the specified orchestration instance.
+// PurgeWorkflowState deletes the state of the specified workflow instance.
 //
-// [api.ErrInstanceNotFound] is returned if the specified orchestration instance doesn't exist.
-// [api.ErrNotCompleted] is returned if the specified orchestration instance is still running.
+// [api.ErrInstanceNotFound] is returned if the specified workflow instance doesn't exist.
+// [api.ErrNotCompleted] is returned if the specified workflow instance is still running.
 func (c *backendClient) PurgeWorkflowState(ctx context.Context, id api.InstanceID, opts ...api.PurgeOptions) error {
 	req := &protos.PurgeInstancesRequest{Request: &protos.PurgeInstancesRequest_InstanceId{InstanceId: string(id)}, Recursive: true}
 	for _, configure := range opts {
@@ -234,7 +234,7 @@ func (c *backendClient) PurgeWorkflowState(ctx context.Context, id api.InstanceI
 		}
 	}
 	if _, err := purgeWorkflowState(ctx, c.be, id, req.Recursive, req.GetForce()); err != nil {
-		return fmt.Errorf("failed to purge orchestration state: %w", err)
+		return fmt.Errorf("failed to purge workflow state: %w", err)
 	}
 	return nil
 }

@@ -148,7 +148,7 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 			}
 
 			if orchReq := workItem.GetWorkflowRequest(); orchReq != nil {
-				go c.processOrchestrationWorkItem(ctx, executor, orchReq)
+				go c.processWorkflowWorkItem(ctx, executor, orchReq)
 			} else if actReq := workItem.GetActivityRequest(); actReq != nil {
 				go c.processActivityWorkItem(ctx, executor, actReq)
 			} else {
@@ -159,12 +159,12 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 	return nil
 }
 
-func (c *TaskHubGrpcClient) processOrchestrationWorkItem(
+func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 	ctx context.Context,
 	executor backend.Executor,
 	workItem *protos.WorkflowRequest,
 ) {
-	results, err := executor.ExecuteOrchestrator(ctx, api.InstanceID(workItem.InstanceId), workItem.PastEvents, workItem.NewEvents)
+	results, err := executor.ExecuteWorkflow(ctx, api.InstanceID(workItem.InstanceId), workItem.PastEvents, workItem.NewEvents)
 
 	resp := protos.WorkflowResponse{InstanceId: workItem.InstanceId}
 	if err != nil {
@@ -176,7 +176,7 @@ func (c *TaskHubGrpcClient) processOrchestrationWorkItem(
 				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
 					CompleteWorkflow: &protos.CompleteWorkflowAction{
 						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED,
-						Result:              wrapperspb.String("An internal error occured while executing the orchestration."),
+						Result:              wrapperspb.String("An internal error occured while executing the workflow."),
 						FailureDetails: &protos.TaskFailureDetails{
 							ErrorType:    fmt.Sprintf("%T", err),
 							ErrorMessage: err.Error(),
@@ -193,9 +193,9 @@ func (c *TaskHubGrpcClient) processOrchestrationWorkItem(
 
 	if _, err = c.client.CompleteWorkflowTask(ctx, &resp); err != nil {
 		if ctx.Err() != nil {
-			c.logger.Warn("failed to complete orchestration task: context canceled")
+			c.logger.Warn("failed to complete workflow task: context canceled")
 		} else {
-			c.logger.Errorf("failed to complete orchestration task: %v", err)
+			c.logger.Errorf("failed to complete workflow task: %v", err)
 		}
 	}
 }

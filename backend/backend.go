@@ -26,30 +26,18 @@ type (
 	WorkflowState                    = protos.WorkflowState
 	CreateWorkflowInstanceRequest    = protos.CreateWorkflowInstanceRequest
 	ActivityRequest                  = protos.ActivityRequest
-	OrchestrationMetadata            = protos.OrchestrationMetadata
+	WorkflowMetadata            = protos.WorkflowMetadata
 	OrchestrationStatus              = protos.OrchestrationStatus
-	WorkflowStateMetadata            = protos.WorkflowStateMetadata
+	BackendWorkflowStateMetadata            = protos.BackendWorkflowStateMetadata
 	DurableTimer                     = protos.DurableTimer
-	OrchestrationRuntimeState        = protos.OrchestrationRuntimeState
-	OrchestrationRuntimeStateMessage = protos.OrchestrationRuntimeStateMessage
+	WorkflowRuntimeState        = protos.WorkflowRuntimeState
+	WorkflowRuntimeStateMessage = protos.WorkflowRuntimeStateMessage
 	RerunWorkflowFromEventRequest    = protos.RerunWorkflowFromEventRequest
 	ListInstanceIDsRequest           = protos.ListInstanceIDsRequest
 	ListInstanceIDsResponse          = protos.ListInstanceIDsResponse
 	GetInstanceHistoryRequest        = protos.GetInstanceHistoryRequest
 	GetInstanceHistoryResponse       = protos.GetInstanceHistoryResponse
 )
-
-type OrchestrationIdReusePolicyOptions func(*protos.OrchestrationIdReusePolicy) error
-
-func WithOrchestrationIdReusePolicy(policy *protos.OrchestrationIdReusePolicy) OrchestrationIdReusePolicyOptions {
-	return func(po *protos.OrchestrationIdReusePolicy) error {
-		if policy != nil {
-			po.OperationStatus = policy.OperationStatus
-			po.Action = policy.Action
-		}
-		return nil
-	}
-}
 
 type Backend interface {
 	// CreateTaskHub creates a new task hub for the current backend. Task hub creation must be idempotent.
@@ -69,9 +57,9 @@ type Backend interface {
 	// Stop stops any background processing done by this backend.
 	Stop(context.Context) error
 
-	// CreateOrchestrationInstance creates a new orchestration instance with a history event that
+	// CreateWorkflowInstance creates a new workflow instance with a history event that
 	// wraps a ExecutionStarted event.
-	CreateOrchestrationInstance(context.Context, *HistoryEvent, ...OrchestrationIdReusePolicyOptions) error
+	CreateWorkflowInstance(context.Context, *HistoryEvent) error
 
 	// RerunWorkflowFromEvent reruns a workflow from a specific event ID of some
 	// source instance ID. If not given, a random new instance ID will be
@@ -79,44 +67,44 @@ type Backend interface {
 	// event ID to rerun from.
 	RerunWorkflowFromEvent(ctx context.Context, req *protos.RerunWorkflowFromEventRequest) (api.InstanceID, error)
 
-	// AddNewEvent adds a new orchestration event to the specified orchestration instance.
-	AddNewOrchestrationEvent(context.Context, api.InstanceID, *HistoryEvent) error
+	// AddNewEvent adds a new workflow event to the specified workflow instance.
+	AddNewWorkflowEvent(context.Context, api.InstanceID, *HistoryEvent) error
 
-	// NextOrchestrationWorkItem blocks and returns the next orchestration work
+	// NextWorkflowWorkItem blocks and returns the next workflow work
 	// item from the task hub. Should only return an error when shutting down.
-	NextOrchestrationWorkItem(context.Context) (*OrchestrationWorkItem, error)
+	NextWorkflowWorkItem(context.Context) (*WorkflowWorkItem, error)
 
-	// GetOrchestrationRuntimeState gets the runtime state of an orchestration instance.
-	GetOrchestrationRuntimeState(context.Context, *OrchestrationWorkItem) (*OrchestrationRuntimeState, error)
+	// GetWorkflowRuntimeState gets the runtime state of a workflow instance.
+	GetWorkflowRuntimeState(context.Context, *WorkflowWorkItem) (*WorkflowRuntimeState, error)
 
-	// WatchOrchestrationRuntimeStatus is a streaming API to watch for changes to
+	// WatchWorkflowRuntimeStatus is a streaming API to watch for changes to
 	// the OrchestrtionMetadata, receiving events as and when the state changes.
 	// When the given condition is true, returns.
 	// Used over polling the metadata.
-	WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, condition func(*OrchestrationMetadata) bool) error
+	WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, condition func(*WorkflowMetadata) bool) error
 
-	// GetOrchestrationMetadata gets the metadata associated with the given orchestration instance ID.
+	// GetWorkflowMetadata gets the metadata associated with the given workflow instance ID.
 	//
-	// Returns [api.ErrInstanceNotFound] if the orchestration instance doesn't exist.
-	GetOrchestrationMetadata(context.Context, api.InstanceID) (*OrchestrationMetadata, error)
+	// Returns [api.ErrInstanceNotFound] if the workflow instance doesn't exist.
+	GetWorkflowMetadata(context.Context, api.InstanceID) (*WorkflowMetadata, error)
 
-	// CompleteOrchestrationWorkItem completes a work item by saving the updated runtime state to durable storage.
+	// CompleteWorkflowWorkItem completes a work item by saving the updated runtime state to durable storage.
 	//
 	// Returns [ErrWorkItemLockLost] if the work-item couldn't be completed due to a lock-lost conflict (e.g., split-brain).
-	CompleteOrchestrationWorkItem(context.Context, *OrchestrationWorkItem) error
+	CompleteWorkflowWorkItem(context.Context, *WorkflowWorkItem) error
 
-	// AbandonOrchestrationWorkItem undoes any state changes and returns the work item to the work item queue.
+	// AbandonWorkflowWorkItem undoes any state changes and returns the work item to the work item queue.
 	//
-	// This is called if an internal failure happens in the processing of an orchestration work item. It is
-	// not called if the orchestration work item is processed successfully (note that an orchestration that
+	// This is called if an internal failure happens in the processing of a workflow work item. It is
+	// not called if the workflow work item is processed successfully (note that a workflow that
 	// completes with a failure is still considered a successfully processed work item).
-	AbandonOrchestrationWorkItem(context.Context, *OrchestrationWorkItem) error
+	AbandonWorkflowWorkItem(context.Context, *WorkflowWorkItem) error
 
 	// NextActivityWorkItem blocks and returns the next activity work item from
 	// the task hub. Should only return an error when shutting down.
 	NextActivityWorkItem(context.Context) (*ActivityWorkItem, error)
 
-	// CompleteActivityWorkItem sends a message to the parent orchestration indicating activity completion.
+	// CompleteActivityWorkItem sends a message to the parent workflow indicating activity completion.
 	//
 	// Returns [ErrWorkItemLockLost] if the work-item couldn't be completed due to a lock-lost conflict (e.g., split-brain).
 	CompleteActivityWorkItem(context.Context, *ActivityWorkItem) error
@@ -126,22 +114,22 @@ type Backend interface {
 	// This is called when an internal failure occurs during activity work-item processing.
 	AbandonActivityWorkItem(context.Context, *ActivityWorkItem) error
 
-	// PurgeOrchestrationState deletes all saved state for the specified orchestration instance.
+	// PurgeWorkflowState deletes all saved state for the specified workflow instance.
 	//
-	// [api.ErrInstanceNotFound] is returned if the specified orchestration instance doesn't exist.
-	// [api.ErrNotCompleted] is returned if the specified orchestration instance is still running.
-	PurgeOrchestrationState(ctx context.Context, id api.InstanceID, force bool) error
+	// [api.ErrInstanceNotFound] is returned if the specified workflow instance doesn't exist.
+	// [api.ErrNotCompleted] is returned if the specified workflow instance is still running.
+	PurgeWorkflowState(ctx context.Context, id api.InstanceID, force bool) error
 
-	// CompleteOrchestratorTask completes the orchestrator task by saving the updated runtime state to durable storage.
-	CompleteOrchestratorTask(context.Context, *protos.OrchestratorResponse) error
+	// CompleteWorkflowTask completes the workflow task by saving the updated runtime state to durable storage.
+	CompleteWorkflowTask(context.Context, *protos.WorkflowResponse) error
 
-	// CancelOrchestratorTask cancels the orchestrator task so instances of WaitForOrchestratorCompletion will return an error.
-	CancelOrchestratorTask(context.Context, api.InstanceID) error
+	// CancelWorkflowTask cancels the workflow task so instances of WaitForWorkflowTaskCompletion will return an error.
+	CancelWorkflowTask(context.Context, api.InstanceID) error
 
-	// WaitForOrchestratorCompletion blocks until the orchestrator completes and returns the final response.
+	// WaitForWorkflowTaskCompletion blocks until the workflow completes and returns the final response.
 	//
 	// [api.ErrTaskCancelled] is returned if the task was cancelled.
-	WaitForOrchestratorCompletion(*protos.OrchestratorRequest) func(context.Context) (*protos.OrchestratorResponse, error)
+	WaitForWorkflowTaskCompletion(*protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error)
 
 	// CompleteActivityTask completes the activity task by saving the updated runtime state to durable storage.
 	CompleteActivityTask(context.Context, *protos.ActivityResponse) error
@@ -154,7 +142,7 @@ type Backend interface {
 	// [api.ErrTaskCancelled] is returned if the task was cancelled.
 	WaitForActivityCompletion(*protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error)
 
-	// ListInstanceIDs lists orchestration instance IDs based on the provided
+	// ListInstanceIDs lists workflow instance IDs based on the provided
 	// query parameters.
 	ListInstanceIDs(ctx context.Context, req *protos.ListInstanceIDsRequest) (*protos.ListInstanceIDsResponse, error)
 
@@ -180,51 +168,51 @@ func UnmarshalHistoryEvent(bytes []byte) (*HistoryEvent, error) {
 	return e, nil
 }
 
-// purgeOrchestrationState purges the orchestration state, including sub-orchestrations if [recursive] is true.
+// purgeWorkflowState purges the workflow state, including child workflows if [recursive] is true.
 // Returns (deletedInstanceCount, error), where deletedInstanceCount is the number of instances deleted.
-func purgeOrchestrationState(ctx context.Context, be Backend, iid api.InstanceID, recursive bool, force bool) (int, error) {
+func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, recursive bool, force bool) (int, error) {
 	deletedInstanceCount := 0
 	if recursive {
-		owi := &OrchestrationWorkItem{
+		owi := &WorkflowWorkItem{
 			InstanceID: iid,
 		}
-		state, err := be.GetOrchestrationRuntimeState(ctx, owi)
+		state, err := be.GetWorkflowRuntimeState(ctx, owi)
 		if err != nil {
-			return 0, fmt.Errorf("failed to fetch orchestration state: %w", err)
+			return 0, fmt.Errorf("failed to fetch workflow state: %w", err)
 		}
 		if len(state.NewEvents)+len(state.OldEvents) == 0 {
-			// If there are no events, the orchestration instance doesn't exist
+			// If there are no events, the workflow instance doesn't exist
 			return 0, api.ErrInstanceNotFound
 		}
 		if !runtimestate.IsCompleted(state) {
-			// Orchestration must be completed before purging its state
+			// Workflow must be completed before purging its state
 			return 0, api.ErrNotCompleted
 		}
-		subOrchestrationInstances := getSubOrchestrationInstances(state.OldEvents, state.NewEvents)
-		for _, subOrchestrationInstance := range subOrchestrationInstances {
-			// Recursively purge sub-orchestrations
-			count, err := purgeOrchestrationState(ctx, be, subOrchestrationInstance, recursive, force)
-			// `count` sub-orchestrations have been successfully purged (even in case of error)
+		childWorkflowInstances := getChildWorkflowInstances(state.OldEvents, state.NewEvents)
+		for _, childWorkflowInstance := range childWorkflowInstances {
+			// Recursively purge child workflows
+			count, err := purgeWorkflowState(ctx, be, childWorkflowInstance, recursive, force)
+			// `count` child workflows have been successfully purged (even in case of error)
 			deletedInstanceCount += count
 			if err != nil {
-				return deletedInstanceCount, fmt.Errorf("failed to purge sub-orchestration: %w", err)
+				return deletedInstanceCount, fmt.Errorf("failed to purge child workflow: %w", err)
 			}
 		}
 	}
-	// Purging root orchestration
-	if err := be.PurgeOrchestrationState(ctx, iid, force); err != nil {
+	// Purging root workflow
+	if err := be.PurgeWorkflowState(ctx, iid, force); err != nil {
 		return deletedInstanceCount, err
 	}
 	return deletedInstanceCount + 1, nil
 }
 
-// terminateSubOrchestrationInstances submits termination requests to sub-orchestrations if [et.Recurse] is true.
-func terminateSubOrchestrationInstances(ctx context.Context, be Backend, iid api.InstanceID, state *OrchestrationRuntimeState, et *protos.ExecutionTerminatedEvent) error {
+// terminateChildWorkflowInstances submits termination requests to child workflows if [et.Recurse] is true.
+func terminateChildWorkflowInstances(ctx context.Context, be Backend, iid api.InstanceID, state *WorkflowRuntimeState, et *protos.ExecutionTerminatedEvent) error {
 	if !et.Recurse {
 		return nil
 	}
-	subOrchestrationInstances := getSubOrchestrationInstances(state.OldEvents, state.NewEvents)
-	for _, subOrchestrationInstance := range subOrchestrationInstances {
+	childWorkflowInstances := getChildWorkflowInstances(state.OldEvents, state.NewEvents)
+	for _, childWorkflowInstance := range childWorkflowInstances {
 		e := &protos.HistoryEvent{
 			EventId:   -1,
 			Timestamp: timestamppb.Now(),
@@ -235,30 +223,30 @@ func terminateSubOrchestrationInstances(ctx context.Context, be Backend, iid api
 				},
 			},
 		}
-		// Adding terminate event to sub-orchestration instance
-		if err := be.AddNewOrchestrationEvent(ctx, subOrchestrationInstance, e); err != nil {
-			return fmt.Errorf("failed to submit termination request to sub-orchestration: %w", err)
+		// Adding terminate event to child workflow instance
+		if err := be.AddNewWorkflowEvent(ctx, childWorkflowInstance, e); err != nil {
+			return fmt.Errorf("failed to submit termination request to child workflow: %w", err)
 		}
 	}
 	return nil
 }
 
-// getSubOrchestrationInstances returns the instance IDs of all sub-orchestrations in the specified events.
-func getSubOrchestrationInstances(oldEvents []*HistoryEvent, newEvents []*HistoryEvent) []api.InstanceID {
-	subOrchestrationInstancesMap := make(map[api.InstanceID]struct{}, len(oldEvents)+len(newEvents))
+// getChildWorkflowInstances returns the instance IDs of all child workflows in the specified events.
+func getChildWorkflowInstances(oldEvents []*HistoryEvent, newEvents []*HistoryEvent) []api.InstanceID {
+	childWorkflowInstancesMap := make(map[api.InstanceID]struct{}, len(oldEvents)+len(newEvents))
 	for _, e := range oldEvents {
-		if created := e.GetSubOrchestrationInstanceCreated(); created != nil {
-			subOrchestrationInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
+		if created := e.GetChildWorkflowInstanceCreated(); created != nil {
+			childWorkflowInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
 		}
 	}
 	for _, e := range newEvents {
-		if created := e.GetSubOrchestrationInstanceCreated(); created != nil {
-			subOrchestrationInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
+		if created := e.GetChildWorkflowInstanceCreated(); created != nil {
+			childWorkflowInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
 		}
 	}
-	subOrchestrationInstances := make([]api.InstanceID, 0, len(subOrchestrationInstancesMap))
-	for orch := range subOrchestrationInstancesMap {
-		subOrchestrationInstances = append(subOrchestrationInstances, orch)
+	childWorkflowInstances := make([]api.InstanceID, 0, len(childWorkflowInstancesMap))
+	for orch := range childWorkflowInstancesMap {
+		childWorkflowInstances = append(childWorkflowInstances, orch)
 	}
-	return subOrchestrationInstances
+	return childWorkflowInstances
 }

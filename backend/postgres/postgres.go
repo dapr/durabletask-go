@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
@@ -23,6 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	backoff "github.com/cenkalti/backoff/v4"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -36,7 +36,7 @@ var errNoWorkItems = errors.New("no work items were found")
 
 type PostgresOptions struct {
 	PgOptions                *pgxpool.Config
-	OrchestrationLockTimeout time.Duration
+	WorkflowLockTimeout time.Duration
 	ActivityLockTimeout      time.Duration
 }
 
@@ -61,7 +61,7 @@ func NewPostgresOptions(host string, port uint16, database string, user string, 
 
 	return &PostgresOptions{
 		PgOptions:                conf,
-		OrchestrationLockTimeout: 2 * time.Minute,
+		WorkflowLockTimeout: 2 * time.Minute,
 		ActivityLockTimeout:      2 * time.Minute,
 	}
 }
@@ -122,7 +122,7 @@ func (be *postgresBackend) NextActivityWorkItem(ctx context.Context) (*backend.A
 	}
 }
 
-func (be *postgresBackend) NextOrchestrationWorkItem(ctx context.Context) (*backend.OrchestrationWorkItem, error) {
+func (be *postgresBackend) NextWorkflowWorkItem(ctx context.Context) (*backend.WorkflowWorkItem, error) {
 	b := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     50 * time.Millisecond,
 		MaxInterval:         5 * time.Second,
@@ -133,7 +133,7 @@ func (be *postgresBackend) NextOrchestrationWorkItem(ctx context.Context) (*back
 	}, ctx)
 
 	for {
-		wi, err := be.GetOrchestrationWorkItem(ctx)
+		wi, err := be.GetWorkflowWorkItem(ctx)
 		if err == nil {
 			return wi, nil
 		}
@@ -155,7 +155,7 @@ func (be *postgresBackend) NextOrchestrationWorkItem(ctx context.Context) (*back
 	}
 }
 
-func (be *postgresBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, fn func(*backend.OrchestrationMetadata) bool) error {
+func (be *postgresBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, fn func(*backend.WorkflowMetadata) bool) error {
 	b := backoff.ExponentialBackOff{
 		InitialInterval:     100 * time.Millisecond,
 		MaxInterval:         10 * time.Second,
@@ -176,7 +176,7 @@ func (be *postgresBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, 
 			}
 			return ctx.Err()
 		case <-t.C:
-			meta, err := be.GetOrchestrationMetadata(ctx, id)
+			meta, err := be.GetWorkflowMetadata(ctx, id)
 			if err != nil {
 				return err
 			}
@@ -238,8 +238,8 @@ func (be *postgresBackend) DeleteTaskHub(ctx context.Context) error {
 	return nil
 }
 
-// AbandonOrchestrationWorkItem implements backend.Backend
-func (be *postgresBackend) AbandonOrchestrationWorkItem(ctx context.Context, wi *backend.OrchestrationWorkItem) error {
+// AbandonWorkflowWorkItem implements backend.Backend
+func (be *postgresBackend) AbandonWorkflowWorkItem(ctx context.Context, wi *backend.WorkflowWorkItem) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
@@ -299,8 +299,8 @@ func (be *postgresBackend) AbandonOrchestrationWorkItem(ctx context.Context, wi 
 	return nil
 }
 
-// CompleteOrchestrationWorkItem implements backend.Backend
-func (be *postgresBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi *backend.OrchestrationWorkItem) error {
+// CompleteWorkflowWorkItem implements backend.Backend
+func (be *postgresBackend) CompleteWorkflowWorkItem(ctx context.Context, wi *backend.WorkflowWorkItem) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
@@ -446,7 +446,7 @@ func (be *postgresBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi
 		}
 	}
 
-	// Save outbound orchestrator events
+	// Save outbound workflow events
 	newEventCount := len(wi.State.GetPendingTimers()) + len(wi.State.GetPendingMessages())
 	if newEventCount > 0 {
 		builder := strings.Builder{}
@@ -473,12 +473,12 @@ func (be *postgresBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi
 		for _, msg := range wi.State.GetPendingMessages() {
 			if es := msg.HistoryEvent.GetExecutionStarted(); es != nil {
 				// Need to insert a new row into the DB
-				if _, err := be.createOrchestrationInstanceInternal(ctx, msg.HistoryEvent, tx); err != nil {
-					if errors.Is(err, runtimestate.ErrDuplicateEvent) {
+				if _, err := be.createWorkflowInstanceInternal(ctx, msg.HistoryEvent, tx); err != nil {
+					if errors.Is(err, runtimestate.ErrDuplicateEvent) || errors.Is(err, api.ErrDuplicateInstance) {
 						be.logger.Warnf(
-							"%v: dropping sub-orchestration creation event because an instance with the target ID (%v) already exists.",
+							"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
 							wi.InstanceID,
-							es.OrchestrationInstance.InstanceId)
+							es.WorkflowInstance.InstanceId)
 					} else {
 						return err
 					}
@@ -490,7 +490,7 @@ func (be *postgresBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi
 				return err
 			}
 
-			sqlInsertArgs = append(sqlInsertArgs, msg.TargetInstanceID, eventPayload, nil)
+			sqlInsertArgs = append(sqlInsertArgs, msg.TargetInstanceId, eventPayload, nil)
 		}
 
 		_, err = tx.Exec(ctx, insertSql, sqlInsertArgs...)
@@ -528,8 +528,8 @@ func (be *postgresBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi
 	return nil
 }
 
-// CreateOrchestrationInstance implements backend.Backend
-func (be *postgresBackend) CreateOrchestrationInstance(ctx context.Context, e *backend.HistoryEvent, opts ...backend.OrchestrationIdReusePolicyOptions) error {
+// CreateWorkflowInstance implements backend.Backend
+func (be *postgresBackend) CreateWorkflowInstance(ctx context.Context, e *backend.HistoryEvent) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
@@ -541,7 +541,7 @@ func (be *postgresBackend) CreateOrchestrationInstance(ctx context.Context, e *b
 	defer tx.Rollback(ctx)
 
 	var instanceID string
-	if instanceID, err = be.createOrchestrationInstanceInternal(ctx, e, tx, opts...); errors.Is(err, api.ErrIgnoreInstance) {
+	if instanceID, err = be.createWorkflowInstanceInternal(ctx, e, tx); errors.Is(err, api.ErrIgnoreInstance) {
 		// choose to ignore, do nothing
 		return nil
 	} else if err != nil {
@@ -565,13 +565,13 @@ func (be *postgresBackend) CreateOrchestrationInstance(ctx context.Context, e *b
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to create orchestration: %w", err)
+		return fmt.Errorf("failed to create workflow: %w", err)
 	}
 
 	return nil
 }
 
-func (be *postgresBackend) createOrchestrationInstanceInternal(ctx context.Context, e *backend.HistoryEvent, tx pgx.Tx, opts ...backend.OrchestrationIdReusePolicyOptions) (string, error) {
+func (be *postgresBackend) createWorkflowInstanceInternal(ctx context.Context, e *backend.HistoryEvent, tx pgx.Tx) (string, error) {
 	if e == nil {
 		return "", errors.New("HistoryEvent must be non-nil")
 	} else if e.Timestamp == nil {
@@ -582,13 +582,7 @@ func (be *postgresBackend) createOrchestrationInstanceInternal(ctx context.Conte
 	if startEvent == nil {
 		return "", errors.New("HistoryEvent must be an ExecutionStartedEvent")
 	}
-	instanceID := startEvent.OrchestrationInstance.InstanceId
-
-	policy := &protos.OrchestrationIdReusePolicy{}
-
-	for _, opt := range opts {
-		opt(policy)
-	}
+	instanceID := startEvent.WorkflowInstance.InstanceId
 
 	rows, err := insertOrIgnoreInstanceTableInternal(ctx, tx, e, startEvent)
 	if err != nil {
@@ -597,7 +591,7 @@ func (be *postgresBackend) createOrchestrationInstanceInternal(ctx context.Conte
 
 	// instance with same ID already exists
 	if rows <= 0 {
-		return instanceID, be.handleInstanceExists(ctx, tx, startEvent, policy, e)
+		return instanceID, api.ErrDuplicateInstance
 	}
 	return instanceID, nil
 }
@@ -616,8 +610,8 @@ func insertOrIgnoreInstanceTableInternal(ctx context.Context, tx pgx.Tx, e *back
 		) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
 		startEvent.Name,
 		startEvent.Version.GetValue(),
-		startEvent.OrchestrationInstance.InstanceId,
-		startEvent.OrchestrationInstance.ExecutionId.GetValue(),
+		startEvent.WorkflowInstance.InstanceId,
+		startEvent.WorkflowInstance.ExecutionId.GetValue(),
 		startEvent.Input.GetValue(),
 		"PENDING",
 		e.Timestamp.AsTime(),
@@ -633,53 +627,6 @@ func insertOrIgnoreInstanceTableInternal(ctx context.Context, tx pgx.Tx, e *back
 	return rows, nil
 }
 
-func (be *postgresBackend) handleInstanceExists(ctx context.Context, tx pgx.Tx, startEvent *protos.ExecutionStartedEvent, policy *protos.OrchestrationIdReusePolicy, e *backend.HistoryEvent) error {
-	// query RuntimeStatus for the existing instance
-	queryRow := tx.QueryRow(
-		ctx,
-		`SELECT RuntimeStatus FROM Instances WHERE InstanceID = $1`,
-		startEvent.OrchestrationInstance.InstanceId,
-	)
-	var runtimeStatus *string
-	err := queryRow.Scan(&runtimeStatus)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return api.ErrInstanceNotFound
-	} else if err != nil {
-		return fmt.Errorf("failed to scan the Instances table result: %w", err)
-	}
-
-	// status not match, return instance duplicate error
-	if !isStatusMatch(policy.OperationStatus, helpers.FromRuntimeStatusString(*runtimeStatus)) {
-		return api.ErrDuplicateInstance
-	}
-
-	// status match
-	switch policy.Action {
-	case protos.CreateOrchestrationAction_IGNORE:
-		// Log an warning message and ignore creating new instance
-		be.logger.Warnf("An instance with ID '%s' already exists; dropping duplicate create request", startEvent.OrchestrationInstance.InstanceId)
-		return api.ErrIgnoreInstance
-	case protos.CreateOrchestrationAction_TERMINATE:
-		// terminate existing instance
-		if err := be.cleanupOrchestrationStateInternal(ctx, tx, api.InstanceID(startEvent.OrchestrationInstance.InstanceId), false); err != nil {
-			return fmt.Errorf("failed to cleanup orchestration status: %w", err)
-		}
-		// create a new instance
-		var rows int64
-		if rows, err = insertOrIgnoreInstanceTableInternal(ctx, tx, e, startEvent); err != nil {
-			return err
-		}
-
-		// should never happen, because we clean up instance before create new one
-		if rows <= 0 {
-			return fmt.Errorf("failed to insert into Instances table because entry already exists")
-		}
-		return nil
-	}
-	// default behavior
-	return api.ErrDuplicateInstance
-}
-
 func isStatusMatch(statuses []protos.OrchestrationStatus, runtimeStatus protos.OrchestrationStatus) bool {
 	for _, status := range statuses {
 		if status == runtimeStatus {
@@ -689,7 +636,7 @@ func isStatusMatch(statuses []protos.OrchestrationStatus, runtimeStatus protos.O
 	return false
 }
 
-func (be *postgresBackend) cleanupOrchestrationStateInternal(ctx context.Context, tx pgx.Tx, id api.InstanceID, requireCompleted bool) error {
+func (be *postgresBackend) cleanupWorkflowStateInternal(ctx context.Context, tx pgx.Tx, id api.InstanceID, requireCompleted bool) error {
 	row := tx.QueryRow(ctx, "SELECT 1 FROM Instances WHERE InstanceID = $1", string(id))
 	var unused int
 	if err := row.Scan(&unused); errors.Is(err, pgx.ErrNoRows) {
@@ -699,7 +646,7 @@ func (be *postgresBackend) cleanupOrchestrationStateInternal(ctx context.Context
 	}
 
 	if requireCompleted {
-		// purge orchestration in ['COMPLETED', 'FAILED', 'TERMINATED']
+		// purge workflow in ['COMPLETED', 'FAILED', 'TERMINATED']
 		dbResult, err := tx.Exec(ctx, "DELETE FROM Instances WHERE InstanceID = $1 AND RuntimeStatus IN ('COMPLETED', 'FAILED', 'TERMINATED')", string(id))
 		if err != nil {
 			return fmt.Errorf("failed to delete from the Instances table: %w", err)
@@ -713,7 +660,7 @@ func (be *postgresBackend) cleanupOrchestrationStateInternal(ctx context.Context
 			return api.ErrNotCompleted
 		}
 	} else {
-		// clean up orchestration in all RuntimeStatus
+		// clean up workflow in all RuntimeStatus
 		_, err := tx.Exec(ctx, "DELETE FROM Instances WHERE InstanceID = $1", string(id))
 		if err != nil {
 			return fmt.Errorf("failed to delete from the Instances table: %w", err)
@@ -737,7 +684,7 @@ func (be *postgresBackend) cleanupOrchestrationStateInternal(ctx context.Context
 	return nil
 }
 
-func (be *postgresBackend) AddNewOrchestrationEvent(ctx context.Context, iid api.InstanceID, e *backend.HistoryEvent) error {
+func (be *postgresBackend) AddNewWorkflowEvent(ctx context.Context, iid api.InstanceID, e *backend.HistoryEvent) error {
 	if e == nil {
 		return errors.New("HistoryEvent must be non-nil")
 	} else if e.Timestamp == nil {
@@ -763,8 +710,8 @@ func (be *postgresBackend) AddNewOrchestrationEvent(ctx context.Context, iid api
 	return nil
 }
 
-// GetOrchestrationMetadata implements backend.Backend
-func (be *postgresBackend) GetOrchestrationMetadata(ctx context.Context, iid api.InstanceID) (*backend.OrchestrationMetadata, error) {
+// GetWorkflowMetadata implements backend.Backend
+func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.InstanceID) (*backend.WorkflowMetadata, error) {
 	if err := be.ensureDB(); err != nil {
 		return nil, err
 	}
@@ -826,7 +773,7 @@ func (be *postgresBackend) GetOrchestrationMetadata(ctx context.Context, iid api
 		customStatusw = wrapperspb.String(*customStatus)
 	}
 
-	return &backend.OrchestrationMetadata{
+	return &backend.WorkflowMetadata{
 		InstanceId:     string(iid),
 		Name:           *name,
 		RuntimeStatus:  helpers.FromRuntimeStatusString(*runtimeStatus),
@@ -839,8 +786,8 @@ func (be *postgresBackend) GetOrchestrationMetadata(ctx context.Context, iid api
 	}, nil
 }
 
-// GetOrchestrationRuntimeState implements backend.Backend
-func (be *postgresBackend) GetOrchestrationRuntimeState(ctx context.Context, wi *backend.OrchestrationWorkItem) (*backend.OrchestrationRuntimeState, error) {
+// GetWorkflowRuntimeState implements backend.Backend
+func (be *postgresBackend) GetWorkflowRuntimeState(ctx context.Context, wi *backend.WorkflowWorkItem) (*backend.WorkflowRuntimeState, error) {
 	if err := be.ensureDB(); err != nil {
 		return nil, err
 	}
@@ -852,7 +799,7 @@ func (be *postgresBackend) GetOrchestrationRuntimeState(ctx context.Context, wi 
 		return nil, err
 	}
 
-	state := runtimestate.NewOrchestrationRuntimeState(string(wi.InstanceID), nil, resp.GetEvents())
+	state := runtimestate.NewWorkflowRuntimeState(string(wi.InstanceID), nil, resp.GetEvents())
 	return state, nil
 }
 
@@ -917,8 +864,8 @@ func (be *postgresBackend) ListInstanceIDs(ctx context.Context, wi *backend.List
 	}, nil
 }
 
-// GetOrchestrationWorkItem implements backend.Backend
-func (be *postgresBackend) GetOrchestrationWorkItem(ctx context.Context) (*backend.OrchestrationWorkItem, error) {
+// GetWorkflowWorkItem implements backend.Backend
+func (be *postgresBackend) GetWorkflowWorkItem(ctx context.Context) (*backend.WorkflowWorkItem, error) {
 	if err := be.ensureDB(); err != nil {
 		return nil, err
 	}
@@ -930,9 +877,9 @@ func (be *postgresBackend) GetOrchestrationWorkItem(ctx context.Context) (*backe
 	defer tx.Rollback(ctx)
 
 	now := time.Now().UTC()
-	newLockExpiration := now.Add(be.options.OrchestrationLockTimeout)
+	newLockExpiration := now.Add(be.options.WorkflowLockTimeout)
 
-	// Place a lock on an orchestration instance that has new events that are ready to be executed.
+	// Place a lock on a workflow instance that has new events that are ready to be executed.
 	row := tx.QueryRow(
 		ctx,
 		`UPDATE Instances SET LockedBy = $1, LockExpiration = $2
@@ -957,7 +904,7 @@ func (be *postgresBackend) GetOrchestrationWorkItem(ctx context.Context) (*backe
 			return nil, errNoWorkItems
 		}
 
-		return nil, fmt.Errorf("failed to scan the orchestration work-item: %w", err)
+		return nil, fmt.Errorf("failed to scan the workflow work-item: %w", err)
 	}
 
 	// TODO: Get all the unprocessed events associated with the locked instance
@@ -974,7 +921,7 @@ func (be *postgresBackend) GetOrchestrationWorkItem(ctx context.Context) (*backe
 		now,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query for orchestration work-items: %w", err)
+		return nil, fmt.Errorf("failed to query for workflow work-items: %w", err)
 	}
 	defer events.Close()
 
@@ -1001,10 +948,10 @@ func (be *postgresBackend) GetOrchestrationWorkItem(ctx context.Context) (*backe
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("failed to update orchestration work-item: %w", err)
+		return nil, fmt.Errorf("failed to update workflow work-item: %w", err)
 	}
 
-	wi := &backend.OrchestrationWorkItem{
+	wi := &backend.WorkflowWorkItem{
 		InstanceID: api.InstanceID(instanceID),
 		NewEvents:  newEvents,
 		LockedBy:   be.workerName,
@@ -1020,7 +967,7 @@ func (be *postgresBackend) getActivityWorkItem(ctx context.Context) (*backend.Ac
 	}
 
 	now := time.Now().UTC()
-	newLockExpiration := now.Add(be.options.OrchestrationLockTimeout)
+	newLockExpiration := now.Add(be.options.WorkflowLockTimeout)
 
 	row := be.db.QueryRow(
 		ctx,
@@ -1127,7 +1074,7 @@ func (be *postgresBackend) AbandonActivityWorkItem(ctx context.Context, wi *back
 	return nil
 }
 
-func (be *postgresBackend) PurgeOrchestrationState(ctx context.Context, id api.InstanceID, force bool) error {
+func (be *postgresBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, force bool) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
@@ -1138,7 +1085,7 @@ func (be *postgresBackend) PurgeOrchestrationState(ctx context.Context, id api.I
 	}
 	defer tx.Rollback(ctx)
 
-	if err := be.cleanupOrchestrationStateInternal(ctx, tx, id, true); err != nil {
+	if err := be.cleanupWorkflowStateInternal(ctx, tx, id, true); err != nil {
 		return err
 	}
 

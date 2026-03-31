@@ -31,8 +31,8 @@ func AssertSpanSequence(t assert.TestingT, spans []trace.ReadOnlySpan, spanAsser
 	}
 }
 
-// assertOrchestratorCreated validates a create_orchestration span
-func AssertOrchestratorCreated(name string, id api.InstanceID, optionalAsserts ...spanAttributeValidator) spanValidator {
+// AssertWorkflowCreated validates a create_orchestration span
+func AssertWorkflowCreated(name string, id api.InstanceID, optionalAsserts ...spanAttributeValidator) spanValidator {
 	spanName := fmt.Sprintf("create_orchestration||%s", name)
 	opts := []spanAttributeValidator{
 		assertTaskType("orchestration"),
@@ -43,8 +43,8 @@ func AssertOrchestratorCreated(name string, id api.InstanceID, optionalAsserts .
 	return AssertSpan(spanName, opts...)
 }
 
-// assertOrchestratorCreated validates an orchestration span
-func AssertOrchestratorExecuted(name string, id api.InstanceID, status string, optionalAsserts ...spanAttributeValidator) spanValidator {
+// AssertWorkflowExecuted validates an orchestration span
+func AssertWorkflowExecuted(name string, id api.InstanceID, status string, optionalAsserts ...spanAttributeValidator) spanValidator {
 	spanName := fmt.Sprintf("orchestration||%s", name)
 	opts := []spanAttributeValidator{
 		assertTaskType("orchestration"),
@@ -256,7 +256,7 @@ func assertPatch(patchName string) spanAttributeValidator {
 
 // initTracing configures in-memory OTel tracing and returns an exporter which can be used
 // to examine the exported traces. We only want to look at exported traces because we do
-// tricks to mark certain spans as non-exported (i.e. orchestration replays), and want
+// tricks to mark certain spans as non-exported (i.e. workflow replays), and want
 // to ensure that those spans are never actually exported.
 func InitTracing() *tracetest.InMemoryExporter {
 	// The global tracer provider can only be initialized once.

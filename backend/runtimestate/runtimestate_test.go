@@ -17,7 +17,7 @@ func startedEvent() *protos.HistoryEvent {
 		Timestamp: timestamppb.Now(),
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
-				Name: "test-orchestrator",
+				Name: "test-workflow",
 			},
 		},
 	}
@@ -82,7 +82,7 @@ func TestAddEvent_StalledClearedOnNewEvent(t *testing.T) {
 				Timestamp: timestamppb.Now(),
 				EventType: &protos.HistoryEvent_ExecutionCompleted{
 					ExecutionCompleted: &protos.ExecutionCompletedEvent{
-						OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
 					},
 				},
 			},
@@ -94,7 +94,7 @@ func TestAddEvent_StalledClearedOnNewEvent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := NewOrchestrationRuntimeState("test-instance", nil, nil)
+			s := NewWorkflowRuntimeState("test-instance", nil, nil)
 
 			// Add a start event so RuntimeStatus can reach the stalled check.
 			require.NoError(t, AddEvent(s, startedEvent()))
@@ -117,7 +117,7 @@ func TestAddEvent_StalledClearedOnNewEvent(t *testing.T) {
 func TestAddEvent_StalledSetFromOldEvents(t *testing.T) {
 	t.Parallel()
 
-	s := NewOrchestrationRuntimeState("test-instance", nil, []*protos.HistoryEvent{
+	s := NewWorkflowRuntimeState("test-instance", nil, []*protos.HistoryEvent{
 		startedEvent(),
 		stalledEvent(protos.StalledReason_VERSION_NOT_AVAILABLE, "old stall"),
 	})
@@ -142,7 +142,7 @@ func TestAddEvent_StalledClearedBySubsequentOldEvent(t *testing.T) {
 
 	// If the history contains a stalled event followed by another event,
 	// the stalled state should be cleared.
-	s := NewOrchestrationRuntimeState("test-instance", nil, []*protos.HistoryEvent{
+	s := NewWorkflowRuntimeState("test-instance", nil, []*protos.HistoryEvent{
 		startedEvent(),
 		stalledEvent(protos.StalledReason_PATCH_MISMATCH, "stalled"),
 		taskScheduled,
@@ -154,7 +154,7 @@ func TestAddEvent_StalledClearedBySubsequentOldEvent(t *testing.T) {
 func TestAddEvent_StalledPreservedOnDuplicateError(t *testing.T) {
 	t.Parallel()
 
-	s := NewOrchestrationRuntimeState("test-instance", nil, nil)
+	s := NewWorkflowRuntimeState("test-instance", nil, nil)
 	require.NoError(t, AddEvent(s, startedEvent()))
 	require.NoError(t, AddEvent(s, stalledEvent(protos.StalledReason_PATCH_MISMATCH, "stalled")))
 	require.NotNil(t, s.Stalled)
@@ -170,7 +170,7 @@ func TestAddEvent_StalledPreservedOnDuplicateError(t *testing.T) {
 func TestAddEvent_StalledReplacedByNewStalled(t *testing.T) {
 	t.Parallel()
 
-	s := NewOrchestrationRuntimeState("test-instance", nil, nil)
+	s := NewWorkflowRuntimeState("test-instance", nil, nil)
 	require.NoError(t, AddEvent(s, startedEvent()))
 
 	require.NoError(t, AddEvent(s, stalledEvent(protos.StalledReason_PATCH_MISMATCH, "first stall")))

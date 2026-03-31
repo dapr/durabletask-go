@@ -18,7 +18,7 @@ type taskExecutor struct {
 	Registry *TaskRegistry
 }
 
-// NewTaskExecutor returns a [backend.Executor] implementation that executes orchestrator and activity functions in-memory.
+// NewTaskExecutor returns a [backend.Executor] implementation that executes workflow and activity functions in-memory.
 func NewTaskExecutor(registry *TaskRegistry) backend.Executor {
 	return &taskExecutor{
 		Registry: registry,
@@ -127,28 +127,28 @@ func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, 
 	}, nil
 }
 
-// ExecuteOrchestrator implements backend.Executor and executes an orchestrator function in the current goroutine.
-func (te *taskExecutor) ExecuteOrchestrator(ctx context.Context, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.OrchestratorResponse, error) {
-	orchestrationCtx := NewOrchestrationContext(te.Registry, id, oldEvents, newEvents)
-	actions := orchestrationCtx.start()
+// ExecuteWorkflow implements backend.Executor and executes an workflow function in the current goroutine.
+func (te *taskExecutor) ExecuteWorkflow(ctx context.Context, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
+	workflowCtx := NewWorkflowContext(te.Registry, id, oldEvents, newEvents)
+	actions := workflowCtx.start()
 
-	response := &protos.OrchestratorResponse{
+	response := &protos.WorkflowResponse{
 		InstanceId:   string(id),
 		Actions:      actions,
-		CustomStatus: wrapperspb.String(orchestrationCtx.customStatus),
+		CustomStatus: wrapperspb.String(workflowCtx.customStatus),
 	}
 
-	if len(orchestrationCtx.encounteredPatches) > 0 {
+	if len(workflowCtx.encounteredPatches) > 0 {
 		if response.Version == nil {
-			response.Version = new(protos.OrchestrationVersion)
+			response.Version = new(protos.WorkflowVersion)
 		}
-		response.Version.Patches = orchestrationCtx.encounteredPatches
+		response.Version.Patches = workflowCtx.encounteredPatches
 	}
-	if orchestrationCtx.VersionName != nil {
+	if workflowCtx.VersionName != nil {
 		if response.Version == nil {
-			response.Version = new(protos.OrchestrationVersion)
+			response.Version = new(protos.WorkflowVersion)
 		}
-		response.Version.Name = orchestrationCtx.VersionName
+		response.Version.Name = workflowCtx.VersionName
 	}
 
 	return response, nil

@@ -15,9 +15,9 @@ import (
 )
 
 func main() {
-	// Create a new task registry and add the orchestrator and activities
+	// Create a new task registry and add the workflow and activities
 	r := task.NewTaskRegistry()
-	r.AddOrchestrator(UpdateDevicesOrchestrator)
+	r.AddWorkflow(UpdateDevicesWorkflow)
 	r.AddActivity(GetDevicesToUpdate)
 	r.AddActivity(UpdateDevice)
 
@@ -29,16 +29,16 @@ func main() {
 	}
 	defer worker.Shutdown(ctx)
 
-	// Start a new orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, UpdateDevicesOrchestrator)
+	// Start a new workflow
+	id, err := client.ScheduleNewWorkflow(ctx, UpdateDevicesWorkflow)
 	if err != nil {
-		log.Fatalf("Failed to schedule new orchestration: %v", err)
+		log.Fatalf("Failed to schedule new workflow: %v", err)
 	}
 
-	// Wait for the orchestration to complete
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	// Wait for the workflow to complete
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	if err != nil {
-		log.Fatalf("Failed to wait for orchestration to complete: %v", err)
+		log.Fatalf("Failed to wait for workflow to complete: %v", err)
 	}
 
 	// Print the results
@@ -46,7 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to encode result to JSON: %v", err)
 	}
-	log.Printf("Orchestration completed: %v", string(metadataEnc))
+	log.Printf("Workflow completed: %v", string(metadataEnc))
 }
 
 // Init creates and initializes an in-memory client and worker pair with default configuration.
@@ -59,13 +59,13 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	// Create a new backend
 	// Use the in-memory sqlite provider by specifying ""
 	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(""), logger)
-	orchestrationWorker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+	workflowWorker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
 		Backend:  be,
 		Executor: executor,
 		Logger:   logger,
 	})
 	activityWorker := backend.NewActivityTaskWorker(be, executor, logger)
-	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
+	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 
 	// Start the worker
 	err := taskHubWorker.Start(ctx)
@@ -79,8 +79,8 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	return taskHubClient, taskHubWorker, nil
 }
 
-// UpdateDevicesOrchestrator is an orchestrator that runs activities in parallel
-func UpdateDevicesOrchestrator(ctx *task.OrchestrationContext) (any, error) {
+// UpdateDevicesWorkflow is an workflow that runs activities in parallel
+func UpdateDevicesWorkflow(ctx *task.WorkflowContext) (any, error) {
 	// Get a dynamic list of devices to perform updates on
 	var devices []string
 	if err := ctx.CallActivity(GetDevicesToUpdate).Await(&devices); err != nil {
@@ -105,7 +105,7 @@ func UpdateDevicesOrchestrator(ctx *task.OrchestrationContext) (any, error) {
 	return float32(successCount) / float32(len(devices)), nil
 }
 
-// GetDevicesToUpdate is an activity that returns a list of random device IDs to an orchestration.
+// GetDevicesToUpdate is an activity that returns a list of random device IDs to a workflow.
 func GetDevicesToUpdate(task.ActivityContext) (any, error) {
 	// Return a fake list of device IDs
 	const deviceCount = 10

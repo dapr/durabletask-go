@@ -6,58 +6,58 @@ import (
 	"github.com/dapr/durabletask-go/api/helpers"
 )
 
-// TaskRegistry contains maps of names to corresponding orchestrator and activity functions.
+// TaskRegistry contains maps of names to corresponding workflow and activity functions.
 type TaskRegistry struct {
-	orchestrators                map[string]Orchestrator
-	versionedOrchestrators       map[string]map[string]Orchestrator
-	latestVersionedOrchestrators map[string]string
+	workflows                map[string]Workflow
+	versionedWorkflows       map[string]map[string]Workflow
+	latestVersionedWorkflows map[string]string
 	activities                   map[string]Activity
 }
 
 // NewTaskRegistry returns a new [TaskRegistry] struct.
 func NewTaskRegistry() *TaskRegistry {
 	r := &TaskRegistry{
-		orchestrators:                make(map[string]Orchestrator),
+		workflows:                make(map[string]Workflow),
 		activities:                   make(map[string]Activity),
-		versionedOrchestrators:       make(map[string]map[string]Orchestrator),
-		latestVersionedOrchestrators: make(map[string]string),
+		versionedWorkflows:       make(map[string]map[string]Workflow),
+		latestVersionedWorkflows: make(map[string]string),
 	}
 	return r
 }
 
-// AddOrchestrator adds an orchestrator function to the registry. The name of the orchestrator
+// AddWorkflow adds an workflow function to the registry. The name of the workflow
 // function is determined using reflection.
-func (r *TaskRegistry) AddOrchestrator(o Orchestrator) error {
+func (r *TaskRegistry) AddWorkflow(o Workflow) error {
 	name := helpers.GetTaskFunctionName(o)
-	return r.AddOrchestratorN(name, o)
+	return r.AddWorkflowN(name, o)
 }
 
-// AddOrchestratorN adds an orchestrator function to the registry with a specified name.
-func (r *TaskRegistry) AddOrchestratorN(name string, o Orchestrator) error {
-	if _, ok := r.orchestrators[name]; ok {
-		return fmt.Errorf("orchestrator named '%s' is already registered", name)
+// AddWorkflowN adds an workflow function to the registry with a specified name.
+func (r *TaskRegistry) AddWorkflowN(name string, o Workflow) error {
+	if _, ok := r.workflows[name]; ok {
+		return fmt.Errorf("workflow named '%s' is already registered", name)
 	}
-	r.orchestrators[name] = o
+	r.workflows[name] = o
 	return nil
 }
 
-// AddVersionedOrchestrator adds a versioned orchestrator function to the registry with a specified name.
-func (r *TaskRegistry) AddVersionedOrchestrator(canonicalName string, isLatest bool, o Orchestrator) error {
+// AddVersionedWorkflow adds a versioned workflow function to the registry with a specified name.
+func (r *TaskRegistry) AddVersionedWorkflow(canonicalName string, isLatest bool, o Workflow) error {
 	name := helpers.GetTaskFunctionName(o)
-	return r.AddVersionedOrchestratorN(canonicalName, name, isLatest, o)
+	return r.AddVersionedWorkflowN(canonicalName, name, isLatest, o)
 }
 
-// AddVersionedOrchestratorN adds a versioned orchestrator function to the registry with a specified name.
-func (r *TaskRegistry) AddVersionedOrchestratorN(canonicalName string, name string, isLatest bool, o Orchestrator) error {
-	if _, ok := r.versionedOrchestrators[canonicalName]; !ok {
-		r.versionedOrchestrators[canonicalName] = make(map[string]Orchestrator)
+// AddVersionedWorkflowN adds a versioned workflow function to the registry with a specified name.
+func (r *TaskRegistry) AddVersionedWorkflowN(canonicalName string, name string, isLatest bool, o Workflow) error {
+	if _, ok := r.versionedWorkflows[canonicalName]; !ok {
+		r.versionedWorkflows[canonicalName] = make(map[string]Workflow)
 	}
-	if _, ok := r.versionedOrchestrators[canonicalName][name]; ok {
-		return fmt.Errorf("versioned orchestrator named '%s' is already registered", name)
+	if _, ok := r.versionedWorkflows[canonicalName][name]; ok {
+		return fmt.Errorf("versioned workflow named '%s' is already registered", name)
 	}
-	r.versionedOrchestrators[canonicalName][name] = o
+	r.versionedWorkflows[canonicalName][name] = o
 	if isLatest {
-		r.latestVersionedOrchestrators[canonicalName] = name
+		r.latestVersionedWorkflows[canonicalName] = name
 	}
 	return nil
 }

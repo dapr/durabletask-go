@@ -9,8 +9,8 @@ import (
 	"github.com/dapr/durabletask-go/task"
 )
 
-// HelloCities is an orchestrator function that generates a "hello" message for several cities.
-func HelloCities(ctx *task.OrchestrationContext) (any, error) {
+// HelloCities is an workflow function that generates a "hello" message for several cities.
+func HelloCities(ctx *task.WorkflowContext) (any, error) {
 	var helloTokyo string
 	if err := ctx.CallActivity(SayHello, task.WithActivityInput("Tokyo")).Await(&helloTokyo); err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func main() {
 		listenAddr = ":" + val
 	}
 
-	http.HandleFunc("/HelloCities", MapOrchestrator(HelloCities))
+	http.HandleFunc("/HelloCities", MapWorkflow(HelloCities))
 	http.HandleFunc("/SayHello", MapActivity(SayHello))
 
 	log.Printf("Listening for function invocations on %s\n", listenAddr)

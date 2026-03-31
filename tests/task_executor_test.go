@@ -1,4 +1,4 @@
-// This file contains tests for the task executor, which is used only for orchestrations authored in Go.
+// This file contains tests for the task executor, which is used only for workflows authored in Go.
 package tests
 
 import (
@@ -18,7 +18,7 @@ import (
 func Test_Executor_WaitForEventSchedulesTimer(t *testing.T) {
 	timerDuration := 5 * time.Second
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("Orchestration", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
 		var value int
 		ctx.WaitForSingleEvent("MyEvent", timerDuration).Await(&value)
 		return value, nil
@@ -40,7 +40,7 @@ func Test_Executor_WaitForEventSchedulesTimer(t *testing.T) {
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "Orchestration",
+					Name: "Workflow",
 					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  string(iid),
 						ExecutionId: wrapperspb.String(uuid.New().String()),
@@ -50,9 +50,9 @@ func Test_Executor_WaitForEventSchedulesTimer(t *testing.T) {
 		},
 	}
 
-	// Execute the orchestrator function and expect to get back a single timer action
+	// Execute the workflow function and expect to get back a single timer action
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteOrchestrator(ctx, iid, oldEvents, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results.Actions), "Expected a single action to be scheduled")
 	createTimerAction := results.Actions[0].GetCreateTimer()
@@ -61,13 +61,13 @@ func Test_Executor_WaitForEventSchedulesTimer(t *testing.T) {
 	require.Equal(t, "MyEvent", createTimerAction.GetName())
 }
 
-// This is a regression test for an issue where suspended orchestrations would continue to return
+// This is a regression test for an issue where suspended workflows would continue to return
 // actions prior to being resumed. In this case, the `WaitForSingleEvent` action would continue
-// return a timer action even after the orchestration was suspended, which is not correct.
-// The correct behavior is that a suspended orchestration should not return any actions.
+// return a timer action even after the workflow was suspended, which is not correct.
+// The correct behavior is that a suspended workflow should not return any actions.
 func Test_Executor_SuspendStopsAllActions(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SuspendResumeOrchestration", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SuspendResumeWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 		var value int
 		ctx.WaitForSingleEvent("MyEvent", 5*time.Second).Await(&value)
 		return value, nil
@@ -89,7 +89,7 @@ func Test_Executor_SuspendStopsAllActions(t *testing.T) {
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "SuspendResumeOrchestration",
+					Name: "SuspendResumeWorkflow",
 					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  string(iid),
 						ExecutionId: wrapperspb.String(uuid.New().String()),
@@ -106,8 +106,8 @@ func Test_Executor_SuspendStopsAllActions(t *testing.T) {
 		},
 	}
 
-	// Execute the orchestrator function and expect to get back no actions
-	results, err := executor.ExecuteOrchestrator(ctx, iid, oldEvents, newEvents)
+	// Execute the workflow function and expect to get back no actions
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
 	require.NoError(t, err)
-	require.Empty(t, results.Actions, "Suspended orchestrations should not have any actions")
+	require.Empty(t, results.Actions, "Suspended workflows should not have any actions")
 }

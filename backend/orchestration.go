@@ -17,51 +17,51 @@ import (
 	"github.com/dapr/durabletask-go/backend/runtimestate"
 )
 
-type OrchestratorExecutor interface {
-	ExecuteOrchestrator(
+type WorkflowExecutor interface {
+	ExecuteWorkflow(
 		ctx context.Context,
 		iid api.InstanceID,
 		oldEvents []*protos.HistoryEvent,
-		newEvents []*protos.HistoryEvent) (*protos.OrchestratorResponse, error)
+		newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error)
 }
 
-type OrchestratorOptions struct {
+type WorkflowWorkerOptions struct {
 	Backend  Backend
-	Executor OrchestratorExecutor
+	Executor WorkflowExecutor
 	Logger   Logger
 	AppID    string
 }
 
-type orchestratorProcessor struct {
+type workflowProcessor struct {
 	be       Backend
-	executor OrchestratorExecutor
+	executor WorkflowExecutor
 	logger   Logger
 
 	applier *runtimestate.Applier
 }
 
-func NewOrchestrationWorker(opts OrchestratorOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*OrchestrationWorkItem] {
-	processor := &orchestratorProcessor{
+func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*WorkflowWorkItem] {
+	processor := &workflowProcessor{
 		be:       opts.Backend,
 		executor: opts.Executor,
 		logger:   opts.Logger,
 		applier:  runtimestate.NewApplier(opts.AppID),
 	}
-	return NewTaskWorker[*OrchestrationWorkItem](processor, opts.Logger, taskopts...)
+	return NewTaskWorker[*WorkflowWorkItem](processor, opts.Logger, taskopts...)
 }
 
 // Name implements TaskProcessor
-func (*orchestratorProcessor) Name() string {
-	return "orchestration-processor"
+func (*workflowProcessor) Name() string {
+	return "workflow-processor"
 }
 
 // NextWorkItem implements TaskProcessor
-func (p *orchestratorProcessor) NextWorkItem(ctx context.Context) (*OrchestrationWorkItem, error) {
-	return p.be.NextOrchestrationWorkItem(ctx)
+func (p *workflowProcessor) NextWorkItem(ctx context.Context) (*WorkflowWorkItem, error) {
+	return p.be.NextWorkflowWorkItem(ctx)
 }
 
 // ProcessWorkItem implements TaskProcessor
-func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *OrchestrationWorkItem) error {
+func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWorkItem) error {
 	w.logger.Debugf("%v: received work item with %d new event(s): %v", wi.InstanceID, len(wi.NewEvents), helpers.HistoryListSummary(wi.NewEvents))
 
 	// TODO: Caching
@@ -69,13 +69,13 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 	// so that we can skip the loading of state and/or the creation of executors. A cached
 	// executor should allow us to 1) skip runtime state loading and 2) execute only new events.
 	if wi.State == nil {
-		if state, err := w.be.GetOrchestrationRuntimeState(ctx, wi); err != nil {
-			return fmt.Errorf("failed to load orchestration state: %w", err)
+		if state, err := w.be.GetWorkflowRuntimeState(ctx, wi); err != nil {
+			return fmt.Errorf("failed to load workflow state: %w", err)
 		} else {
 			wi.State = state
 		}
 	}
-	w.logger.Debugf("%v: got orchestration runtime state: %s", wi.InstanceID, getOrchestrationStateDescription(wi))
+	w.logger.Debugf("%v: got workflow runtime state: %s", wi.InstanceID, getWorkflowStateDescription(wi))
 
 	var terminateEvent *protos.ExecutionTerminatedEvent = nil
 	for _, e := range wi.NewEvents {
@@ -87,26 +87,26 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 	if ctx, span, ok := w.applyWorkItem(ctx, wi); ok {
 		defer func() {
 			// Note that the span and ctx references may be updated inside the continue-as-new loop.
-			w.endOrchestratorSpan(ctx, wi, span, false)
+			w.endWorkflowSpan(ctx, wi, span, false)
 		}()
 
 		for continueAsNewCount := 0; ; continueAsNewCount++ {
 			if continueAsNewCount > 0 {
 				w.logger.Debugf("%v: continuing-as-new with %d event(s): %s", wi.InstanceID, len(wi.State.NewEvents), helpers.HistoryListSummary(wi.State.NewEvents))
 			} else {
-				w.logger.Debugf("%v: invoking orchestrator", wi.InstanceID)
+				w.logger.Debugf("%v: invoking workflow", wi.InstanceID)
 			}
 
-			// Run the user orchestrator code, providing the old history and new events together.
-			results, err := w.executor.ExecuteOrchestrator(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents)
+			// Run the user workflow code, providing the old history and new events together.
+			results, err := w.executor.ExecuteWorkflow(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents)
 			if err != nil {
-				return fmt.Errorf("error executing orchestrator: %w", err)
+				return fmt.Errorf("error executing workflow: %w", err)
 			}
-			w.logger.Debugf("%v: orchestrator returned %d action(s): %s", wi.InstanceID, len(results.Actions), helpers.ActionListSummary(results.Actions))
+			w.logger.Debugf("%v: workflow returned %d action(s): %s", wi.InstanceID, len(results.Actions), helpers.ActionListSummary(results.Actions))
 
 			if version := results.GetVersion(); version != nil && (version.GetPatches() != nil || version.Name != nil) {
 				for _, e := range wi.State.NewEvents {
-					if os := e.GetOrchestratorStarted(); os != nil {
+					if os := e.GetWorkflowStarted(); os != nil {
 						os.Version = version
 						if len(version.GetPatches()) > 0 {
 							span.SetAttributes(attribute.StringSlice("applied_patches", version.GetPatches()))
@@ -116,14 +116,14 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 				}
 			}
 
-			// Apply the orchestrator outputs to the orchestration state.
+			// Apply the workflow outputs to the workflow state.
 			continuedAsNew, err := w.applier.Actions(wi.State, results.CustomStatus, results.Actions, helpers.TraceContextFromSpan(span))
 			if err != nil {
 				return fmt.Errorf("failed to apply the execution result actions: %w", err)
 			}
 
-			// When continuing-as-new, we re-execute the orchestrator from the beginning with a truncated state in a tight loop
-			// until the orchestrator performs some non-continue-as-new action.
+			// When continuing-as-new, we re-execute the workflow from the beginning with a truncated state in a tight loop
+			// until the workflow performs some non-continue-as-new action.
 			if continuedAsNew {
 				const MaxContinueAsNewCount = 20
 				if continueAsNewCount >= MaxContinueAsNewCount {
@@ -131,8 +131,8 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 				}
 
 				// We create a new trace span for every continue-as-new
-				w.endOrchestratorSpan(ctx, wi, span, true)
-				ctx, span = w.startOrResumeOrchestratorSpan(ctx, wi)
+				w.endWorkflowSpan(ctx, wi, span, true)
+				ctx, span = w.startOrResumeWorkflowSpan(ctx, wi)
 				continue
 			}
 
@@ -144,7 +144,7 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 		}
 	}
 	if terminateEvent != nil && runtimestate.IsCompleted(wi.State) {
-		if err := terminateSubOrchestrationInstances(ctx, w.be, wi.InstanceID, wi.State, terminateEvent); err != nil {
+		if err := terminateChildWorkflowInstances(ctx, w.be, wi.InstanceID, wi.State, terminateEvent); err != nil {
 			return err
 		}
 	}
@@ -152,46 +152,46 @@ func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *Orchest
 }
 
 // CompleteWorkItem implements TaskProcessor
-func (p *orchestratorProcessor) CompleteWorkItem(ctx context.Context, wi *OrchestrationWorkItem) error {
-	return p.be.CompleteOrchestrationWorkItem(ctx, wi)
+func (p *workflowProcessor) CompleteWorkItem(ctx context.Context, wi *WorkflowWorkItem) error {
+	return p.be.CompleteWorkflowWorkItem(ctx, wi)
 }
 
 // AbandonWorkItem implements TaskProcessor
-func (p *orchestratorProcessor) AbandonWorkItem(ctx context.Context, wi *OrchestrationWorkItem) error {
-	return p.be.AbandonOrchestrationWorkItem(ctx, wi)
+func (p *workflowProcessor) AbandonWorkItem(ctx context.Context, wi *WorkflowWorkItem) error {
+	return p.be.AbandonWorkflowWorkItem(ctx, wi)
 }
 
-func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *OrchestrationWorkItem) (context.Context, trace.Span, bool) {
-	// Ignore work items for orchestrations that are completed or are in a corrupted state.
+func (w *workflowProcessor) applyWorkItem(ctx context.Context, wi *WorkflowWorkItem) (context.Context, trace.Span, bool) {
+	// Ignore work items for workflows that are completed or are in a corrupted state.
 	if !runtimestate.IsValid(wi.State) {
-		w.logger.Warnf("%v: orchestration state is invalid; dropping work item", wi.InstanceID)
+		w.logger.Warnf("%v: workflow state is invalid; dropping work item", wi.InstanceID)
 		return nil, nil, false
 	} else if runtimestate.IsCompleted(wi.State) {
-		w.logger.Warnf("%v: orchestration already completed; dropping work item", wi.InstanceID)
+		w.logger.Warnf("%v: workflow already completed; dropping work item", wi.InstanceID)
 		return nil, nil, false
 	} else if len(wi.NewEvents) == 0 {
 		w.logger.Warnf("%v: the work item had no events!", wi.InstanceID)
 	}
 
-	// The orchestrator started event is used primarily for updating the current time as reported
-	// by the orchestration context APIs.
+	// The workflow started event is used primarily for updating the current time as reported
+	// by the workflow context APIs.
 	_ = runtimestate.AddEvent(wi.State, &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
-		EventType: &protos.HistoryEvent_OrchestratorStarted{
-			OrchestratorStarted: &protos.OrchestratorStartedEvent{},
+		EventType: &protos.HistoryEvent_WorkflowStarted{
+			WorkflowStarted: &protos.WorkflowStartedEvent{},
 		},
 	})
 
-	// Each orchestration instance gets its own distributed tracing span. However, the implementation of
-	// endOrchestratorSpan will "cancel" the span mark the span as "unsampled" if the orchestration isn't
-	// complete. This is part of the strategy for producing one span for the entire orchestration execution,
+	// Each workflow instance gets its own distributed tracing span. However, the implementation of
+	// endWorkflowSpan will "cancel" the span mark the span as "unsampled" if the workflow isn't
+	// complete. This is part of the strategy for producing one span for the entire workflow execution,
 	// which isn't something that's natively supported by OTel today.
-	ctx, span := w.startOrResumeOrchestratorSpan(ctx, wi)
+	ctx, span := w.startOrResumeWorkflowSpan(ctx, wi)
 
-	// New events from the work item are appended to the orchestration state, with duplicates automatically
+	// New events from the work item are appended to the workflow state, with duplicates automatically
 	// filtered out. If all events are filtered out, return false so that the caller knows not to execute
-	// the orchestration logic for an empty set of events.
+	// the workflow logic for an empty set of events.
 	for _, e := range wi.NewEvents {
 		if err := runtimestate.AddEvent(wi.State, e); err != nil {
 			if err == runtimestate.ErrDuplicateEvent {
@@ -203,7 +203,7 @@ func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *Orchestra
 
 		// Special case logic for specific event types
 		if es := e.GetExecutionStarted(); es != nil {
-			w.logger.Infof("%v: starting new '%s' instance with ID = '%s'.", wi.InstanceID, es.Name, es.OrchestrationInstance.InstanceId)
+			w.logger.Infof("%v: starting new '%s' instance with ID = '%s'.", wi.InstanceID, es.Name, es.WorkflowInstance.InstanceId)
 		} else if timerFired := e.GetTimerFired(); timerFired != nil {
 			// Timer spans are created and completed once the TimerFired event is received.
 			// TODO: Ideally we don't emit spans for cancelled timers. Is there a way to support this?
@@ -221,7 +221,7 @@ func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *Orchestra
 	return ctx, span, true
 }
 
-func getOrchestrationStateDescription(wi *OrchestrationWorkItem) string {
+func getWorkflowStateDescription(wi *WorkflowWorkItem) string {
 	name, err := runtimestate.Name(wi.State)
 	if err != nil {
 		if len(wi.NewEvents) > 0 {
@@ -245,7 +245,7 @@ func getOrchestrationStateDescription(wi *OrchestrationWorkItem) string {
 	return fmt.Sprintf("name=%s, status=%s, events=%d, age=%s", name, status, len(wi.State.OldEvents), ageStr)
 }
 
-func (w *orchestratorProcessor) startOrResumeOrchestratorSpan(ctx context.Context, wi *OrchestrationWorkItem) (context.Context, trace.Span) {
+func (w *workflowProcessor) startOrResumeWorkflowSpan(ctx context.Context, wi *WorkflowWorkItem) (context.Context, trace.Span) {
 	// Get the trace context from the ExecutionStarted history event
 	var ptc *protos.TraceContext
 	var es *protos.ExecutionStartedEvent
@@ -272,27 +272,27 @@ func (w *orchestratorProcessor) startOrResumeOrchestratorSpan(ctx context.Contex
 
 	// start a new span from the updated go context
 	var span trace.Span
-	ctx, span = helpers.StartNewRunOrchestrationSpan(ctx, es, runtimestate.GetStartedTime(wi.State))
+	ctx, span = helpers.StartNewRunWorkflowSpan(ctx, es, runtimestate.GetStartedTime(wi.State))
 
-	// Assign or rehydrate the long-running orchestration span ID
-	if es.OrchestrationSpanID == nil {
-		// On the initial execution, assign the orchestration span ID to be the
-		// randomly generated span ID value. This will be persisted in the orchestration history
+	// Assign or rehydrate the long-running workflow span ID
+	if es.WorkflowSpanID == nil {
+		// On the initial execution, assign the workflow span ID to be the
+		// randomly generated span ID value. This will be persisted in the workflow history
 		// and referenced on the next replay.
-		es.OrchestrationSpanID = wrapperspb.String(span.SpanContext().SpanID().String())
+		es.WorkflowSpanID = wrapperspb.String(span.SpanContext().SpanID().String())
 	} else {
-		// On subsequent executions, replace the auto-generated span ID with the orchestration
+		// On subsequent executions, replace the auto-generated span ID with the workflow
 		// span ID. This allows us to have one long-running span that survives multiple replays
 		// and process failures.
-		if orchestratorSpanID, err := trace.SpanIDFromHex(es.OrchestrationSpanID.Value); err == nil {
-			helpers.ChangeSpanID(span, orchestratorSpanID)
+		if workflowSpanID, err := trace.SpanIDFromHex(es.WorkflowSpanID.Value); err == nil {
+			helpers.ChangeSpanID(span, workflowSpanID)
 		}
 	}
 
 	return ctx, span
 }
 
-func (w *orchestratorProcessor) endOrchestratorSpan(ctx context.Context, wi *OrchestrationWorkItem, span trace.Span, continuedAsNew bool) {
+func (w *workflowProcessor) endWorkflowSpan(ctx context.Context, wi *WorkflowWorkItem, span trace.Span, continuedAsNew bool) {
 	if runtimestate.IsCompleted(wi.State) {
 		if fd, err := runtimestate.FailureDetails(wi.State); err == nil {
 			span.SetStatus(codes.Error, fd.ErrorMessage)
@@ -309,7 +309,7 @@ func (w *orchestratorProcessor) endOrchestratorSpan(ctx context.Context, wi *Orc
 			Value: attribute.StringValue(helpers.ToRuntimeStatusString(protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW)),
 		})
 	} else {
-		// Cancel the span - we want to publish it only when an orchestration
+		// Cancel the span - we want to publish it only when a workflow
 		// completes or when it continue-as-new's.
 		helpers.CancelSpan(span)
 	}

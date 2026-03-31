@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-type NewWorkflowOptions api.NewOrchestrationOptions
+type NewWorkflowOptions api.NewWorkflowOptions
 type FetchWorkflowMetadataOptions api.FetchWorkflowMetadataOptions
 type RaiseEventOptions api.RaiseEventOptions
 type TerminateOptions api.TerminateOptions

@@ -12,11 +12,11 @@ type Workflow func(ctx *WorkflowContext) (any, error)
 
 // ChildWorkflowOption is a functional option type for the CallChildWorkflow
 // workflow method.
-type ChildWorkflowOption task.SubOrchestratorOption
+type ChildWorkflowOption task.ChildWorkflowOption
 
 // WorkflowContext is the parameter type for workflow functions.
 type WorkflowContext struct {
-	oc *task.OrchestrationContext
+	oc *task.WorkflowContext
 }
 
 func (w *WorkflowContext) SetCustomStatus(cs string) {
@@ -57,11 +57,11 @@ func (w *WorkflowContext) CallActivity(activity any, opts ...CallActivityOption)
 }
 
 func (w *WorkflowContext) CallChildWorkflow(workflow any, opts ...ChildWorkflowOption) Task {
-	oopts := make([]task.SubOrchestratorOption, len(opts))
+	oopts := make([]task.ChildWorkflowOption, len(opts))
 	for i, o := range opts {
-		oopts[i] = task.SubOrchestratorOption(o)
+		oopts[i] = task.ChildWorkflowOption(o)
 	}
-	return w.oc.CallSubOrchestrator(workflow, oopts...)
+	return w.oc.CallChildWorkflow(workflow, oopts...)
 }
 
 // CreateTimer schedules a durable timer that expires after the specified
@@ -110,7 +110,7 @@ func (w *WorkflowContext) IsPatched(patchName string) bool {
 // WithChildWorkflowAppID is a functional option type for the CallChildWorkflow
 // workflow method that specifies the app ID of the target activity.
 func WithChildWorkflowAppID(appID string) ChildWorkflowOption {
-	return ChildWorkflowOption(task.WithSubOrchestratorAppID(appID))
+	return ChildWorkflowOption(task.WithChildWorkflowAppID(appID))
 }
 
 // ContinueAsNewOption is a functional option type for the ContinueAsNew
@@ -127,24 +127,24 @@ func WithKeepUnprocessedEvents() ContinueAsNewOption {
 // WithChildWorkflowInput is a functional option type for the CallChildWorkflow
 // workflow method that takes an input value and marshals it to JSON.
 func WithChildWorkflowInput(input any) ChildWorkflowOption {
-	return ChildWorkflowOption(task.WithSubOrchestratorInput(input))
+	return ChildWorkflowOption(task.WithChildWorkflowInput(input))
 }
 
 // WithRawChildWorkflowInput is a functional option type for the
 // CallChildWorkflow workflow method that takes a raw input value.
 func WithRawChildWorkflowInput(input *wrapperspb.StringValue) ChildWorkflowOption {
-	return ChildWorkflowOption(task.WithRawSubOrchestratorInput(input))
+	return ChildWorkflowOption(task.WithRawChildWorkflowInput(input))
 }
 
 // WithChildWorkflowInstanceID is a functional option type for the
 // CallChildWorkflow workflow method that specifies the instance ID of the
 // child-workflow.
 func WithChildWorkflowInstanceID(instanceID string) ChildWorkflowOption {
-	return ChildWorkflowOption(task.WithSubWorkflowInstanceID(instanceID))
+	return ChildWorkflowOption(task.WithChildWorkflowInstanceID(instanceID))
 }
 
 func WithChildWorkflowRetryPolicy(policy *RetryPolicy) ChildWorkflowOption {
-	return ChildWorkflowOption(task.WithSubOrchestrationRetryPolicy(&task.RetryPolicy{
+	return ChildWorkflowOption(task.WithChildWorkflowRetryPolicy(&task.RetryPolicy{
 		MaxAttempts:          policy.MaxAttempts,
 		InitialRetryInterval: policy.InitialRetryInterval,
 		BackoffCoefficient:   policy.BackoffCoefficient,

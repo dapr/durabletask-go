@@ -18,7 +18,7 @@ import (
 
 var tracer = otel.Tracer("durabletask")
 
-func StartNewCreateOrchestrationSpan(
+func StartNewCreateWorkflowSpan(
 	ctx context.Context, name string, version string, instanceID string,
 ) (context.Context, trace.Span) {
 	attributes := []attribute.KeyValue{
@@ -29,7 +29,7 @@ func StartNewCreateOrchestrationSpan(
 	return startNewSpan(ctx, "create_orchestration", name, version, attributes, trace.SpanKindClient, time.Now().UTC())
 }
 
-func StartNewRunOrchestrationSpan(
+func StartNewRunWorkflowSpan(
 	ctx context.Context, es *protos.ExecutionStartedEvent, startedTime time.Time,
 ) (context.Context, trace.Span) {
 	name := es.Name

@@ -54,24 +54,24 @@ const (
 	defaultInput = "Hello, 世界!"
 )
 
-// Test_NewOrchestrationWorkItem_Single enqueues a single work item into the backend
+// Test_NewWorkflowWorkItem_Single enqueues a single work item into the backend
 // store and attempts to fetch it immediately afterwards.
-func Test_NewOrchestrationWorkItem_Single(t *testing.T) {
+func Test_NewWorkflowWorkItem_Single(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, true)
 
 		expectedID := "myinstance"
-		if createOrchestrationInstance(t, be, expectedID) {
-			if wi, ok := getOrchestrationWorkItem(t, be, expectedID); ok {
+		if createWorkflowInstance(t, be, expectedID) {
+			if wi, ok := getWorkflowWorkItem(t, be, expectedID); ok {
 				if assert.Equal(t, 1, len(wi.NewEvents)) {
 					startEvent := wi.NewEvents[0].GetExecutionStarted()
 					if assert.NotNil(t, startEvent) {
-						assert.Equal(t, expectedID, startEvent.OrchestrationInstance.GetInstanceId())
+						assert.Equal(t, expectedID, startEvent.WorkflowInstance.GetInstanceId())
 						assert.Equal(t, defaultName, startEvent.Name)
 						assert.Equal(t, defaultInput, startEvent.Input.GetValue())
 					}
 				}
-				if state, ok := getOrchestrationRuntimeState(t, be, wi); ok {
+				if state, ok := getWorkflowRuntimeState(t, be, wi); ok {
 					// initial state should be empty since this is a new instance
 					iid := state.InstanceId
 					assert.Equal(t, wi.InstanceID, api.InstanceID(iid))
@@ -87,9 +87,9 @@ func Test_NewOrchestrationWorkItem_Single(t *testing.T) {
 	}
 }
 
-// Test_NewOrchestrationWorkItem_Multiple enqueues multiple work items into the sqlite backend
+// Test_NewWorkflowWorkItem_Multiple enqueues multiple work items into the sqlite backend
 // store and then attempts to fetch them one-at-a-time, in order.
-func Test_NewOrchestrationWorkItem_Multiple(t *testing.T) {
+func Test_NewWorkflowWorkItem_Multiple(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, true)
 
@@ -98,21 +98,21 @@ func Test_NewOrchestrationWorkItem_Multiple(t *testing.T) {
 		// Create multiple work items up front
 		for j := 0; j < WorkItems; j++ {
 			expectedID := fmt.Sprintf("instance_%d", j)
-			createOrchestrationInstance(t, be, expectedID)
+			createWorkflowInstance(t, be, expectedID)
 		}
 
 		for j := 0; j < WorkItems; j++ {
 			expectedID := fmt.Sprintf("instance_%d", j)
-			if wi, ok := getOrchestrationWorkItem(t, be, expectedID); ok {
+			if wi, ok := getWorkflowWorkItem(t, be, expectedID); ok {
 				if assert.Equal(t, 1, len(wi.NewEvents)) {
 					startEvent := wi.NewEvents[0].GetExecutionStarted()
 					if assert.NotNil(t, startEvent) {
-						assert.Equal(t, expectedID, startEvent.OrchestrationInstance.GetInstanceId())
+						assert.Equal(t, expectedID, startEvent.WorkflowInstance.GetInstanceId())
 						assert.Equal(t, defaultName, startEvent.Name)
 						assert.Equal(t, defaultInput, startEvent.Input.GetValue())
 					}
 				}
-				if state, ok := getOrchestrationRuntimeState(t, be, wi); ok {
+				if state, ok := getWorkflowRuntimeState(t, be, wi); ok {
 					// initial state should be empty since this is a new instance
 					_, err := runtimestate.Name(state)
 					assert.ErrorIs(t, err, api.ErrNotStarted)
@@ -126,7 +126,7 @@ func Test_NewOrchestrationWorkItem_Multiple(t *testing.T) {
 	}
 }
 
-func Test_CompleteOrchestration(t *testing.T) {
+func Test_CompleteWorkflow(t *testing.T) {
 	for i, be := range backends {
 		for _, expectedStatus := range completionStatusValues {
 			initTest(t, be, i, true)
@@ -136,8 +136,8 @@ func Test_CompleteOrchestration(t *testing.T) {
 			var expectedStackTrace string = ""
 
 			// Produce an ExecutionCompleted event with a particular output
-			getOrchestratorActions := func() []*protos.OrchestratorAction {
-				completeAction := &protos.CompleteOrchestrationAction{OrchestrationStatus: expectedStatus}
+			getWorkflowActions := func() []*protos.WorkflowAction {
+				completeAction := &protos.CompleteWorkflowAction{WorkflowStatus: expectedStatus}
 				if expectedStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED {
 					runtime.Stack(stackTraceBuffer, false)
 					expectedStackTrace = string(stackTraceBuffer)
@@ -150,16 +150,16 @@ func Test_CompleteOrchestration(t *testing.T) {
 					completeAction.Result = wrapperspb.String(expectedResult)
 				}
 
-				return []*protos.OrchestratorAction{{
-					OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-						CompleteOrchestration: completeAction,
+				return []*protos.WorkflowAction{{
+					WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+						CompleteWorkflow: completeAction,
 					},
 				}}
 			}
 
-			validateMetadata := func(metadata *backend.OrchestrationMetadata) {
-				assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
-				assert.False(t, api.OrchestrationMetadataIsRunning(metadata))
+			validateMetadata := func(metadata *backend.WorkflowMetadata) {
+				assert.True(t, api.WorkflowMetadataIsComplete(metadata))
+				assert.False(t, api.WorkflowMetadataIsRunning(metadata))
 
 				if expectedStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED {
 					assert.Equal(t, "MyError", metadata.FailureDetails.ErrorType)
@@ -171,7 +171,7 @@ func Test_CompleteOrchestration(t *testing.T) {
 			}
 
 			// Execute the test, which calls the above callbacks
-			workItemProcessingTestLogic(t, be, getOrchestratorActions, validateMetadata)
+			workItemProcessingTestLogic(t, be, getWorkflowActions, validateMetadata)
 		}
 	}
 }
@@ -186,24 +186,24 @@ func Test_ScheduleActivityTasks(t *testing.T) {
 		initTest(t, be, i, true)
 
 		// Produce a TaskScheduled event with a particular input
-		getOrchestratorActions := func() []*protos.OrchestratorAction {
-			return []*protos.OrchestratorAction{
+		getWorkflowActions := func() []*protos.WorkflowAction {
+			return []*protos.WorkflowAction{
 				{
 					Id: expectedTaskID,
-					OrchestratorActionType: &protos.OrchestratorAction_ScheduleTask{
+					WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
 						ScheduleTask: &protos.ScheduleTaskAction{Name: expectedName, Input: wrapperspb.String(expectedInput)},
 					},
 				},
 			}
 		}
 
-		// Make sure the metadata reflects that the orchestration is running
-		validateMetadata := func(metadata *backend.OrchestrationMetadata) {
-			assert.True(t, api.OrchestrationMetadataIsRunning(metadata))
+		// Make sure the metadata reflects that the workflow is running
+		validateMetadata := func(metadata *backend.WorkflowMetadata) {
+			assert.True(t, api.WorkflowMetadataIsRunning(metadata))
 		}
 
 		// Execute the test, which calls the above callbacks
-		workItemProcessingTestLogic(t, be, getOrchestratorActions, validateMetadata)
+		workItemProcessingTestLogic(t, be, getWorkflowActions, validateMetadata)
 
 		// However, there should be an activity work item
 		wi, err := be.NextActivityWorkItem(ctx)
@@ -226,7 +226,7 @@ func Test_ScheduleActivityTasks(t *testing.T) {
 		err = be.CompleteActivityWorkItem(ctx, wi)
 		if assert.NoError(t, err) {
 			// Completing the activity work item should create a new TaskCompleted event
-			wi, err := be.NextOrchestrationWorkItem(ctx)
+			wi, err := be.NextWorkflowWorkItem(ctx)
 			if assert.NoError(t, err) && assert.NotNil(t, wi) && assert.Len(t, wi.NewEvents, 1) {
 				assert.Equal(t, expectedTaskID, wi.NewEvents[0].GetTaskCompleted().GetTaskScheduledId())
 				assert.Equal(t, expectedResult, wi.NewEvents[0].GetTaskCompleted().GetResult().GetValue())
@@ -243,27 +243,27 @@ func Test_ScheduleTimerTasks(t *testing.T) {
 		expectedFireAt := time.Now().Add(timerDuration)
 
 		// Produce a TimerCreated event with a particular fireat time
-		getOrchestratorActions := func() []*protos.OrchestratorAction {
-			return []*protos.OrchestratorAction{{
-				OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+		getWorkflowActions := func() []*protos.WorkflowAction {
+			return []*protos.WorkflowAction{{
+				WorkflowActionType: &protos.WorkflowAction_CreateTimer{
 					CreateTimer: &protos.CreateTimerAction{FireAt: timestamppb.New(expectedFireAt)},
 				},
 			}}
 		}
 
-		// Make sure the metadata reflects that the orchestration is running
-		validateMetadata := func(metadata *backend.OrchestrationMetadata) {
-			assert.True(t, api.OrchestrationMetadataIsRunning(metadata))
+		// Make sure the metadata reflects that the workflow is running
+		validateMetadata := func(metadata *backend.WorkflowMetadata) {
+			assert.True(t, api.WorkflowMetadataIsRunning(metadata))
 		}
 
 		// Execute the test, which calls the above callbacks
-		workItemProcessingTestLogic(t, be, getOrchestratorActions, validateMetadata)
+		workItemProcessingTestLogic(t, be, getWorkflowActions, validateMetadata)
 
 		// Sleep until the expected visibility time expires
 		time.Sleep(timerDuration)
 
 		// Validate that the timer work-item is now visible
-		wi, err := be.NextOrchestrationWorkItem(ctx)
+		wi, err := be.NextWorkflowWorkItem(ctx)
 		if assert.NoError(t, err) && assert.Equal(t, 1, len(wi.NewEvents)) {
 			e := wi.NewEvents[0]
 			tf := e.GetTimerFired()
@@ -274,17 +274,17 @@ func Test_ScheduleTimerTasks(t *testing.T) {
 	}
 }
 
-func Test_AbandonOrchestrationWorkItem(t *testing.T) {
+func Test_AbandonWorkflowWorkItem(t *testing.T) {
 	iid := "abc"
 
 	for i, be := range backends {
 		initTest(t, be, i, true)
 
-		if createOrchestrationInstance(t, be, iid) {
-			if wi, ok := getOrchestrationWorkItem(t, be, iid); ok {
-				if err := be.AbandonOrchestrationWorkItem(ctx, wi); assert.NoError(t, err) {
+		if createWorkflowInstance(t, be, iid) {
+			if wi, ok := getWorkflowWorkItem(t, be, iid); ok {
+				if err := be.AbandonWorkflowWorkItem(ctx, wi); assert.NoError(t, err) {
 					// Make sure we can fetch it again immediately after abandoning
-					getOrchestrationWorkItem(t, be, iid)
+					getWorkflowWorkItem(t, be, iid)
 				}
 			}
 		}
@@ -295,24 +295,24 @@ func Test_AbandonActivityWorkItem(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, true)
 
-		getOrchestratorActions := func() []*protos.OrchestratorAction {
-			return []*protos.OrchestratorAction{
+		getWorkflowActions := func() []*protos.WorkflowAction {
+			return []*protos.WorkflowAction{
 				{
 					Id: 123,
-					OrchestratorActionType: &protos.OrchestratorAction_ScheduleTask{
+					WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
 						ScheduleTask: &protos.ScheduleTaskAction{Name: "MyActivity"},
 					},
 				},
 			}
 		}
 
-		// Make sure the metadata reflects that the orchestration is running
-		validateMetadata := func(metadata *backend.OrchestrationMetadata) {
-			assert.True(t, api.OrchestrationMetadataIsRunning(metadata))
+		// Make sure the metadata reflects that the workflow is running
+		validateMetadata := func(metadata *backend.WorkflowMetadata) {
+			assert.True(t, api.WorkflowMetadataIsRunning(metadata))
 		}
 
 		// Execute the test, which calls the above callbacks
-		workItemProcessingTestLogic(t, be, getOrchestratorActions, validateMetadata)
+		workItemProcessingTestLogic(t, be, getWorkflowActions, validateMetadata)
 
 		// The NewScheduleTaskAction should have created an activity work item
 		wi, err := be.NextActivityWorkItem(ctx)
@@ -332,17 +332,17 @@ func Test_UninitializedBackend(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, false)
 
-		err := be.AbandonOrchestrationWorkItem(ctx, nil)
+		err := be.AbandonWorkflowWorkItem(ctx, nil)
 		assert.Equal(t, err, backend.ErrNotInitialized)
-		err = be.CompleteOrchestrationWorkItem(ctx, nil)
+		err = be.CompleteWorkflowWorkItem(ctx, nil)
 		assert.Equal(t, err, backend.ErrNotInitialized)
-		err = be.CreateOrchestrationInstance(ctx, nil)
+		err = be.CreateWorkflowInstance(ctx, nil)
 		assert.Equal(t, err, backend.ErrNotInitialized)
-		_, err = be.GetOrchestrationMetadata(ctx, api.InstanceID(""))
+		_, err = be.GetWorkflowMetadata(ctx, api.InstanceID(""))
 		assert.Equal(t, err, backend.ErrNotInitialized)
-		_, err = be.GetOrchestrationRuntimeState(ctx, nil)
+		_, err = be.GetWorkflowRuntimeState(ctx, nil)
 		assert.Equal(t, err, backend.ErrNotInitialized)
-		_, err = be.NextOrchestrationWorkItem(ctx)
+		_, err = be.NextWorkflowWorkItem(ctx)
 		assert.Equal(t, err, backend.ErrNotInitialized)
 		_, err = be.NextActivityWorkItem(ctx)
 		assert.Equal(t, err, backend.ErrNotInitialized)
@@ -353,52 +353,52 @@ func Test_GetNonExistingMetadata(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, true)
 
-		_, err := be.GetOrchestrationMetadata(ctx, api.InstanceID("bogus"))
+		_, err := be.GetWorkflowMetadata(ctx, api.InstanceID("bogus"))
 		assert.ErrorIs(t, err, api.ErrInstanceNotFound)
 	}
 }
 
-func Test_PurgeOrchestrationState(t *testing.T) {
+func Test_PurgeWorkflowState(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, true)
 
 		expectedResult := "done!"
 
 		// Produce an ExecutionCompleted event with a particular output
-		getOrchestratorActions := func() []*protos.OrchestratorAction {
-			return []*protos.OrchestratorAction{{
-				OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-					CompleteOrchestration: &protos.CompleteOrchestrationAction{
-						OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+		getWorkflowActions := func() []*protos.WorkflowAction {
+			return []*protos.WorkflowAction{{
+				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+					CompleteWorkflow: &protos.CompleteWorkflowAction{
+						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
 						Result:              wrapperspb.String(expectedResult),
 					},
 				},
 			}}
 		}
 
-		// Make sure the orchestration actually completed and get the instance ID
+		// Make sure the workflow actually completed and get the instance ID
 		var instanceID api.InstanceID
-		validateMetadata := func(metadata *backend.OrchestrationMetadata) {
+		validateMetadata := func(metadata *backend.WorkflowMetadata) {
 			instanceID = api.InstanceID(metadata.InstanceId)
-			assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
-			assert.False(t, api.OrchestrationMetadataIsRunning(metadata))
+			assert.True(t, api.WorkflowMetadataIsComplete(metadata))
+			assert.False(t, api.WorkflowMetadataIsRunning(metadata))
 		}
 
 		// Execute the test, which calls the above callbacks
-		workItemProcessingTestLogic(t, be, getOrchestratorActions, validateMetadata)
+		workItemProcessingTestLogic(t, be, getWorkflowActions, validateMetadata)
 
 		// Purge the workflow state
-		if err := be.PurgeOrchestrationState(ctx, instanceID, false); !assert.NoError(t, err) {
+		if err := be.PurgeWorkflowState(ctx, instanceID, false); !assert.NoError(t, err) {
 			return
 		}
 
 		// The metadata should be gone
-		if _, err := be.GetOrchestrationMetadata(ctx, instanceID); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
+		if _, err := be.GetWorkflowMetadata(ctx, instanceID); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
 			return
 		}
 
-		wi := &backend.OrchestrationWorkItem{InstanceID: instanceID}
-		state, err := be.GetOrchestrationRuntimeState(ctx, wi)
+		wi := &backend.WorkflowWorkItem{InstanceID: instanceID}
+		state, err := be.GetWorkflowRuntimeState(ctx, wi)
 		assert.NoError(t, err)
 
 		// The state should be empty
@@ -406,7 +406,7 @@ func Test_PurgeOrchestrationState(t *testing.T) {
 		assert.Equal(t, 0, len(state.OldEvents))
 
 		// Attempting to purge again should fail with api.ErrInstanceNotFound
-		if err := be.PurgeOrchestrationState(ctx, instanceID, false); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
+		if err := be.PurgeWorkflowState(ctx, instanceID, false); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
 			return
 		}
 	}
@@ -427,15 +427,15 @@ func initTest(t *testing.T, be backend.Backend, testIteration int, createTaskHub
 func workItemProcessingTestLogic(
 	t *testing.T,
 	be backend.Backend,
-	getOrchestratorActions func() []*protos.OrchestratorAction,
-	validateMetadata func(metadata *backend.OrchestrationMetadata),
+	getWorkflowActions func() []*protos.WorkflowAction,
+	validateMetadata func(metadata *backend.WorkflowMetadata),
 ) {
 	expectedID := "myinstance"
 
 	startTime := time.Now().UTC()
-	if createOrchestrationInstance(t, be, expectedID) {
-		if wi, ok := getOrchestrationWorkItem(t, be, expectedID); ok {
-			if state, ok := getOrchestrationRuntimeState(t, be, wi); ok {
+	if createWorkflowInstance(t, be, expectedID) {
+		if wi, ok := getWorkflowWorkItem(t, be, expectedID); ok {
+			if state, ok := getWorkflowRuntimeState(t, be, wi); ok {
 				// Update the state with new events. Normally the worker logic would do this.
 				for _, e := range wi.NewEvents {
 					runtimestate.AddEvent(state, e)
@@ -443,14 +443,14 @@ func workItemProcessingTestLogic(
 
 				applier := runtimestate.NewApplier("example")
 
-				actions := getOrchestratorActions()
+				actions := getWorkflowActions()
 				_, err := applier.Actions(state, nil, actions, nil)
 				if assert.NoError(t, err) {
 					wi.State = state
-					err := be.CompleteOrchestrationWorkItem(ctx, wi)
+					err := be.CompleteWorkflowWorkItem(ctx, wi)
 					if assert.NoError(t, err) {
 						// Validate runtime state
-						if state, ok = getOrchestrationRuntimeState(t, be, wi); ok {
+						if state, ok = getWorkflowRuntimeState(t, be, wi); ok {
 							createdTime, err := runtimestate.CreatedTime(state)
 							if assert.NoError(t, err) {
 								assert.GreaterOrEqual(t, createdTime, startTime)
@@ -459,8 +459,8 @@ func workItemProcessingTestLogic(
 							// State should be initialized with only "old" events
 							assert.Empty(t, state.GetNewEvents())
 							assert.NotEmpty(t, state.GetOldEvents())
-							// Validate orchestration metadata
-							if metadata, ok := getOrchestrationMetadata(t, be, api.InstanceID(state.InstanceId)); ok {
+							// Validate workflow metadata
+							if metadata, ok := getWorkflowMetadata(t, be, api.InstanceID(state.InstanceId)); ok {
 								assert.Equal(t, defaultName, metadata.Name)
 								assert.Equal(t, defaultInput, metadata.Input.Value)
 								assert.Less(t, createdTime.Sub(metadata.CreatedAt.AsTime()).Abs(), time.Microsecond) // Some database backends (like postgres) don't support sub-microsecond precision
@@ -476,24 +476,23 @@ func workItemProcessingTestLogic(
 	}
 }
 
-func createOrchestrationInstance(t assert.TestingT, be backend.Backend, instanceID string) bool {
+func createWorkflowInstance(t assert.TestingT, be backend.Backend, instanceID string) bool {
 	e := &protos.HistoryEvent{
 		Timestamp: timestamppb.New(time.Now()),
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
 				Name:                  defaultName,
-				OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: instanceID},
+				WorkflowInstance: &protos.WorkflowInstance{InstanceId: instanceID},
 				Input:                 wrapperspb.String(defaultInput),
 			},
 		},
 	}
-	policy := &protos.OrchestrationIdReusePolicy{}
-	err := be.CreateOrchestrationInstance(ctx, e, backend.WithOrchestrationIdReusePolicy(policy))
+	err := be.CreateWorkflowInstance(ctx, e)
 	return assert.NoError(t, err)
 }
 
-func getOrchestrationWorkItem(t assert.TestingT, be backend.Backend, expectedInstanceID string) (*backend.OrchestrationWorkItem, bool) {
-	wi, err := be.NextOrchestrationWorkItem(ctx)
+func getWorkflowWorkItem(t assert.TestingT, be backend.Backend, expectedInstanceID string) (*backend.WorkflowWorkItem, bool) {
+	wi, err := be.NextWorkflowWorkItem(ctx)
 	if assert.NoError(t, err) && assert.NotNil(t, wi) {
 		assert.NotEmpty(t, wi.LockedBy)
 		return wi, assert.Equal(t, expectedInstanceID, string(wi.InstanceID))
@@ -502,8 +501,8 @@ func getOrchestrationWorkItem(t assert.TestingT, be backend.Backend, expectedIns
 	return nil, false
 }
 
-func getOrchestrationRuntimeState(t assert.TestingT, be backend.Backend, wi *backend.OrchestrationWorkItem) (*backend.OrchestrationRuntimeState, bool) {
-	state, err := be.GetOrchestrationRuntimeState(ctx, wi)
+func getWorkflowRuntimeState(t assert.TestingT, be backend.Backend, wi *backend.WorkflowWorkItem) (*backend.WorkflowRuntimeState, bool) {
+	state, err := be.GetWorkflowRuntimeState(ctx, wi)
 	if assert.NoError(t, err) && assert.NotNil(t, state) {
 		iid := state.InstanceId
 		return state, assert.Equal(t, wi.InstanceID, api.InstanceID(iid))
@@ -512,8 +511,8 @@ func getOrchestrationRuntimeState(t assert.TestingT, be backend.Backend, wi *bac
 	return nil, false
 }
 
-func getOrchestrationMetadata(t assert.TestingT, be backend.Backend, iid api.InstanceID) (*backend.OrchestrationMetadata, bool) {
-	metadata, err := be.GetOrchestrationMetadata(ctx, iid)
+func getWorkflowMetadata(t assert.TestingT, be backend.Backend, iid api.InstanceID) (*backend.WorkflowMetadata, bool) {
+	metadata, err := be.GetWorkflowMetadata(ctx, iid)
 	if assert.NoError(t, err) && assert.NotNil(t, metadata) {
 		return metadata, assert.Equal(t, iid, api.InstanceID(metadata.InstanceId))
 	}

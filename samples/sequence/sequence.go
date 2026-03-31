@@ -12,9 +12,9 @@ import (
 )
 
 func main() {
-	// Create a new task registry and add the orchestrator and activities
+	// Create a new task registry and add the workflow and activities
 	r := task.NewTaskRegistry()
-	r.AddOrchestrator(ActivitySequenceOrchestrator)
+	r.AddWorkflow(ActivitySequenceWorkflow)
 	r.AddActivity(SayHelloActivity)
 
 	// Init the client
@@ -25,16 +25,16 @@ func main() {
 	}
 	defer worker.Shutdown(ctx)
 
-	// Start a new orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, ActivitySequenceOrchestrator)
+	// Start a new workflow
+	id, err := client.ScheduleNewWorkflow(ctx, ActivitySequenceWorkflow)
 	if err != nil {
-		log.Fatalf("Failed to schedule new orchestration: %v", err)
+		log.Fatalf("Failed to schedule new workflow: %v", err)
 	}
 
-	// Wait for the orchestration to complete
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	// Wait for the workflow to complete
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	if err != nil {
-		log.Fatalf("Failed to wait for orchestration to complete: %v", err)
+		log.Fatalf("Failed to wait for workflow to complete: %v", err)
 	}
 
 	// Print the results
@@ -42,7 +42,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to encode result to JSON: %v", err)
 	}
-	log.Printf("Orchestration completed: %v", string(metadataEnc))
+	log.Printf("Workflow completed: %v", string(metadataEnc))
 }
 
 // Init creates and initializes an in-memory client and worker pair with default configuration.
@@ -55,13 +55,13 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	// Create a new backend
 	// Use the in-memory sqlite provider by specifying ""
 	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(""), logger)
-	orchestrationWorker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+	workflowWorker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
 		Backend:  be,
 		Executor: executor,
 		Logger:   logger,
 	})
 	activityWorker := backend.NewActivityTaskWorker(be, executor, logger)
-	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
+	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 
 	// Start the worker
 	err := taskHubWorker.Start(ctx)
@@ -75,9 +75,9 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	return taskHubClient, taskHubWorker, nil
 }
 
-// ActivitySequenceOrchestrator makes three activity calls in sequence and results the results
+// ActivitySequenceWorkflow makes three activity calls in sequence and results the results
 // as an array.
-func ActivitySequenceOrchestrator(ctx *task.OrchestrationContext) (any, error) {
+func ActivitySequenceWorkflow(ctx *task.WorkflowContext) (any, error) {
 	var helloTokyo string
 	if err := ctx.CallActivity(SayHelloActivity, task.WithActivityInput("Tokyo")).Await(&helloTokyo); err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func ActivitySequenceOrchestrator(ctx *task.OrchestrationContext) (any, error) {
 	return []string{helloTokyo, helloLondon, helloSeattle}, nil
 }
 
-// SayHelloActivity can be called by an orchestrator function and will return a friendly greeting.
+// SayHelloActivity can be called by an workflow function and will return a friendly greeting.
 func SayHelloActivity(ctx task.ActivityContext) (any, error) {
 	var input string
 	if err := ctx.GetInput(&input); err != nil {

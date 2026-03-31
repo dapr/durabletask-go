@@ -20,11 +20,11 @@ import (
 	"github.com/dapr/kit/ptr"
 )
 
-// Orchestrator is the functional interface for orchestrator functions.
-type Orchestrator func(ctx *OrchestrationContext) (any, error)
+// Workflow is the functional interface for workflow functions.
+type Workflow func(ctx *WorkflowContext) (any, error)
 
-// OrchestrationContext is the parameter type for orchestrator functions.
-type OrchestrationContext struct {
+// WorkflowContext is the parameter type for workflow functions.
+type WorkflowContext struct {
 	ID             api.InstanceID
 	Name           string
 	VersionName    *string
@@ -39,7 +39,7 @@ type OrchestrationContext struct {
 	isSuspended         bool
 	historyIndex        int
 	sequenceNumber      int32
-	pendingActions      map[int32]*protos.OrchestratorAction
+	pendingActions      map[int32]*protos.WorkflowAction
 	pendingTasks        map[int32]*completableTask
 	continuedAsNew      bool
 	continuedAsNewInput any
@@ -53,23 +53,23 @@ type OrchestrationContext struct {
 	encounteredPatches         []string
 }
 
-// callSubOrchestratorOptions is a struct that holds the options for the CallSubOrchestrator orchestrator method.
-type callSubOrchestratorOptions struct {
+// callChildWorkflowOptions is a struct that holds the options for the CallChildWorkflow workflow method.
+type callChildWorkflowOptions struct {
 	instanceID  string
 	rawInput    *wrapperspb.StringValue
 	targetAppID *string
 	retryPolicy *RetryPolicy
 }
 
-// SubOrchestratorOption is a functional option type for the CallSubOrchestrator orchestrator method.
-type SubOrchestratorOption func(*callSubOrchestratorOptions) error
+// ChildWorkflowOption is a functional option type for the CallChildWorkflow workflow method.
+type ChildWorkflowOption func(*callChildWorkflowOptions) error
 
-// ContinueAsNewOption is a functional option type for the ContinueAsNew orchestrator method.
-type ContinueAsNewOption func(*OrchestrationContext)
+// ContinueAsNewOption is a functional option type for the ContinueAsNew workflow method.
+type ContinueAsNewOption func(*WorkflowContext)
 
-// WithSubOrchestratorAppID is a functional option type for the CallSubOrchestrator orchestrator method that specifies the app ID of the target activity.
-func WithSubOrchestratorAppID(appID string) SubOrchestratorOption {
-	return func(opts *callSubOrchestratorOptions) error {
+// WithChildWorkflowAppID is a functional option type for the CallChildWorkflow workflow method that specifies the app ID of the target activity.
+func WithChildWorkflowAppID(appID string) ChildWorkflowOption {
+	return func(opts *callChildWorkflowOptions) error {
 		opts.targetAppID = &appID
 		return nil
 	}
@@ -78,15 +78,15 @@ func WithSubOrchestratorAppID(appID string) SubOrchestratorOption {
 // WithKeepUnprocessedEvents returns a ContinueAsNewOptions struct that instructs the
 // runtime to carry forward any unprocessed external events to the new instance.
 func WithKeepUnprocessedEvents() ContinueAsNewOption {
-	return func(ctx *OrchestrationContext) {
+	return func(ctx *WorkflowContext) {
 		ctx.saveBufferedExternalEvents = true
 	}
 }
 
-// WithSubOrchestratorInput is a functional option type for the CallSubOrchestrator
-// orchestrator method that takes an input value and marshals it to JSON.
-func WithSubOrchestratorInput(input any) SubOrchestratorOption {
-	return func(opts *callSubOrchestratorOptions) error {
+// WithChildWorkflowInput is a functional option type for the CallChildWorkflow
+// workflow method that takes an input value and marshals it to JSON.
+func WithChildWorkflowInput(input any) ChildWorkflowOption {
+	return func(opts *callChildWorkflowOptions) error {
 		bytes, err := marshalData(input)
 		if err != nil {
 			return fmt.Errorf("failed to marshal input to JSON: %w", err)
@@ -96,26 +96,26 @@ func WithSubOrchestratorInput(input any) SubOrchestratorOption {
 	}
 }
 
-// WithRawSubOrchestratorInput is a functional option type for the CallSubOrchestrator
-// orchestrator method that takes a raw input value.
-func WithRawSubOrchestratorInput(input *wrapperspb.StringValue) SubOrchestratorOption {
-	return func(opts *callSubOrchestratorOptions) error {
+// WithRawChildWorkflowInput is a functional option type for the CallChildWorkflow
+// workflow method that takes a raw input value.
+func WithRawChildWorkflowInput(input *wrapperspb.StringValue) ChildWorkflowOption {
+	return func(opts *callChildWorkflowOptions) error {
 		opts.rawInput = input
 		return nil
 	}
 }
 
-// WithSubOrchestrationInstanceID is a functional option type for the CallSubOrchestrator
-// orchestrator method that specifies the instance ID of the sub-orchestration.
-func WithSubOrchestrationInstanceID(instanceID string) SubOrchestratorOption {
-	return func(opts *callSubOrchestratorOptions) error {
+// WithChildWorkflowInstanceID is a functional option type for the CallChildWorkflow
+// workflow method that specifies the instance ID of the child workflow.
+func WithChildWorkflowInstanceID(instanceID string) ChildWorkflowOption {
+	return func(opts *callChildWorkflowOptions) error {
 		opts.instanceID = instanceID
 		return nil
 	}
 }
 
-func WithSubOrchestrationRetryPolicy(policy *RetryPolicy) SubOrchestratorOption {
-	return func(opt *callSubOrchestratorOptions) error {
+func WithChildWorkflowRetryPolicy(policy *RetryPolicy) ChildWorkflowOption {
+	return func(opt *callChildWorkflowOptions) error {
 		if policy == nil {
 			return nil
 		}
@@ -128,9 +128,9 @@ func WithSubOrchestrationRetryPolicy(policy *RetryPolicy) SubOrchestratorOption 
 	}
 }
 
-// NewOrchestrationContext returns a new [OrchestrationContext] struct with the specified parameters.
-func NewOrchestrationContext(registry *TaskRegistry, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) *OrchestrationContext {
-	return &OrchestrationContext{
+// NewWorkflowContext returns a new [WorkflowContext] struct with the specified parameters.
+func NewWorkflowContext(registry *TaskRegistry, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) *WorkflowContext {
+	return &WorkflowContext{
 		ID:                        id,
 		registry:                  registry,
 		oldEvents:                 oldEvents,
@@ -143,10 +143,10 @@ func NewOrchestrationContext(registry *TaskRegistry, id api.InstanceID, oldEvent
 	}
 }
 
-func (ctx *OrchestrationContext) start() (actions []*protos.OrchestratorAction) {
+func (ctx *WorkflowContext) start() (actions []*protos.WorkflowAction) {
 	ctx.historyIndex = 0
 	ctx.sequenceNumber = 0
-	ctx.pendingActions = make(map[int32]*protos.OrchestratorAction)
+	ctx.pendingActions = make(map[int32]*protos.WorkflowAction)
 	ctx.pendingTasks = make(map[int32]*completableTask)
 
 	defer func() {
@@ -169,14 +169,14 @@ func (ctx *OrchestrationContext) start() (actions []*protos.OrchestratorAction) 
 			ctx.setFailed(err)
 			break
 		} else if !ok {
-			// Orchestrator finished, break out of the loop and return any pending actions
+			// Workflow finished, break out of the loop and return any pending actions
 			break
 		}
 	}
 	return ctx.actions()
 }
 
-func (ctx *OrchestrationContext) processNextEvent() (bool, error) {
+func (ctx *WorkflowContext) processNextEvent() (bool, error) {
 	e, ok := ctx.getNextHistoryEvent()
 	if !ok {
 		// No more history
@@ -190,7 +190,7 @@ func (ctx *OrchestrationContext) processNextEvent() (bool, error) {
 	return true, nil
 }
 
-func (ctx *OrchestrationContext) getNextHistoryEvent() (*protos.HistoryEvent, bool) {
+func (ctx *WorkflowContext) getNextHistoryEvent() (*protos.HistoryEvent, bool) {
 	var historyList []*protos.HistoryEvent
 	index := ctx.historyIndex
 	if ctx.historyIndex >= len(ctx.oldEvents)+len(ctx.newEvents) {
@@ -209,7 +209,7 @@ func (ctx *OrchestrationContext) getNextHistoryEvent() (*protos.HistoryEvent, bo
 	return e, true
 }
 
-func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
+func (ctx *WorkflowContext) processEvent(e *backend.HistoryEvent) error {
 	// Buffer certain events if we're in a suspended state
 	if ctx.isSuspended && (e.GetExecutionResumed() == nil && e.GetExecutionTerminated() == nil) {
 		ctx.suspendedEvents = append(ctx.suspendedEvents, e)
@@ -217,8 +217,8 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 	}
 
 	var err error = nil
-	if os := e.GetOrchestratorStarted(); os != nil {
-		// OrchestratorStarted is only used to update the current orchestration time and history patches
+	if os := e.GetWorkflowStarted(); os != nil {
+		// WorkflowStarted is only used to update the current workflow time and history patches
 		ctx.CurrentTimeUtc = e.Timestamp.AsTime()
 		if version := os.GetVersion(); version != nil {
 			for _, p := range version.GetPatches() {
@@ -236,12 +236,12 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 		err = ctx.onTaskCompleted(tc)
 	} else if tf := e.GetTaskFailed(); tf != nil {
 		err = ctx.onTaskFailed(tf)
-	} else if ts := e.GetSubOrchestrationInstanceCreated(); ts != nil {
-		err = ctx.onSubOrchestrationScheduled(e.EventId, ts)
-	} else if sc := e.GetSubOrchestrationInstanceCompleted(); sc != nil {
-		err = ctx.onSubOrchestrationCompleted(sc)
-	} else if sf := e.GetSubOrchestrationInstanceFailed(); sf != nil {
-		err = ctx.onSubOrchestrationFailed(sf)
+	} else if ts := e.GetChildWorkflowInstanceCreated(); ts != nil {
+		err = ctx.onChildWorkflowScheduled(e.EventId, ts)
+	} else if sc := e.GetChildWorkflowInstanceCompleted(); sc != nil {
+		err = ctx.onChildWorkflowCompleted(sc)
+	} else if sf := e.GetChildWorkflowInstanceFailed(); sf != nil {
+		err = ctx.onChildWorkflowFailed(sf)
 	} else if tc := e.GetTimerCreated(); tc != nil {
 		err = ctx.onTimerCreated(e)
 	} else if tf := e.GetTimerFired(); tf != nil {
@@ -256,7 +256,7 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 		err = ctx.onExecutionTerminated(et)
 	} else if e.GetExecutionStalled() != nil {
 		// Nothing to do
-	} else if oc := e.GetOrchestratorCompleted(); oc != nil {
+	} else if oc := e.GetWorkflowCompleted(); oc != nil {
 		// Nothing to do
 	} else {
 		err = fmt.Errorf("don't know how to handle event: %v", e)
@@ -264,19 +264,19 @@ func (ctx *OrchestrationContext) processEvent(e *backend.HistoryEvent) error {
 	return err
 }
 
-func (octx *OrchestrationContext) SetCustomStatus(cs string) {
+func (octx *WorkflowContext) SetCustomStatus(cs string) {
 	octx.customStatus = cs
 }
 
-// GetInput unmarshals the serialized orchestration input and stores it in [v].
-func (octx *OrchestrationContext) GetInput(v any) error {
+// GetInput unmarshals the serialized workflow input and stores it in [v].
+func (octx *WorkflowContext) GetInput(v any) error {
 	return unmarshalData(octx.rawInput, v)
 }
 
 // CallActivity schedules an asynchronous invocation of an activity function. The [activity]
 // parameter can be either the name of an activity as a string or can be a pointer to the function
 // that implements the activity, in which case the name is obtained via reflection.
-func (ctx *OrchestrationContext) CallActivity(activity interface{}, opts ...CallActivityOption) Task {
+func (ctx *WorkflowContext) CallActivity(activity interface{}, opts ...CallActivityOption) Task {
 	options := new(callActivityOptions)
 	for _, configure := range opts {
 		if err := configure(options); err != nil {
@@ -300,10 +300,10 @@ func (ctx *OrchestrationContext) CallActivity(activity interface{}, opts ...Call
 	return ctx.internalScheduleActivity(activityName, uuid.NewString(), options)
 }
 
-func (ctx *OrchestrationContext) internalScheduleActivity(activityName, taskExecutionId string, options *callActivityOptions) Task {
-	scheduleTaskAction := &protos.OrchestratorAction{
+func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecutionId string, options *callActivityOptions) Task {
+	scheduleTaskAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
-		OrchestratorActionType: &protos.OrchestratorAction_ScheduleTask{
+		WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
 			ScheduleTask: &protos.ScheduleTaskAction{Name: activityName, TaskExecutionId: taskExecutionId, Input: options.rawInput},
 		},
 	}
@@ -321,8 +321,8 @@ func (ctx *OrchestrationContext) internalScheduleActivity(activityName, taskExec
 	return task
 }
 
-func (ctx *OrchestrationContext) CallSubOrchestrator(orchestrator interface{}, opts ...SubOrchestratorOption) Task {
-	options := new(callSubOrchestratorOptions)
+func (ctx *WorkflowContext) CallChildWorkflow(workflow interface{}, opts ...ChildWorkflowOption) Task {
+	options := new(callChildWorkflowOptions)
 	for _, configure := range opts {
 		if err := configure(options); err != nil {
 			failedTask := newTask(ctx)
@@ -334,23 +334,23 @@ func (ctx *OrchestrationContext) CallSubOrchestrator(orchestrator interface{}, o
 		}
 	}
 
-	orchestratorName := helpers.GetTaskFunctionName(orchestrator)
+	workflowName := helpers.GetTaskFunctionName(workflow)
 
 	if options.retryPolicy != nil {
-		return ctx.internalScheduleTaskWithRetries(orchestratorName+"-retry", ctx.CurrentTimeUtc, func(_ string) Task {
-			return ctx.internalCallSubOrchestrator(orchestratorName, options)
+		return ctx.internalScheduleTaskWithRetries(workflowName+"-retry", ctx.CurrentTimeUtc, func(_ string) Task {
+			return ctx.internalCallChildWorkflow(workflowName, options)
 		}, *options.retryPolicy, 0, uuid.NewString())
 	}
 
-	return ctx.internalCallSubOrchestrator(orchestratorName, options)
+	return ctx.internalCallChildWorkflow(workflowName, options)
 }
 
-func (ctx *OrchestrationContext) internalCallSubOrchestrator(orchestratorName string, options *callSubOrchestratorOptions) Task {
-	createSubOrchestrationAction := &protos.OrchestratorAction{
+func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, options *callChildWorkflowOptions) Task {
+	createChildWorkflowAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
-		OrchestratorActionType: &protos.OrchestratorAction_CreateSubOrchestration{
-			CreateSubOrchestration: &protos.CreateSubOrchestrationAction{
-				Name:       orchestratorName,
+		WorkflowActionType: &protos.WorkflowAction_CreateChildWorkflow{
+			CreateChildWorkflow: &protos.CreateChildWorkflowAction{
+				Name:       workflowName,
 				Input:      options.rawInput,
 				InstanceId: options.instanceID,
 			},
@@ -358,19 +358,19 @@ func (ctx *OrchestrationContext) internalCallSubOrchestrator(orchestratorName st
 	}
 
 	if options.targetAppID != nil {
-		createSubOrchestrationAction.Router = &protos.TaskRouter{
+		createChildWorkflowAction.Router = &protos.TaskRouter{
 			TargetAppID: ptr.Of(*options.targetAppID),
 		}
 	}
 
-	ctx.pendingActions[createSubOrchestrationAction.Id] = createSubOrchestrationAction
+	ctx.pendingActions[createChildWorkflowAction.Id] = createChildWorkflowAction
 
 	task := newTask(ctx)
-	ctx.pendingTasks[createSubOrchestrationAction.Id] = task
+	ctx.pendingTasks[createChildWorkflowAction.Id] = task
 	return task
 }
 
-func (ctx *OrchestrationContext) internalScheduleTaskWithRetries(name string, initialAttempt time.Time, schedule func(taskExecutionId string) Task, policy RetryPolicy, retryCount int, taskExecutionId string) Task {
+func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initialAttempt time.Time, schedule func(taskExecutionId string) Task, policy RetryPolicy, retryCount int, taskExecutionId string) Task {
 	return &taskWrapper{
 		delegate: schedule(taskExecutionId),
 		onAwaitResult: func(v any, taskExecutionId string, err error) error {
@@ -422,7 +422,7 @@ func computeNextDelay(currentTimeUtc time.Time, policy RetryPolicy, attempt int,
 }
 
 // CreateTimer schedules a durable timer that expires after the specified delay.
-func (ctx *OrchestrationContext) CreateTimer(delay time.Duration, opts ...CreateTimerOption) Task {
+func (ctx *WorkflowContext) CreateTimer(delay time.Duration, opts ...CreateTimerOption) Task {
 	options := new(createTimerOptions)
 	for _, configure := range opts {
 		if err := configure(options); err != nil {
@@ -437,11 +437,11 @@ func (ctx *OrchestrationContext) CreateTimer(delay time.Duration, opts ...Create
 	return ctx.createTimerInternal(options.name, delay)
 }
 
-func (ctx *OrchestrationContext) createTimerInternal(name *string, delay time.Duration) *completableTask {
+func (ctx *WorkflowContext) createTimerInternal(name *string, delay time.Duration) *completableTask {
 	fireAt := ctx.CurrentTimeUtc.Add(delay)
-	timerAction := &protos.OrchestratorAction{
+	timerAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
-		OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+		WorkflowActionType: &protos.WorkflowAction_CreateTimer{
 			CreateTimer: &protos.CreateTimerAction{
 				FireAt: timestamppb.New(fireAt),
 				Name:   name,
@@ -455,7 +455,7 @@ func (ctx *OrchestrationContext) createTimerInternal(name *string, delay time.Du
 	return task
 }
 
-// WaitForSingleEvent creates a task that is completed only after an event named [eventName] is received by this orchestration
+// WaitForSingleEvent creates a task that is completed only after an event named [eventName] is received by this workflow
 // or when the specified timeout expires.
 //
 // The [timeout] parameter can be used to define a timeout for receiving the event. If the timeout expires before the
@@ -464,11 +464,11 @@ func (ctx *OrchestrationContext) createTimerInternal(name *string, delay time.Du
 // of zero returns a canceled task if the event isn't already available in the history. Use a negative Duration to
 // wait indefinitely for the event to be received.
 //
-// Orchestrators can wait for the same event name multiple times, so waiting for multiple events with the same name
-// is allowed. Each event received by an orchestrator will complete just one task returned by this method.
+// Workflows can wait for the same event name multiple times, so waiting for multiple events with the same name
+// is allowed. Each event received by an workflow will complete just one task returned by this method.
 //
 // Note that event names are case-insensitive.
-func (ctx *OrchestrationContext) WaitForSingleEvent(eventName string, timeout time.Duration) Task {
+func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Duration) Task {
 	task := newTask(ctx)
 	key := strings.ToUpper(eventName)
 	if eventList, ok := ctx.bufferedExternalEvents[key]; ok {
@@ -508,7 +508,7 @@ func (ctx *OrchestrationContext) WaitForSingleEvent(eventName string, timeout ti
 	return task
 }
 
-func (ctx *OrchestrationContext) ContinueAsNew(newInput any, options ...ContinueAsNewOption) {
+func (ctx *WorkflowContext) ContinueAsNew(newInput any, options ...ContinueAsNewOption) {
 	ctx.continuedAsNew = true
 	ctx.continuedAsNewInput = newInput
 	for _, option := range options {
@@ -516,7 +516,7 @@ func (ctx *OrchestrationContext) ContinueAsNew(newInput any, options ...Continue
 	}
 }
 
-func (ctx *OrchestrationContext) IsPatched(patchName string) bool {
+func (ctx *WorkflowContext) IsPatched(patchName string) bool {
 	isPatched := ctx.isPatched(patchName)
 	if isPatched {
 		ctx.encounteredPatches = append(ctx.encounteredPatches, patchName)
@@ -524,7 +524,7 @@ func (ctx *OrchestrationContext) IsPatched(patchName string) bool {
 	return isPatched
 }
 
-func (ctx *OrchestrationContext) isPatched(patchName string) bool {
+func (ctx *WorkflowContext) isPatched(patchName string) bool {
 	if patched, exists := ctx.appliedPatches[patchName]; exists {
 		return patched
 	}
@@ -546,41 +546,41 @@ func (ctx *OrchestrationContext) isPatched(patchName string) bool {
 	return true
 }
 
-func (ctx *OrchestrationContext) getOrchestrator(es *protos.ExecutionStartedEvent) (Orchestrator, error) {
-	orchestrator, ok := ctx.registry.orchestrators[es.Name]
+func (ctx *WorkflowContext) getWorkflow(es *protos.ExecutionStartedEvent) (Workflow, error) {
+	workflow, ok := ctx.registry.workflows[es.Name]
 	if ok {
-		return orchestrator, nil
+		return workflow, nil
 	}
 
-	if versions, ok := ctx.registry.versionedOrchestrators[es.Name]; ok {
+	if versions, ok := ctx.registry.versionedWorkflows[es.Name]; ok {
 		var versionToUse string
 		if ctx.VersionName != nil {
 			versionToUse = *ctx.VersionName
 		} else {
-			if latest, ok := ctx.registry.latestVersionedOrchestrators[es.Name]; ok {
+			if latest, ok := ctx.registry.latestVersionedWorkflows[es.Name]; ok {
 				versionToUse = latest
 			} else {
 				return nil, fmt.Errorf("versioned workflow '%s' does not have a latest version registered", es.Name)
 			}
 		}
 
-		if orchestrator, ok = versions[versionToUse]; ok {
+		if workflow, ok = versions[versionToUse]; ok {
 			ctx.VersionName = &versionToUse
-			return orchestrator, nil
+			return workflow, nil
 		} else {
 			return nil, api.NewUnsupportedVersionError()
 		}
 	}
 
-	if orchestrator, ok = ctx.registry.orchestrators["*"]; ok {
-		return orchestrator, nil
+	if workflow, ok = ctx.registry.workflows["*"]; ok {
+		return workflow, nil
 	}
 
-	return nil, fmt.Errorf("orchestrator named '%s' is not registered", es.Name)
+	return nil, fmt.Errorf("workflow named '%s' is not registered", es.Name)
 }
 
-func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
-	orchestrator, err := ctx.getOrchestrator(es)
+func (ctx *WorkflowContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
+	workflow, err := ctx.getWorkflow(es)
 	if err != nil {
 		return err
 	}
@@ -589,7 +589,7 @@ func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedE
 		ctx.rawInput = []byte(es.Input.Value)
 	}
 
-	output, appError := orchestrator(ctx)
+	output, appError := workflow(ctx)
 
 	if appError != nil {
 		err = ctx.setFailed(appError)
@@ -600,7 +600,7 @@ func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedE
 	}
 
 	if appError == nil && err != nil {
-		completionErr := fmt.Errorf("failed to complete the orchestration: %w", err)
+		completionErr := fmt.Errorf("failed to complete the workflow: %w", err)
 		if err2 := ctx.setFailed(completionErr); err2 != nil {
 			return completionErr
 		}
@@ -608,10 +608,10 @@ func (ctx *OrchestrationContext) onExecutionStarted(es *protos.ExecutionStartedE
 	return nil
 }
 
-func (ctx *OrchestrationContext) onTaskScheduled(taskID int32, ts *protos.TaskScheduledEvent) error {
+func (ctx *WorkflowContext) onTaskScheduled(taskID int32, ts *protos.TaskScheduledEvent) error {
 	if a, ok := ctx.pendingActions[taskID]; !ok || a.GetScheduleTask() == nil {
 		return fmt.Errorf(
-			"a previous execution called CallActivity for '%s' and sequence number %d at this point in the orchestration logic, but the current execution doesn't have this action with this sequence number",
+			"a previous execution called CallActivity for '%s' and sequence number %d at this point in the workflow logic, but the current execution doesn't have this action with this sequence number",
 			ts.Name,
 			taskID,
 		)
@@ -620,13 +620,13 @@ func (ctx *OrchestrationContext) onTaskScheduled(taskID int32, ts *protos.TaskSc
 	return nil
 }
 
-func (ctx *OrchestrationContext) onTaskCompleted(tc *protos.TaskCompletedEvent) error {
+func (ctx *WorkflowContext) onTaskCompleted(tc *protos.TaskCompletedEvent) error {
 	taskID := tc.TaskScheduledId
 	task, ok := ctx.pendingTasks[taskID]
 	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic orchestration.
+		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
 		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       orchestration should probably fail with an error.
+		//       workflow should probably fail with an error.
 		return nil
 	}
 	delete(ctx.pendingTasks, taskID)
@@ -639,13 +639,13 @@ func (ctx *OrchestrationContext) onTaskCompleted(tc *protos.TaskCompletedEvent) 
 	return nil
 }
 
-func (ctx *OrchestrationContext) onTaskFailed(tf *protos.TaskFailedEvent) error {
+func (ctx *WorkflowContext) onTaskFailed(tf *protos.TaskFailedEvent) error {
 	taskID := tf.TaskScheduledId
 	task, ok := ctx.pendingTasks[taskID]
 	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic orchestration.
+		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
 		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       orchestration should probably fail with an error.
+		//       workflow should probably fail with an error.
 		return nil
 	}
 	delete(ctx.pendingTasks, taskID)
@@ -656,10 +656,10 @@ func (ctx *OrchestrationContext) onTaskFailed(tf *protos.TaskFailedEvent) error 
 	return nil
 }
 
-func (ctx *OrchestrationContext) onSubOrchestrationScheduled(taskID int32, ts *protos.SubOrchestrationInstanceCreatedEvent) error {
-	if a, ok := ctx.pendingActions[taskID]; !ok || a.GetCreateSubOrchestration() == nil {
+func (ctx *WorkflowContext) onChildWorkflowScheduled(taskID int32, ts *protos.ChildWorkflowInstanceCreatedEvent) error {
+	if a, ok := ctx.pendingActions[taskID]; !ok || a.GetCreateChildWorkflow() == nil {
 		return fmt.Errorf(
-			"a previous execution called CallSubOrchestrator for '%s' and sequence number %d at this point in the orchestration logic, but the current execution doesn't have this action with this sequence number",
+			"a previous execution called CallChildWorkflow for '%s' and sequence number %d at this point in the workflow logic, but the current execution doesn't have this action with this sequence number",
 			ts.Name,
 			taskID,
 		)
@@ -668,13 +668,13 @@ func (ctx *OrchestrationContext) onSubOrchestrationScheduled(taskID int32, ts *p
 	return nil
 }
 
-func (ctx *OrchestrationContext) onSubOrchestrationCompleted(soc *protos.SubOrchestrationInstanceCompletedEvent) error {
+func (ctx *WorkflowContext) onChildWorkflowCompleted(soc *protos.ChildWorkflowInstanceCompletedEvent) error {
 	taskID := soc.TaskScheduledId
 	task, ok := ctx.pendingTasks[taskID]
 	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic orchestration.
+		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
 		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       orchestration should probably fail with an error.
+		//       workflow should probably fail with an error.
 		return nil
 	}
 	delete(ctx.pendingTasks, taskID)
@@ -688,13 +688,13 @@ func (ctx *OrchestrationContext) onSubOrchestrationCompleted(soc *protos.SubOrch
 	return nil
 }
 
-func (ctx *OrchestrationContext) onSubOrchestrationFailed(sof *protos.SubOrchestrationInstanceFailedEvent) error {
+func (ctx *WorkflowContext) onChildWorkflowFailed(sof *protos.ChildWorkflowInstanceFailedEvent) error {
 	taskID := sof.TaskScheduledId
 	task, ok := ctx.pendingTasks[taskID]
 	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic orchestration.
+		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
 		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       orchestration should probably fail with an error.
+		//       workflow should probably fail with an error.
 		return nil
 	}
 	delete(ctx.pendingTasks, taskID)
@@ -704,7 +704,7 @@ func (ctx *OrchestrationContext) onSubOrchestrationFailed(sof *protos.SubOrchest
 	return nil
 }
 
-func (ctx *OrchestrationContext) onTimerCreated(e *protos.HistoryEvent) error {
+func (ctx *WorkflowContext) onTimerCreated(e *protos.HistoryEvent) error {
 	if a, ok := ctx.pendingActions[e.EventId]; !ok || a.GetCreateTimer() == nil {
 		return fmt.Errorf(
 			"a previous execution called CreateTimer with sequence number %d, but the current execution doesn't have this action with this sequence number",
@@ -715,13 +715,13 @@ func (ctx *OrchestrationContext) onTimerCreated(e *protos.HistoryEvent) error {
 	return nil
 }
 
-func (ctx *OrchestrationContext) onTimerFired(tf *protos.TimerFiredEvent) error {
+func (ctx *WorkflowContext) onTimerFired(tf *protos.TimerFiredEvent) error {
 	timerID := tf.TimerId
 	task, ok := ctx.pendingTasks[timerID]
 	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic orchestration.
+		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
 		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       orchestration should probably fail with an error.
+		//       workflow should probably fail with an error.
 		return nil
 	}
 	delete(ctx.pendingTasks, timerID)
@@ -731,7 +731,7 @@ func (ctx *OrchestrationContext) onTimerFired(tf *protos.TimerFiredEvent) error 
 	return nil
 }
 
-func (ctx *OrchestrationContext) onExternalEventRaised(e *protos.HistoryEvent) error {
+func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error {
 	er := e.GetEventRaised()
 	key := strings.ToUpper(er.GetName())
 	if pendingTasks, ok := ctx.pendingExternalEventTasks[key]; ok {
@@ -758,12 +758,12 @@ func (ctx *OrchestrationContext) onExternalEventRaised(e *protos.HistoryEvent) e
 	return nil
 }
 
-func (ctx *OrchestrationContext) onExecutionSuspended(er *protos.ExecutionSuspendedEvent) error {
+func (ctx *WorkflowContext) onExecutionSuspended(er *protos.ExecutionSuspendedEvent) error {
 	ctx.isSuspended = true
 	return nil
 }
 
-func (ctx *OrchestrationContext) onExecutionResumed(er *protos.ExecutionResumedEvent) error {
+func (ctx *WorkflowContext) onExecutionResumed(er *protos.ExecutionResumedEvent) error {
 	ctx.isSuspended = false
 	for _, e := range ctx.suspendedEvents {
 		if err := ctx.processEvent(e); err != nil {
@@ -774,14 +774,14 @@ func (ctx *OrchestrationContext) onExecutionResumed(er *protos.ExecutionResumedE
 	return nil
 }
 
-func (ctx *OrchestrationContext) onExecutionTerminated(et *protos.ExecutionTerminatedEvent) error {
+func (ctx *WorkflowContext) onExecutionTerminated(et *protos.ExecutionTerminatedEvent) error {
 	if err := ctx.setCompleteInternal(et.Input, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, nil); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (ctx *OrchestrationContext) setComplete(output any) error {
+func (ctx *WorkflowContext) setComplete(output any) error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
 	var rawOutput *wrapperspb.StringValue
 	if output != nil {
@@ -797,7 +797,7 @@ func (ctx *OrchestrationContext) setComplete(output any) error {
 	return nil
 }
 
-func (ctx *OrchestrationContext) setFailed(appError error) error {
+func (ctx *WorkflowContext) setFailed(appError error) error {
 	fd := &protos.TaskFailureDetails{
 		ErrorType:    reflect.TypeOf(appError).String(),
 		ErrorMessage: appError.Error(),
@@ -809,7 +809,7 @@ func (ctx *OrchestrationContext) setFailed(appError error) error {
 	return nil
 }
 
-func (ctx *OrchestrationContext) setContinuedAsNew() error {
+func (ctx *WorkflowContext) setContinuedAsNew() error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW
 	var newRawInput *wrapperspb.StringValue
 	if ctx.continuedAsNewInput != nil {
@@ -825,17 +825,17 @@ func (ctx *OrchestrationContext) setContinuedAsNew() error {
 	return nil
 }
 
-func (ctx *OrchestrationContext) setCompleteInternal(
+func (ctx *WorkflowContext) setCompleteInternal(
 	rawResult *wrapperspb.StringValue,
 	status protos.OrchestrationStatus,
 	failureDetails *protos.TaskFailureDetails,
 ) error {
 	sequenceNumber := ctx.getNextSequenceNumber()
-	completedAction := &protos.OrchestratorAction{
+	completedAction := &protos.WorkflowAction{
 		Id: sequenceNumber,
-		OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-			CompleteOrchestration: &protos.CompleteOrchestrationAction{
-				OrchestrationStatus: status,
+		WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+			CompleteWorkflow: &protos.CompleteWorkflowAction{
+				WorkflowStatus: status,
 				Result:              rawResult,
 				FailureDetails:      failureDetails,
 			},
@@ -846,33 +846,33 @@ func (ctx *OrchestrationContext) setCompleteInternal(
 	return nil
 }
 
-func (ctx *OrchestrationContext) setVersionNotRegistered() error {
+func (ctx *WorkflowContext) setVersionNotRegistered() error {
 	sequenceNumber := ctx.getNextSequenceNumber()
-	ctx.pendingActions[sequenceNumber] = &protos.OrchestratorAction{
+	ctx.pendingActions[sequenceNumber] = &protos.WorkflowAction{
 		Id: sequenceNumber,
-		OrchestratorActionType: &protos.OrchestratorAction_OrchestratorVersionNotAvailable{
-			OrchestratorVersionNotAvailable: &protos.OrchestratorVersionNotAvailableAction{},
+		WorkflowActionType: &protos.WorkflowAction_WorkflowVersionNotAvailable{
+			WorkflowVersionNotAvailable: &protos.WorkflowVersionNotAvailableAction{},
 		},
 	}
 	return nil
 }
 
-func (ctx *OrchestrationContext) getNextSequenceNumber() int32 {
+func (ctx *WorkflowContext) getNextSequenceNumber() int32 {
 	current := ctx.sequenceNumber
 	ctx.sequenceNumber++
 	return current
 }
 
-func (ctx *OrchestrationContext) actions() []*protos.OrchestratorAction {
+func (ctx *WorkflowContext) actions() []*protos.WorkflowAction {
 	if ctx.isSuspended {
 		return nil
 	}
 
-	var actions []*protos.OrchestratorAction
+	var actions []*protos.WorkflowAction
 	for _, a := range ctx.pendingActions {
 		actions = append(actions, a)
 		if ctx.continuedAsNew && ctx.saveBufferedExternalEvents {
-			if co := a.GetCompleteOrchestration(); co != nil {
+			if co := a.GetCompleteWorkflow(); co != nil {
 				for _, eventList := range ctx.bufferedExternalEvents {
 					for item := eventList.Front(); item != nil; item = item.Next() {
 						e := item.Value.(*protos.HistoryEvent)

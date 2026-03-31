@@ -14,9 +14,9 @@ import (
 )
 
 // Verifies runtime state created from an ExecutionStarted event
-func Test_NewOrchestration(t *testing.T) {
+func Test_NewWorkflow(t *testing.T) {
 	const iid = "abc"
-	const expectedName = "myorchestration"
+	const expectedName = "myworkflow"
 	createdAt := time.Now().UTC()
 
 	e := &protos.HistoryEvent{
@@ -58,9 +58,9 @@ func Test_NewOrchestration(t *testing.T) {
 	assert.Equal(t, 0, len(s.NewEvents))
 }
 
-func Test_CompletedOrchestration(t *testing.T) {
+func Test_CompletedWorkflow(t *testing.T) {
 	const iid = "abc"
-	const expectedName = "myorchestration"
+	const expectedName = "myworkflow"
 	createdAt := time.Now().UTC()
 	completedAt := createdAt.Add(10 * time.Second)
 
@@ -107,7 +107,7 @@ func Test_CompletedOrchestration(t *testing.T) {
 	assert.Equal(t, 0, len(s.NewEvents))
 }
 
-func Test_CompletedSubOrchestration(t *testing.T) {
+func Test_CompletedChildWorkflow(t *testing.T) {
 	expectedOutput := "\"done!\""
 	expectedTaskID := int32(3)
 
@@ -174,7 +174,7 @@ func Test_CompletedSubOrchestration(t *testing.T) {
 
 func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 	iid := "abc"
-	expectedName := "MyOrchestration"
+	expectedName := "MyWorkflow"
 	continueAsNewInput := "\"done!\""
 	expectedTaskID := int32(3)
 	eventName := "MyRaisedEvent"
@@ -259,7 +259,7 @@ func Test_CreateTimer(t *testing.T) {
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
+					Name: "MyWorkflow",
 					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  iid,
 						ExecutionId: wrapperspb.String(uuid.New().String()),
@@ -321,7 +321,7 @@ func Test_ScheduleTask(t *testing.T) {
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
+					Name: "MyWorkflow",
 					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  iid,
 						ExecutionId: wrapperspb.String(uuid.New().String()),
@@ -372,11 +372,11 @@ func Test_ScheduleTask(t *testing.T) {
 	}
 }
 
-func Test_CreateSubOrchestration(t *testing.T) {
+func Test_CreateChildWorkflow(t *testing.T) {
 	iid := "abc"
 	expectedTaskID := int32(4)
 	expectedInstanceID := "xyz"
-	expectedName := "MySubOrchestration"
+	expectedName := "MyChildWorkflow"
 	expectedInput := wrapperspb.String("{\"Foo\":5}")
 	expectedTraceParent := "trace"
 	expectedTraceState := "trace_state"
@@ -465,7 +465,7 @@ func Test_SendEvent(t *testing.T) {
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
+					Name: "MyWorkflow",
 					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  "abc",
 						ExecutionId: wrapperspb.String(uuid.New().String()),
@@ -520,7 +520,7 @@ func Test_StateIsValid(t *testing.T) {
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
+					Name: "MyWorkflow",
 					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  "abc",
 						ExecutionId: wrapperspb.String(uuid.New().String()),
@@ -551,7 +551,7 @@ func Test_DuplicateEvents(t *testing.T) {
 		Timestamp: timestamppb.New(time.Now()),
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
-				Name: "MyOrchestration",
+				Name: "MyWorkflow",
 				WorkflowInstance: &protos.WorkflowInstance{
 					InstanceId:  "abc",
 					ExecutionId: wrapperspb.String(uuid.New().String()),
@@ -565,7 +565,7 @@ func Test_DuplicateEvents(t *testing.T) {
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
+					Name: "MyWorkflow",
 					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  "abc",
 						ExecutionId: wrapperspb.String(uuid.New().String()),
@@ -578,7 +578,7 @@ func Test_DuplicateEvents(t *testing.T) {
 		return
 	}
 
-	// TODO: Add other types of duplicate events (task completion, external events, sub-orchestration, etc.)
+	// TODO: Add other types of duplicate events (task completion, external events, child workflow, etc.)
 	err = runtimestate.AddEvent(s, &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
