@@ -2,128 +2,136 @@ package local
 
 import (
 	"context"
-	"sync"
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
+	"github.com/dapr/durabletask-go/backend/local/loops"
+	looptask "github.com/dapr/durabletask-go/backend/local/loops/task"
+	"github.com/dapr/kit/events/loop"
 )
 
-type pendingOrchestrator struct {
-	response *protos.OrchestratorResponse
-	complete chan struct{}
-}
-
-type pendingActivity struct {
-	response *protos.ActivityResponse
-	complete chan struct{}
-}
-
 type TasksBackend struct {
-	pendingOrchestrators *sync.Map
-	pendingActivities    *sync.Map
+	loop loop.Interface[loops.EventTask]
 }
 
 func NewTasksBackend() *TasksBackend {
 	return &TasksBackend{
-		pendingOrchestrators: &sync.Map{},
-		pendingActivities:    &sync.Map{},
+		loop: looptask.New(),
 	}
+}
+
+func (be *TasksBackend) Run(ctx context.Context) error {
+	return be.loop.Run(ctx)
+}
+
+func (be *TasksBackend) Close() {
+	be.loop.Close(new(loops.Shutdown))
 }
 
 func (be *TasksBackend) CompleteActivityTask(ctx context.Context, response *protos.ActivityResponse) error {
-	if be.deletePendingActivityTask(response.GetInstanceId(), response.GetTaskId(), response) {
-		return nil
-	}
+	errCh := make(chan error, 1)
+	be.loop.Enqueue(&loops.CompleteActivity{
+		InstanceID: response.GetInstanceId(),
+		TaskID:     response.GetTaskId(),
+		Response:   response,
+		ErrCh:      errCh,
+	})
 
-	return api.NewUnknownTaskIDError(response.GetInstanceId(), response.GetTaskId())
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errCh:
+		return err
+	}
 }
 
 func (be *TasksBackend) CancelActivityTask(ctx context.Context, instanceID api.InstanceID, taskID int32) error {
-	if be.deletePendingActivityTask(string(instanceID), taskID, nil) {
-		return nil
+	errCh := make(chan error, 1)
+	be.loop.Enqueue(&loops.CancelActivity{
+		InstanceID: instanceID,
+		TaskID:     taskID,
+		ErrCh:      errCh,
+	})
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errCh:
+		return err
 	}
-	return api.NewUnknownTaskIDError(instanceID.String(), taskID)
 }
 
 func (be *TasksBackend) WaitForActivityCompletion(request *protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error) {
 	key := backend.GetActivityExecutionKey(request.GetOrchestrationInstance().GetInstanceId(), request.GetTaskId())
-	pending := &pendingActivity{
-		response: nil,
-		complete: make(chan struct{}, 1),
-	}
-	be.pendingActivities.Store(key, pending)
+	responseCh := make(chan *protos.ActivityResponse, 1)
+
+	be.loop.Enqueue(&loops.RegisterPendingActivity{
+		Key:      key,
+		Response: responseCh,
+	})
 
 	return func(ctx context.Context) (*protos.ActivityResponse, error) {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-pending.complete:
-			if pending.response == nil {
+		case resp, ok := <-responseCh:
+			if !ok || resp == nil {
 				return nil, api.ErrTaskCancelled
 			}
-			return pending.response, nil
+			return resp, nil
 		}
 	}
 }
 
 func (be *TasksBackend) CompleteOrchestratorTask(ctx context.Context, response *protos.OrchestratorResponse) error {
-	if be.deletePendingOrchestrator(response.GetInstanceId(), response) {
-		return nil
+	errCh := make(chan error, 1)
+	be.loop.Enqueue(&loops.CompleteOrchestrator{
+		InstanceID: response.GetInstanceId(),
+		Response:   response,
+		ErrCh:      errCh,
+	})
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errCh:
+		return err
 	}
-	return api.NewUnknownInstanceIDError(response.GetInstanceId())
 }
 
 func (be *TasksBackend) CancelOrchestratorTask(ctx context.Context, instanceID api.InstanceID) error {
-	if be.deletePendingOrchestrator(string(instanceID), nil) {
-		return nil
+	errCh := make(chan error, 1)
+	be.loop.Enqueue(&loops.CancelOrchestrator{
+		InstanceID: instanceID,
+		ErrCh:      errCh,
+	})
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-errCh:
+		return err
 	}
-	return api.NewUnknownInstanceIDError(instanceID.String())
 }
 
 func (be *TasksBackend) WaitForOrchestratorCompletion(request *protos.OrchestratorRequest) func(context.Context) (*protos.OrchestratorResponse, error) {
-	pending := &pendingOrchestrator{
-		response: nil,
-		complete: make(chan struct{}, 1),
-	}
-	be.pendingOrchestrators.Store(request.GetInstanceId(), pending)
+	responseCh := make(chan *protos.OrchestratorResponse, 1)
+
+	be.loop.Enqueue(&loops.RegisterPendingOrchestrator{
+		InstanceID: request.GetInstanceId(),
+		Response:   responseCh,
+	})
 
 	return func(ctx context.Context) (*protos.OrchestratorResponse, error) {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-pending.complete:
-			if pending.response == nil {
+		case resp, ok := <-responseCh:
+			if !ok || resp == nil {
 				return nil, api.ErrTaskCancelled
 			}
-			return pending.response, nil
+			return resp, nil
 		}
 	}
-}
-
-func (be *TasksBackend) deletePendingActivityTask(iid string, taskID int32, res *protos.ActivityResponse) bool {
-	key := backend.GetActivityExecutionKey(iid, taskID)
-	p, ok := be.pendingActivities.LoadAndDelete(key)
-	if !ok {
-		return false
-	}
-
-	// Note that res can be nil in case of certain failures
-	pending := p.(*pendingActivity)
-	pending.response = res
-	close(pending.complete)
-	return true
-}
-
-func (be *TasksBackend) deletePendingOrchestrator(instanceID string, res *protos.OrchestratorResponse) bool {
-	p, ok := be.pendingOrchestrators.LoadAndDelete(instanceID)
-	if !ok {
-		return false
-	}
-
-	// Note that res can be nil in case of certain failures
-	pending := p.(*pendingOrchestrator)
-	pending.response = res
-	close(pending.complete)
-	return true
 }

@@ -19,11 +19,11 @@ func main() {
 
 	// Init the client
 	ctx := context.Background()
-	client, worker, err := Init(ctx, r)
+	client, shutdown, err := Init(ctx, r)
 	if err != nil {
 		log.Fatalf("Failed to initialize the client: %v", err)
 	}
-	defer worker.Shutdown(ctx)
+	defer shutdown()
 
 	// Start a new orchestration
 	id, err := client.ScheduleNewOrchestration(ctx, ActivitySequenceOrchestrator)
@@ -46,7 +46,7 @@ func main() {
 }
 
 // Init creates and initializes an in-memory client and worker pair with default configuration.
-func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, backend.TaskHubWorker, error) {
+func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, context.CancelFunc, error) {
 	logger := backend.DefaultLogger()
 
 	// Create an executor
@@ -59,20 +59,19 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 		Backend:  be,
 		Executor: executor,
 		Logger:   logger,
+		AppID:    "sample",
 	})
 	activityWorker := backend.NewActivityTaskWorker(be, executor, logger)
 	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
 
-	// Start the worker
-	err := taskHubWorker.Start(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
+	// Start the worker in a goroutine (Start is blocking)
+	ctx, cancel := context.WithCancel(ctx)
+	go taskHubWorker.Start(ctx)
 
 	// Get the client to the backend
 	taskHubClient := backend.NewTaskHubClient(be)
 
-	return taskHubClient, taskHubWorker, nil
+	return taskHubClient, cancel, nil
 }
 
 // ActivitySequenceOrchestrator makes three activity calls in sequence and results the results

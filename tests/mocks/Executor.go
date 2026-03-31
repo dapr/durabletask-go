@@ -146,6 +146,52 @@ func (_c *Executor_ExecuteOrchestrator_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
+// Start provides a mock function with given fields: _a0
+func (_m *Executor) Start(_a0 context.Context) error {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Start")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Executor_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
+type Executor_Start_Call struct {
+	*mock.Call
+}
+
+// Start is a helper method to define mock.On call
+//   - _a0 context.Context
+func (_e *Executor_Expecter) Start(_a0 interface{}) *Executor_Start_Call {
+	return &Executor_Start_Call{Call: _e.mock.On("Start", _a0)}
+}
+
+func (_c *Executor_Start_Call) Run(run func(_a0 context.Context)) *Executor_Start_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Executor_Start_Call) Return(_a0 error) *Executor_Start_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Executor_Start_Call) RunAndReturn(run func(context.Context) error) *Executor_Start_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Shutdown provides a mock function with given fields: ctx
 func (_m *Executor) Shutdown(ctx context.Context) error {
 	ret := _m.Called(ctx)

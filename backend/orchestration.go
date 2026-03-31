@@ -55,11 +55,6 @@ func (*orchestratorProcessor) Name() string {
 	return "orchestration-processor"
 }
 
-// NextWorkItem implements TaskProcessor
-func (p *orchestratorProcessor) NextWorkItem(ctx context.Context) (*OrchestrationWorkItem, error) {
-	return p.be.NextOrchestrationWorkItem(ctx)
-}
-
 // ProcessWorkItem implements TaskProcessor
 func (w *orchestratorProcessor) ProcessWorkItem(ctx context.Context, wi *OrchestrationWorkItem) error {
 	w.logger.Debugf("%v: received work item with %d new event(s): %v", wi.InstanceID, len(wi.NewEvents), helpers.HistoryListSummary(wi.NewEvents))

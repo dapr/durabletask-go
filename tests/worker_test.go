@@ -3,7 +3,6 @@ package tests
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/dapr/durabletask-go/backend/runtimestate"
 	"github.com/dapr/durabletask-go/tests/mocks"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -26,7 +24,9 @@ var (
 )
 
 func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	wi := &backend.OrchestrationWorkItem{
 		InstanceID: "test123",
 		NewEvents: []*protos.HistoryEvent{
@@ -48,18 +48,9 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 	state := &backend.OrchestrationRuntimeState{}
 	result := &protos.OrchestratorResponse{}
 
-	ctx, cancel := context.WithCancel(ctx)
-	completed := atomic.Bool{}
 	be := mocks.NewBackend(t)
-	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(wi, nil).Once()
-	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(nil, errors.New("")).Once().Run(func(mock.Arguments) {
-		cancel()
-	})
 	be.EXPECT().GetOrchestrationRuntimeState(anyContext, wi).Return(state, nil).Once()
-	be.EXPECT().CompleteOrchestrationWorkItem(anyContext, wi).RunAndReturn(func(ctx context.Context, owi *backend.OrchestrationWorkItem) error {
-		completed.Store(true)
-		return nil
-	}).Once()
+	be.EXPECT().CompleteOrchestrationWorkItem(anyContext, wi).Return(nil).Once()
 
 	ex := mocks.NewExecutor(t)
 	ex.EXPECT().ExecuteOrchestrator(anyContext, wi.InstanceID, state.OldEvents, mock.Anything).Return(result, nil).Once()
@@ -70,15 +61,19 @@ func Test_TryProcessSingleOrchestrationWorkItem_BasicFlow(t *testing.T) {
 		Logger:   logger,
 		AppID:    "testapp",
 	})
-	worker.Start(ctx)
+	go worker.Start(ctx)
 
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		if !completed.Load() {
-			collect.Errorf("process next not called CompleteOrchestrationWorkItem yet")
-		}
-	}, 1*time.Second, 100*time.Millisecond)
+	callback := make(chan error, 1)
+	worker.Dispatch(wi, callback)
 
-	worker.StopAndDrain()
+	select {
+	case err := <-callback:
+		require.NoError(t, err)
+	case <-time.After(1 * time.Second):
+		t.Fatal("dispatch callback not received within timeout")
+	}
+
+	cancel()
 
 	t.Logf("state.NewEvents: %v", state.NewEvents)
 	require.Len(t, state.NewEvents, 2)
@@ -109,9 +104,8 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
+	defer cancel()
 
-	completed := atomic.Bool{}
 	be := mocks.NewBackend(t)
 	ex := mocks.NewExecutor(t)
 
@@ -125,18 +119,8 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 		return &protos.OrchestratorResponse{}, nil
 	}).Times(2)
 
-	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(wi, nil).Once()
 	be.EXPECT().AbandonOrchestrationWorkItem(anyContext, wi).Return(nil).Once()
-
-	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(wi, nil).Once()
-	be.EXPECT().CompleteOrchestrationWorkItem(anyContext, wi).RunAndReturn(func(ctx context.Context, owi *backend.OrchestrationWorkItem) error {
-		completed.Store(true)
-		return nil
-	}).Once()
-
-	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(nil, errors.New("")).Once().Run(func(mock.Arguments) {
-		cancel()
-	})
+	be.EXPECT().CompleteOrchestrationWorkItem(anyContext, wi).Return(nil).Once()
 
 	worker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
 		Backend:  be,
@@ -144,11 +128,27 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 		Logger:   logger,
 		AppID:    "testapp",
 	}, backend.WithMaxParallelism(1))
-	worker.Start(ctx)
+	go worker.Start(ctx)
 
-	require.Eventually(t, completed.Load, 2*time.Second, 10*time.Millisecond)
+	// First dispatch: orchestrator returns an error, work item should be abandoned.
+	cb1 := make(chan error, 1)
+	worker.Dispatch(wi, cb1)
+	select {
+	case <-cb1:
+	case <-time.After(1 * time.Second):
+		t.Fatal("first dispatch callback not received within timeout")
+	}
 
-	worker.StopAndDrain()
+	// Second dispatch: orchestrator succeeds, work item should be completed.
+	cb2 := make(chan error, 1)
+	worker.Dispatch(wi, cb2)
+	select {
+	case <-cb2:
+	case <-time.After(1 * time.Second):
+		t.Fatal("second dispatch callback not received within timeout")
+	}
+
+	cancel()
 
 	t.Logf("state.NewEvents: %v", wi.State.NewEvents)
 	require.Len(t, wi.State.NewEvents, 3)
@@ -158,7 +158,6 @@ func Test_TryProcessSingleOrchestrationWorkItem_Idempotency(t *testing.T) {
 }
 
 func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *testing.T) {
-	ctx := context.Background()
 	iid := api.InstanceID("test123")
 
 	// Simulate getting an ExecutionStarted message from the orchestration queue
@@ -184,13 +183,10 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 	// Empty orchestration runtime state since we're starting a new execution from scratch
 	state := runtimestate.NewOrchestrationRuntimeState(string(iid), nil, []*protos.HistoryEvent{})
 
-	ctx, cancel := context.WithCancel(ctx)
-	be := mocks.NewBackend(t)
-	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(wi, nil).Once()
-	be.EXPECT().NextOrchestrationWorkItem(anyContext).Return(nil, errors.New("")).Once().Run(func(mock.Arguments) {
-		cancel()
-	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
+	be := mocks.NewBackend(t)
 	be.EXPECT().GetOrchestrationRuntimeState(anyContext, wi).Return(state, nil).Once()
 
 	ex := mocks.NewExecutor(t)
@@ -216,11 +212,7 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 	ex.EXPECT().ExecuteOrchestrator(anyContext, iid, []*protos.HistoryEvent{}, mock.Anything).Return(result, nil).Once()
 
 	// After execution, the Complete action should be called
-	completed := atomic.Bool{}
-	be.EXPECT().CompleteOrchestrationWorkItem(anyContext, wi).RunAndReturn(func(ctx context.Context, owi *backend.OrchestrationWorkItem) error {
-		completed.Store(true)
-		return nil
-	}).Once()
+	be.EXPECT().CompleteOrchestrationWorkItem(anyContext, wi).Return(nil).Once()
 
 	// Set up and run the test
 	worker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
@@ -229,19 +221,19 @@ func Test_TryProcessSingleOrchestrationWorkItem_ExecutionStartedAndCompleted(t *
 		Logger:   logger,
 		AppID:    "testapp",
 	})
-	worker.Start(ctx)
-	//ok, err := worker.ProcessNext(ctx)
-	//// Successfully processing a work-item should result in a nil error
-	//assert.Nil(t, err)
-	//assert.True(t, ok)
+	go worker.Start(ctx)
 
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		if !completed.Load() {
-			collect.Errorf("process next not called CompleteOrchestrationWorkItem yet")
-		}
-	}, 1*time.Second, 100*time.Millisecond)
+	callback := make(chan error, 1)
+	worker.Dispatch(wi, callback)
 
-	worker.StopAndDrain()
+	select {
+	case err := <-callback:
+		require.NoError(t, err)
+	case <-time.After(1 * time.Second):
+		t.Fatal("dispatch callback not received within timeout")
+	}
+
+	cancel()
 
 	t.Logf("state.NewEvents: %v", state.NewEvents)
 	require.Len(t, state.NewEvents, 3)
@@ -263,79 +255,65 @@ func Test_TaskWorker(t *testing.T) {
 	second := &backend.ActivityWorkItem{
 		SequenceNumber: 2,
 	}
-	tp.AddWorkItems(first, second)
 
 	worker := backend.NewTaskWorker[*backend.ActivityWorkItem](tp, logger, backend.WithMaxParallelism(1))
+	go worker.Start(ctx)
 
-	worker.Start(ctx)
+	cb1 := make(chan error, 1)
+	cb2 := make(chan error, 1)
+	worker.Dispatch(first, cb1)
+	worker.Dispatch(second, cb2)
 
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		if len(tp.PendingWorkItems()) == 0 {
-			return
-		}
-		collect.Errorf("work items not consumed yet")
-	}, 500*time.Millisecond, 100*time.Millisecond)
+	select {
+	case <-cb1:
+	case <-time.After(1 * time.Second):
+		t.Fatal("first dispatch callback not received within timeout")
+	}
+	select {
+	case <-cb2:
+	case <-time.After(1 * time.Second):
+		t.Fatal("second dispatch callback not received within timeout")
+	}
 
-	require.Len(t, tp.PendingWorkItems(), 0)
 	require.Len(t, tp.AbandonedWorkItems(), 0)
 	require.Len(t, tp.CompletedWorkItems(), 2)
 	require.Equal(t, first, tp.CompletedWorkItems()[0])
 	require.Equal(t, second, tp.CompletedWorkItems()[1])
-
-	drainFinished := make(chan bool)
-	go func() {
-		worker.StopAndDrain()
-		drainFinished <- true
-	}()
-
-	select {
-	case <-drainFinished:
-		return
-	case <-time.After(1 * time.Second):
-		t.Fatalf("worker stop and drain not finished within timeout")
-	}
-
 }
 
 func Test_StartAndStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	tp := mocks.NewTestTaskPocessor[*backend.ActivityWorkItem]("test")
 	tp.BlockProcessing()
 
-	first := backend.ActivityWorkItem{
+	first := &backend.ActivityWorkItem{
 		SequenceNumber: 1,
 	}
-	second := backend.ActivityWorkItem{
-		SequenceNumber: 2,
-	}
-	tp.AddWorkItems(&first, &second)
 
 	worker := backend.NewTaskWorker[*backend.ActivityWorkItem](tp, logger, backend.WithMaxParallelism(1))
 
-	worker.Start(ctx)
-
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.Len(c, tp.PendingWorkItems(), 1)
-	}, time.Second*5, 100*time.Millisecond)
-
-	// due to the configuration of the TestTaskProcessor, now the work item is blocked on ProcessWorkItem until the context is cancelled
-	drainFinished := make(chan bool)
+	startDone := make(chan error, 1)
 	go func() {
-		worker.StopAndDrain()
-		drainFinished <- true
+		startDone <- worker.Start(ctx)
 	}()
 
+	// Dispatch a work item that will block on processing.
+	cb := make(chan error, 1)
+	worker.Dispatch(first, cb)
+
+	// The work item should be in-flight (blocked). Give it a moment to start.
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel context to stop the worker. This unblocks processing and causes abandon.
+	cancel()
+
 	select {
-	case <-drainFinished:
-		return
+	case <-startDone:
 	case <-time.After(1 * time.Second):
-		t.Fatalf("worker stop and drain not finished within timeout")
+		t.Fatalf("worker start not finished within timeout")
 	}
 
-	require.Len(t, tp.PendingWorkItems(), 1)
-	require.Equal(t, second, tp.PendingWorkItems()[0])
 	require.Len(t, tp.AbandonedWorkItems(), 1)
 	require.Equal(t, first, tp.AbandonedWorkItems()[0])
 	require.Len(t, tp.CompletedWorkItems(), 0)
