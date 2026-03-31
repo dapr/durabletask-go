@@ -349,10 +349,18 @@ func (be *sqliteBackend) CompleteWorkflowWorkItem(ctx context.Context, wi *backe
 				// Need to insert a new row into the DB
 				if _, err := be.createWorkflowInstanceInternal(ctx, msg.HistoryEvent, tx); err != nil {
 					if err == runtimestate.ErrDuplicateEvent || errors.Is(err, api.ErrDuplicateInstance) {
-						be.logger.Warnf(
-							"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
-							wi.InstanceID,
-							es.WorkflowInstance.InstanceId)
+						// Clean up existing instance and retry
+						if cleanupErr := be.cleanupWorkflowStateInternal(ctx, tx, api.InstanceID(es.WorkflowInstance.InstanceId), false); cleanupErr != nil {
+							be.logger.Warnf(
+								"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
+								wi.InstanceID,
+								es.WorkflowInstance.InstanceId)
+						} else if _, retryErr := be.createWorkflowInstanceInternal(ctx, msg.HistoryEvent, tx); retryErr != nil {
+							be.logger.Warnf(
+								"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
+								wi.InstanceID,
+								es.WorkflowInstance.InstanceId)
+						}
 					} else {
 						return err
 					}
