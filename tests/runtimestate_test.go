@@ -318,14 +318,14 @@ func Test_CreateTimer_ExternalEventOrigin(t *testing.T) {
 	eventName := "myEvent"
 	expectedFireAt := time.Now().UTC().Add(30 * time.Minute)
 
-	s := runtimestate.NewOrchestrationRuntimeState(iid, nil, []*protos.HistoryEvent{
+	s := runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
 					Name: "MyOrchestration",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  iid,
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -334,10 +334,10 @@ func Test_CreateTimer_ExternalEventOrigin(t *testing.T) {
 		},
 	})
 
-	actions := []*protos.OrchestratorAction{
+	actions := []*protos.WorkflowAction{
 		{
 			Id: 1,
-			OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+			WorkflowActionType: &protos.WorkflowAction_CreateTimer{
 				CreateTimer: &protos.CreateTimerAction{
 					FireAt: timestamppb.New(expectedFireAt),
 					Name:   &eventName,
