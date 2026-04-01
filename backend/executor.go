@@ -426,6 +426,12 @@ func (g *grpcExecutor) CompleteWorkflowTask(ctx context.Context, res *protos.Wor
 	return emptyCompleteTaskResponse, g.backend.CompleteWorkflowTask(ctx, res)
 }
 
+// CompleteOrchestratorTask implements the deprecated protos.TaskHubSidecarServiceServer method.
+// Deprecated: Use CompleteWorkflowTask instead.
+func (g *grpcExecutor) CompleteOrchestratorTask(ctx context.Context, res *protos.WorkflowResponse) (*protos.CompleteTaskResponse, error) {
+	return g.CompleteWorkflowTask(ctx, res)
+}
+
 // CompleteActivityTask implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) CompleteActivityTask(ctx context.Context, res *protos.ActivityResponse) (*protos.CompleteTaskResponse, error) {
 	return emptyCompleteTaskResponse, g.backend.CompleteActivityTask(ctx, res)

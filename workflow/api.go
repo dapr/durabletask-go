@@ -91,7 +91,7 @@ func WithForcePurge(force bool) PurgeOptions {
 }
 
 func WorkflowMetadataIsRunning(o *WorkflowMetadata) bool {
-	return api.WorkflowMetadataIsComplete(ptr.Of(protos.WorkflowMetadata(*o)))
+	return !WorkflowMetadataIsComplete(o)
 }
 
 func WorkflowMetadataIsComplete(o *WorkflowMetadata) bool {

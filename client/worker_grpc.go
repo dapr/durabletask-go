@@ -176,7 +176,7 @@ func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
 					CompleteWorkflow: &protos.CompleteWorkflowAction{
 						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED,
-						Result:              wrapperspb.String("An internal error occured while executing the workflow."),
+						Result:              wrapperspb.String("An internal error occurred while executing the orchestration."),
 						FailureDetails: &protos.TaskFailureDetails{
 							ErrorType:    fmt.Sprintf("%T", err),
 							ErrorMessage: err.Error(),

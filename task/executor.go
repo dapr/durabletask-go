@@ -127,7 +127,7 @@ func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, 
 	}, nil
 }
 
-// ExecuteWorkflow implements backend.Executor and executes an workflow function in the current goroutine.
+// ExecuteWorkflow implements backend.Executor and executes a workflow function in the current goroutine.
 func (te *taskExecutor) ExecuteWorkflow(ctx context.Context, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
 	workflowCtx := NewWorkflowContext(te.Registry, id, oldEvents, newEvents)
 	actions := workflowCtx.start()

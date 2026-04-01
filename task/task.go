@@ -7,7 +7,7 @@ import (
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
-// ErrTaskBlocked is not an error, but rather a control flow signal indicating that an workflow
+// ErrTaskBlocked is not an error, but rather a control flow signal indicating that a workflow
 // function has executed as far as it can and that it now needs to unload, dispatch any scheduled tasks,
 // and commit its current execution progress to durable storage.
 var ErrTaskBlocked = errors.New("the current task is blocked")

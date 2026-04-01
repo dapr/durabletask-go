@@ -476,7 +476,7 @@ func (be *postgresBackend) CompleteWorkflowWorkItem(ctx context.Context, wi *bac
 				if _, err := be.createWorkflowInstanceInternal(ctx, msg.HistoryEvent, tx); err != nil {
 					if errors.Is(err, runtimestate.ErrDuplicateEvent) || errors.Is(err, api.ErrDuplicateInstance) {
 						// Clean up existing instance and retry
-						if cleanupErr := be.cleanupWorkflowStateInternal(ctx, tx, api.InstanceID(es.WorkflowInstance.InstanceId), false); cleanupErr != nil {
+						if cleanupErr := be.cleanupWorkflowStateInternal(ctx, tx, api.InstanceID(es.WorkflowInstance.InstanceId), true); cleanupErr != nil {
 							be.logger.Warnf(
 								"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
 								wi.InstanceID,
