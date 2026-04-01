@@ -132,15 +132,25 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 					s.PendingMessages = append(s.PendingMessages, msg)
 				}
 			}
-		} else if createtimer := action.GetCreateTimer(); createtimer != nil {
+		} else if timerAction := action.GetCreateTimer(); timerAction != nil {
+			timerCreated := &protos.TimerCreatedEvent{
+				FireAt: timerAction.FireAt,
+				Name:   timerAction.Name,
+			}
+			if externalEvent := timerAction.GetExternalEvent(); externalEvent != nil {
+				timerCreated.Origin = &protos.TimerCreatedEvent_ExternalEvent{
+					ExternalEvent: externalEvent,
+				}
+			} else if ct := timerAction.GetCreateTimer(); ct != nil {
+				timerCreated.Origin = &protos.TimerCreatedEvent_CreateTimer{
+					CreateTimer: ct,
+				}
+			}
 			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,
 				Timestamp: timestamppb.New(time.Now()),
 				EventType: &protos.HistoryEvent_TimerCreated{
-					TimerCreated: &protos.TimerCreatedEvent{
-						FireAt: createtimer.FireAt,
-						Name:   createtimer.Name,
-					},
+					TimerCreated: timerCreated,
 				},
 				Router: action.Router,
 			})
@@ -151,7 +161,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				EventType: &protos.HistoryEvent_TimerFired{
 					TimerFired: &protos.TimerFiredEvent{
 						TimerId: action.Id,
-						FireAt:  createtimer.FireAt,
+						FireAt:  timerAction.FireAt,
 					},
 				},
 			})

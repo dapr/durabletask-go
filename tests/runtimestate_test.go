@@ -278,6 +278,9 @@ func Test_CreateTimer(t *testing.T) {
 				CreateTimer: &protos.CreateTimerAction{
 					FireAt: timestamppb.New(expectedFireAt),
 					Name:   &timerName,
+					Origin: &protos.CreateTimerAction_CreateTimer{
+						CreateTimer: &protos.TimerOriginCreateTimer{},
+					},
 				},
 			},
 		})
@@ -293,6 +296,7 @@ func Test_CreateTimer(t *testing.T) {
 				if timerCreated := e.GetTimerCreated(); assert.NotNil(t, timerCreated) {
 					assert.WithinDuration(t, expectedFireAt, timerCreated.FireAt.AsTime(), 0)
 					assert.Equal(t, timerName, timerCreated.GetName())
+					assert.NotNil(t, timerCreated.GetCreateTimer(), "expected TimerCreatedEvent to carry CreateTimer origin")
 				}
 			}
 		}
@@ -303,6 +307,61 @@ func Test_CreateTimer(t *testing.T) {
 					expectedTimerID := int32(i + 1)
 					assert.WithinDuration(t, expectedFireAt, timerFired.FireAt.AsTime(), 0)
 					assert.Equal(t, expectedTimerID, timerFired.TimerId)
+				}
+			}
+		}
+	}
+}
+
+func Test_CreateTimer_ExternalEventOrigin(t *testing.T) {
+	const iid = "abc"
+	eventName := "myEvent"
+	expectedFireAt := time.Now().UTC().Add(30 * time.Minute)
+
+	s := runtimestate.NewOrchestrationRuntimeState(iid, nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "MyOrchestration",
+					OrchestrationInstance: &protos.OrchestrationInstance{
+						InstanceId:  iid,
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	actions := []*protos.OrchestratorAction{
+		{
+			Id: 1,
+			OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+				CreateTimer: &protos.CreateTimerAction{
+					FireAt: timestamppb.New(expectedFireAt),
+					Name:   &eventName,
+					Origin: &protos.CreateTimerAction_ExternalEvent{
+						ExternalEvent: &protos.TimerOriginExternalEvent{
+							Name: eventName,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("example")
+	continuedAsNew, err := applier.Actions(s, nil, actions, nil)
+	if assert.NoError(t, err) && assert.False(t, continuedAsNew) {
+		if assert.Len(t, s.NewEvents, 1) {
+			timerCreated := s.NewEvents[0].GetTimerCreated()
+			if assert.NotNil(t, timerCreated) {
+				assert.WithinDuration(t, expectedFireAt, timerCreated.FireAt.AsTime(), 0)
+				assert.Equal(t, eventName, timerCreated.GetName())
+				externalEvent := timerCreated.GetExternalEvent()
+				if assert.NotNil(t, externalEvent, "expected TimerCreatedEvent to carry ExternalEvent origin") {
+					assert.Equal(t, eventName, externalEvent.Name)
 				}
 			}
 		}

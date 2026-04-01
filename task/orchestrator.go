@@ -445,6 +445,31 @@ func (ctx *WorkflowContext) createTimerInternal(name *string, delay time.Duratio
 			CreateTimer: &protos.CreateTimerAction{
 				FireAt: timestamppb.New(fireAt),
 				Name:   name,
+				Origin: &protos.CreateTimerAction_CreateTimer{
+					CreateTimer: &protos.TimerOriginCreateTimer{},
+				},
+			},
+		},
+	}
+	ctx.pendingActions[timerAction.Id] = timerAction
+
+	task := newTask(ctx)
+	ctx.pendingTasks[timerAction.Id] = task
+	return task
+}
+
+func (ctx *OrchestrationContext) createExternalEventTimerInternal(eventName string, fireAt time.Time) *completableTask {
+	timerAction := &protos.OrchestratorAction{
+		Id: ctx.getNextSequenceNumber(),
+		OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+			CreateTimer: &protos.CreateTimerAction{
+				FireAt: timestamppb.New(fireAt),
+				Name:   &eventName,
+				Origin: &protos.CreateTimerAction_ExternalEvent{
+					ExternalEvent: &protos.TimerOriginExternalEvent{
+						Name: eventName,
+					},
+				},
 			},
 		},
 	}
@@ -494,16 +519,20 @@ func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Du
 		}
 		taskElement := taskList.PushBack(task)
 
+		var fireAt time.Time
 		if timeout > 0 {
-			ctx.createTimerInternal(&eventName, timeout).onCompleted(func() {
-				task.cancel()
-				if taskList.Len() > 1 {
-					taskList.Remove(taskElement)
-				} else {
-					delete(ctx.pendingExternalEventTasks, key)
-				}
-			})
+			fireAt = ctx.CurrentTimeUtc.Add(timeout)
+		} else {
+			fireAt = time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC)
 		}
+		ctx.createExternalEventTimerInternal(eventName, fireAt).onCompleted(func() {
+			task.cancel()
+			if taskList.Len() > 1 {
+				taskList.Remove(taskElement)
+			} else {
+				delete(ctx.pendingExternalEventTasks, key)
+			}
+		})
 	}
 	return task
 }

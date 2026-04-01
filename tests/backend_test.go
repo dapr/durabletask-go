@@ -246,7 +246,12 @@ func Test_ScheduleTimerTasks(t *testing.T) {
 		getWorkflowActions := func() []*protos.WorkflowAction {
 			return []*protos.WorkflowAction{{
 				WorkflowActionType: &protos.WorkflowAction_CreateTimer{
-					CreateTimer: &protos.CreateTimerAction{FireAt: timestamppb.New(expectedFireAt)},
+					CreateTimer: &protos.CreateTimerAction{
+						FireAt: timestamppb.New(expectedFireAt),
+						Origin: &protos.CreateTimerAction_CreateTimer{
+							CreateTimer: &protos.TimerOriginCreateTimer{},
+						},
+					},
 				},
 			}}
 		}
