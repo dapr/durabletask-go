@@ -87,7 +87,7 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	return taskHubClient, taskHubWorker, nil
 }
 
-// ExternalEventWorkflow is an workflow function that blocks for 30 seconds or
+// ExternalEventWorkflow is a workflow function that blocks for 30 seconds or
 // until a "Name" event is sent to it.
 func ExternalEventWorkflow(ctx *task.WorkflowContext) (any, error) {
 	var nameInput string

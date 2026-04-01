@@ -25,14 +25,14 @@ func NewTaskRegistry() *TaskRegistry {
 	return r
 }
 
-// AddWorkflow adds an workflow function to the registry. The name of the workflow
+// AddWorkflow adds a workflow function to the registry. The name of the workflow
 // function is determined using reflection.
 func (r *TaskRegistry) AddWorkflow(o Workflow) error {
 	name := helpers.GetTaskFunctionName(o)
 	return r.AddWorkflowN(name, o)
 }
 
-// AddWorkflowN adds an workflow function to the registry with a specified name.
+// AddWorkflowN adds a workflow function to the registry with a specified name.
 func (r *TaskRegistry) AddWorkflowN(name string, o Workflow) error {
 	if _, ok := r.workflows[name]; ok {
 		return fmt.Errorf("workflow named '%s' is already registered", name)

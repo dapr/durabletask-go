@@ -75,7 +75,7 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	return taskHubClient, taskHubWorker, nil
 }
 
-// ActivitySequenceWorkflow makes three activity calls in sequence and results the results
+// ActivitySequenceWorkflow makes three activity calls in sequence and returns the results
 // as an array.
 func ActivitySequenceWorkflow(ctx *task.WorkflowContext) (any, error) {
 	var helloTokyo string
@@ -93,7 +93,7 @@ func ActivitySequenceWorkflow(ctx *task.WorkflowContext) (any, error) {
 	return []string{helloTokyo, helloLondon, helloSeattle}, nil
 }
 
-// SayHelloActivity can be called by an workflow function and will return a friendly greeting.
+// SayHelloActivity can be called by a workflow function and will return a friendly greeting.
 func SayHelloActivity(ctx task.ActivityContext) (any, error) {
 	var input string
 	if err := ctx.GetInput(&input); err != nil {

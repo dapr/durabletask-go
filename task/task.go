@@ -46,7 +46,7 @@ func newTask(ctx *WorkflowContext) *completableTask {
 // Await may panic with ErrTaskBlocked as the panic value if called on a task that has not yet completed.
 // This is normal control flow behavior for workflow functions and doesn't actually indicate a failure
 // of any kind. However, workflow functions must never attempt to recover from such panics to ensure that
-// the workflow execution can procede normally.
+// the workflow execution can proceed normally.
 func (t *completableTask) Await(v any) error {
 	for {
 		if t.isCompleted {

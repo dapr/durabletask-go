@@ -79,7 +79,7 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	return taskHubClient, taskHubWorker, nil
 }
 
-// UpdateDevicesWorkflow is an workflow that runs activities in parallel
+// UpdateDevicesWorkflow is a workflow that runs activities in parallel
 func UpdateDevicesWorkflow(ctx *task.WorkflowContext) (any, error) {
 	// Get a dynamic list of devices to perform updates on
 	var devices []string
