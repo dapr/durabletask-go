@@ -132,16 +132,16 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 					s.PendingMessages = append(s.PendingMessages, msg)
 				}
 			}
-		} else if createtimer := action.GetCreateTimer(); createtimer != nil {
+		} else if timerAction := action.GetCreateTimer(); timerAction != nil {
 			timerCreated := &protos.TimerCreatedEvent{
-				FireAt: createtimer.FireAt,
-				Name:   createtimer.Name,
+				FireAt: timerAction.FireAt,
+				Name:   timerAction.Name,
 			}
-			if externalEvent := createtimer.GetExternalEvent(); externalEvent != nil {
+			if externalEvent := timerAction.GetExternalEvent(); externalEvent != nil {
 				timerCreated.Origin = &protos.TimerCreatedEvent_ExternalEvent{
 					ExternalEvent: externalEvent,
 				}
-			} else if ct := createtimer.GetCreateTimer(); ct != nil {
+			} else if ct := timerAction.GetCreateTimer(); ct != nil {
 				timerCreated.Origin = &protos.TimerCreatedEvent_CreateTimer{
 					CreateTimer: ct,
 				}
@@ -161,7 +161,7 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 				EventType: &protos.HistoryEvent_TimerFired{
 					TimerFired: &protos.TimerFiredEvent{
 						TimerId: action.Id,
-						FireAt:  createtimer.FireAt,
+						FireAt:  timerAction.FireAt,
 					},
 				},
 			})
