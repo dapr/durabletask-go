@@ -458,10 +458,10 @@ func (ctx *WorkflowContext) createTimerInternal(name *string, delay time.Duratio
 	return task
 }
 
-func (ctx *OrchestrationContext) createExternalEventTimerInternal(eventName string, fireAt time.Time) *completableTask {
-	timerAction := &protos.OrchestratorAction{
+func (ctx *WorkflowContext) createExternalEventTimerInternal(eventName string, fireAt time.Time) *completableTask {
+	timerAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
-		OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+		WorkflowActionType: &protos.WorkflowAction_CreateTimer{
 			CreateTimer: &protos.CreateTimerAction{
 				FireAt: timestamppb.New(fireAt),
 				Name:   &eventName,
