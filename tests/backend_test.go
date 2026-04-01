@@ -246,7 +246,12 @@ func Test_ScheduleTimerTasks(t *testing.T) {
 		getOrchestratorActions := func() []*protos.OrchestratorAction {
 			return []*protos.OrchestratorAction{{
 				OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
-					CreateTimer: &protos.CreateTimerAction{FireAt: timestamppb.New(expectedFireAt)},
+					CreateTimer: &protos.CreateTimerAction{
+						FireAt: timestamppb.New(expectedFireAt),
+						Origin: &protos.CreateTimerAction_CreateTimer{
+							CreateTimer: &protos.TimerOriginCreateTimer{},
+						},
+					},
 				},
 			}}
 		}
