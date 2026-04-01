@@ -98,6 +98,10 @@ func NewSqliteBackend(opts *SqliteOptions, logger backend.Logger) backend.Backen
 
 // CreateTaskHub creates the sqlite database and applies the schema
 func (be *sqliteBackend) CreateTaskHub(context.Context) error {
+	if be.db != nil {
+		return backend.ErrTaskHubExists
+	}
+
 	db, err := sql.Open("sqlite", be.dsn)
 	if err != nil {
 		panic(fmt.Errorf("failed to open the database: %w", err))
@@ -1089,12 +1093,14 @@ func (be *sqliteBackend) PurgeOrchestrationState(ctx context.Context, id api.Ins
 }
 
 // Start implements backend.Backend
-func (*sqliteBackend) Start(context.Context) error {
+func (be *sqliteBackend) Start(ctx context.Context) error {
+	go be.TasksBackend.Run(ctx)
 	return nil
 }
 
 // Stop implements backend.Backend
-func (*sqliteBackend) Stop(context.Context) error {
+func (be *sqliteBackend) Stop(context.Context) error {
+	be.TasksBackend.Close()
 	return nil
 }
 
