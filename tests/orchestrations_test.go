@@ -25,12 +25,12 @@ import (
 	"github.com/dapr/durabletask-go/tests/utils"
 )
 
-var tracer = otel.Tracer("orchestration-test")
+var tracer = otel.Tracer("workflow-test")
 
-func Test_EmptyOrchestration(t *testing.T) {
+func Test_EmptyWorkflow(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("EmptyOrchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("EmptyWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 		return nil, nil
 	})
 
@@ -40,25 +40,25 @@ func Test_EmptyOrchestration(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "EmptyOrchestrator")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "EmptyWorkflow")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("EmptyOrchestrator", id),
-		utils.AssertOrchestratorExecuted("EmptyOrchestrator", id, "COMPLETED"),
+		utils.AssertWorkflowCreated("EmptyWorkflow", id),
+		utils.AssertWorkflowExecuted("EmptyWorkflow", id, "COMPLETED"),
 	)
 }
 
 func Test_SingleTimer(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleTimer", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SingleTimer", func(ctx *task.WorkflowContext) (any, error) {
 		err := ctx.CreateTimer(time.Duration(0)).Await(nil)
 		return nil, err
 	})
@@ -69,10 +69,10 @@ func Test_SingleTimer(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "SingleTimer")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "SingleTimer")
 	if assert.NoError(t, err) {
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			assert.GreaterOrEqual(t, metadata.LastUpdatedAt.AsTime(), metadata.CreatedAt.AsTime())
@@ -82,16 +82,16 @@ func Test_SingleTimer(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("SingleTimer", id),
+		utils.AssertWorkflowCreated("SingleTimer", id),
 		utils.AssertTimer(id),
-		utils.AssertOrchestratorExecuted("SingleTimer", id, "COMPLETED"),
+		utils.AssertWorkflowExecuted("SingleTimer", id, "COMPLETED"),
 	)
 }
 
 func Test_ConcurrentTimers(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("TimerFanOut", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("TimerFanOut", func(ctx *task.WorkflowContext) (any, error) {
 		tasks := []task.Task{}
 		for i := 0; i < 3; i++ {
 			tasks = append(tasks, ctx.CreateTimer(1*time.Second))
@@ -111,10 +111,10 @@ func Test_ConcurrentTimers(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "TimerFanOut")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "TimerFanOut")
 	if assert.NoError(t, err) {
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			assert.GreaterOrEqual(t, metadata.LastUpdatedAt.AsTime(), metadata.CreatedAt.AsTime())
@@ -124,18 +124,18 @@ func Test_ConcurrentTimers(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("TimerFanOut", id),
+		utils.AssertWorkflowCreated("TimerFanOut", id),
 		utils.AssertTimer(id),
 		utils.AssertTimer(id),
 		utils.AssertTimer(id),
-		utils.AssertOrchestratorExecuted("TimerFanOut", id, "COMPLETED"),
+		utils.AssertWorkflowExecuted("TimerFanOut", id, "COMPLETED"),
 	)
 }
 
 func Test_IsReplaying(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("IsReplayingOrch", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("IsReplayingOrch", func(ctx *task.WorkflowContext) (any, error) {
 		values := []bool{ctx.IsReplaying}
 		ctx.CreateTimer(time.Duration(0)).Await(nil)
 		values = append(values, ctx.IsReplaying)
@@ -150,10 +150,10 @@ func Test_IsReplaying(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "IsReplayingOrch")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "IsReplayingOrch")
 	if assert.NoError(t, err) {
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			assert.Equal(t, `[true,true,false]`, metadata.Output.Value)
@@ -163,17 +163,17 @@ func Test_IsReplaying(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("IsReplayingOrch", id),
+		utils.AssertWorkflowCreated("IsReplayingOrch", id),
 		utils.AssertTimer(id),
 		utils.AssertTimer(id),
-		utils.AssertOrchestratorExecuted("IsReplayingOrch", id, "COMPLETED"),
+		utils.AssertWorkflowExecuted("IsReplayingOrch", id, "COMPLETED"),
 	)
 }
 
 func Test_SingleActivity(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SingleActivity", func(ctx *task.WorkflowContext) (any, error) {
 		var input string
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
@@ -196,10 +196,10 @@ func Test_SingleActivity(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"))
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("世界"))
 	if assert.NoError(t, err) {
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			assert.Equal(t, `"Hello, 世界!"`, metadata.Output.Value)
@@ -209,16 +209,16 @@ func Test_SingleActivity(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("SingleActivity", id),
+		utils.AssertWorkflowCreated("SingleActivity", id),
 		utils.AssertActivity("SayHello", id, 0),
-		utils.AssertOrchestratorExecuted("SingleActivity", id, "COMPLETED"),
+		utils.AssertWorkflowExecuted("SingleActivity", id, "COMPLETED"),
 	)
 }
 
 func Test_SingleActivity_TaskSpan(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SingleActivity", func(ctx *task.WorkflowContext) (any, error) {
 		var input string
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
@@ -245,10 +245,10 @@ func Test_SingleActivity_TaskSpan(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"))
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("世界"))
 	if assert.NoError(t, err) {
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			assert.Equal(t, `"Hello, 世界!"`, metadata.Output.Value)
@@ -258,10 +258,10 @@ func Test_SingleActivity_TaskSpan(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("SingleActivity", id),
+		utils.AssertWorkflowCreated("SingleActivity", id),
 		utils.AssertSpan("activityChild"),
 		utils.AssertActivity("SayHello", id, 0),
-		utils.AssertOrchestratorExecuted("SingleActivity", id, "COMPLETED"),
+		utils.AssertWorkflowExecuted("SingleActivity", id, "COMPLETED"),
 	)
 	// assert child-parent relationship
 	assert.Equal(t, spans[1].Parent().SpanID(), spans[2].SpanContext().SpanID())
@@ -270,7 +270,7 @@ func Test_SingleActivity_TaskSpan(t *testing.T) {
 func Test_ActivityChain(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ActivityChain", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ActivityChain", func(ctx *task.WorkflowContext) (any, error) {
 		val := 0
 		for i := 0; i < 10; i++ {
 			if err := ctx.CallActivity("PlusOne", task.WithActivityInput(val)).Await(&val); err != nil {
@@ -293,10 +293,10 @@ func Test_ActivityChain(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "ActivityChain")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "ActivityChain")
 	if assert.NoError(t, err) {
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			assert.Equal(t, `10`, metadata.Output.Value)
@@ -306,18 +306,18 @@ func Test_ActivityChain(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("ActivityChain", id),
+		utils.AssertWorkflowCreated("ActivityChain", id),
 		utils.AssertActivity("PlusOne", id, 0), utils.AssertActivity("PlusOne", id, 1), utils.AssertActivity("PlusOne", id, 2),
 		utils.AssertActivity("PlusOne", id, 3), utils.AssertActivity("PlusOne", id, 4), utils.AssertActivity("PlusOne", id, 5),
 		utils.AssertActivity("PlusOne", id, 6), utils.AssertActivity("PlusOne", id, 7), utils.AssertActivity("PlusOne", id, 8),
-		utils.AssertActivity("PlusOne", id, 9), utils.AssertOrchestratorExecuted("ActivityChain", id, "COMPLETED"),
+		utils.AssertActivity("PlusOne", id, 9), utils.AssertWorkflowExecuted("ActivityChain", id, "COMPLETED"),
 	)
 }
 
 func Test_ActivityRetries(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ActivityRetries", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ActivityRetries", func(ctx *task.WorkflowContext) (any, error) {
 		if err := ctx.CallActivity("FailActivity", task.WithActivityRetryPolicy(&task.RetryPolicy{
 			MaxAttempts:          3,
 			InitialRetryInterval: 10 * time.Millisecond,
@@ -336,10 +336,10 @@ func Test_ActivityRetries(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "ActivityRetries")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "ActivityRetries")
 	if assert.NoError(t, err) {
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, metadata.RuntimeStatus)
 			// With 3 max attempts there will be two retries with 10 millis delay before each
@@ -350,20 +350,20 @@ func Test_ActivityRetries(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("ActivityRetries", id),
+		utils.AssertWorkflowCreated("ActivityRetries", id),
 		utils.AssertActivity("FailActivity", id, 0),
 		utils.AssertTimer(id, utils.AssertTaskID(1)),
 		utils.AssertActivity("FailActivity", id, 2),
 		utils.AssertTimer(id, utils.AssertTaskID(3)),
 		utils.AssertActivity("FailActivity", id, 4),
-		utils.AssertOrchestratorExecuted("ActivityRetries", id, "FAILED"),
+		utils.AssertWorkflowExecuted("ActivityRetries", id, "FAILED"),
 	)
 }
 
 func Test_ActivityFanOut(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ActivityFanOut", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ActivityFanOut", func(ctx *task.WorkflowContext) (any, error) {
 		tasks := []task.Task{}
 		for i := 0; i < 10; i++ {
 			tasks = append(tasks, ctx.CallActivity("ToString", task.WithActivityInput(i)))
@@ -394,10 +394,10 @@ func Test_ActivityFanOut(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r, backend.WithMaxParallelism(10))
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "ActivityFanOut")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "ActivityFanOut")
 	if assert.NoError(t, err) {
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			assert.Equal(t, `["9","8","7","6","5","4","3","2","1","0"]`, metadata.Output.Value)
@@ -410,26 +410,26 @@ func Test_ActivityFanOut(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("ActivityFanOut", id),
+		utils.AssertWorkflowCreated("ActivityFanOut", id),
 		// TODO: Find a way to assert an unordered sequence of traces since the order of activity traces is non-deterministic.
 	)
 }
 
-func Test_SingleSubOrchestrator_Completed(t *testing.T) {
+func Test_SingleChildWorkflow_Completed(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("Parent", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("Parent", func(ctx *task.WorkflowContext) (any, error) {
 		var input any
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
 		}
 		var output any
-		err := ctx.CallSubOrchestrator(
+		err := ctx.CallChildWorkflow(
 			"Child",
-			task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_child"),
-			task.WithSubOrchestratorInput(input)).Await(&output)
+			task.WithChildWorkflowInstanceID(string(ctx.ID)+"_child"),
+			task.WithChildWorkflowInput(input)).Await(&output)
 		return output, err
 	})
-	r.AddOrchestratorN("Child", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("Child", func(ctx *task.WorkflowContext) (any, error) {
 		var input string
 		if err := ctx.GetInput(&input); err != nil {
 			return "", err
@@ -442,30 +442,30 @@ func Test_SingleSubOrchestrator_Completed(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	id, err := client.ScheduleNewOrchestration(ctx, "Parent", api.WithInput("Hello, world!"))
+	id, err := client.ScheduleNewWorkflow(ctx, "Parent", api.WithInput("Hello, world!"))
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, `"Hello, world!"`, metadata.Output.Value)
 
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("Parent", id),
-		utils.AssertOrchestratorExecuted("Child", id+"_child", "COMPLETED"),
-		utils.AssertOrchestratorExecuted("Parent", id, "COMPLETED"),
+		utils.AssertWorkflowCreated("Parent", id),
+		utils.AssertWorkflowExecuted("Child", id+"_child", "COMPLETED"),
+		utils.AssertWorkflowExecuted("Parent", id, "COMPLETED"),
 	)
 }
 
-func Test_SingleSubOrchestrator_Failed(t *testing.T) {
+func Test_SingleChildWorkflow_Failed(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("Parent", func(ctx *task.OrchestrationContext) (any, error) {
-		err := ctx.CallSubOrchestrator(
+	r.AddWorkflowN("Parent", func(ctx *task.WorkflowContext) (any, error) {
+		err := ctx.CallChildWorkflow(
 			"Child",
-			task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_child")).Await(nil)
+			task.WithChildWorkflowInstanceID(string(ctx.ID)+"_child")).Await(nil)
 		return nil, err
 	})
-	r.AddOrchestratorN("Child", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("Child", func(ctx *task.WorkflowContext) (any, error) {
 		return nil, errors.New("Child failed")
 	})
 
@@ -474,9 +474,9 @@ func Test_SingleSubOrchestrator_Failed(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	id, err := client.ScheduleNewOrchestration(ctx, "Parent")
+	id, err := client.ScheduleNewWorkflow(ctx, "Parent")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, metadata.RuntimeStatus)
 	if assert.NotNil(t, metadata.FailureDetails) {
@@ -485,26 +485,26 @@ func Test_SingleSubOrchestrator_Failed(t *testing.T) {
 
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("Parent", id),
-		utils.AssertOrchestratorExecuted("Child", id+"_child", "FAILED"),
-		utils.AssertOrchestratorExecuted("Parent", id, "FAILED"),
+		utils.AssertWorkflowCreated("Parent", id),
+		utils.AssertWorkflowExecuted("Child", id+"_child", "FAILED"),
+		utils.AssertWorkflowExecuted("Parent", id, "FAILED"),
 	)
 }
 
-func Test_SingleSubOrchestrator_Failed_Retries(t *testing.T) {
+func Test_SingleChildWorkflow_Failed_Retries(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("Parent", func(ctx *task.OrchestrationContext) (any, error) {
-		err := ctx.CallSubOrchestrator(
+	r.AddWorkflowN("Parent", func(ctx *task.WorkflowContext) (any, error) {
+		err := ctx.CallChildWorkflow(
 			"Child",
-			task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_child"),
-			task.WithSubOrchestrationRetryPolicy(&task.RetryPolicy{
+			task.WithChildWorkflowInstanceID(string(ctx.ID)+"_child"),
+			task.WithChildWorkflowRetryPolicy(&task.RetryPolicy{
 				MaxAttempts:          3,
 				InitialRetryInterval: 10 * time.Millisecond,
 				BackoffCoefficient:   2,
 			})).Await(nil)
 		return nil, err
 	})
-	r.AddOrchestratorN("Child", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("Child", func(ctx *task.WorkflowContext) (any, error) {
 		return nil, errors.New("Child failed")
 	})
 
@@ -513,9 +513,9 @@ func Test_SingleSubOrchestrator_Failed_Retries(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	id, err := client.ScheduleNewOrchestration(ctx, "Parent")
+	id, err := client.ScheduleNewWorkflow(ctx, "Parent")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, metadata.RuntimeStatus)
 	if assert.NotNil(t, metadata.FailureDetails) {
@@ -524,20 +524,20 @@ func Test_SingleSubOrchestrator_Failed_Retries(t *testing.T) {
 
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("Parent", id),
-		utils.AssertOrchestratorExecuted("Child", id+"_child", "FAILED"),
+		utils.AssertWorkflowCreated("Parent", id),
+		utils.AssertWorkflowExecuted("Child", id+"_child", "FAILED"),
 		utils.AssertTimer(id, utils.AssertTaskID(1)),
-		utils.AssertOrchestratorExecuted("Child", id+"_child", "FAILED"),
+		utils.AssertWorkflowExecuted("Child", id+"_child", "FAILED"),
 		utils.AssertTimer(id, utils.AssertTaskID(3)),
-		utils.AssertOrchestratorExecuted("Child", id+"_child", "FAILED"),
-		utils.AssertOrchestratorExecuted("Parent", id, "FAILED"),
+		utils.AssertWorkflowExecuted("Child", id+"_child", "FAILED"),
+		utils.AssertWorkflowExecuted("Parent", id, "FAILED"),
 	)
 }
 
 func Test_ContinueAsNew(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ContinueAsNewTest", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ContinueAsNewTest", func(ctx *task.WorkflowContext) (any, error) {
 		var input int32
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
@@ -558,10 +558,10 @@ func Test_ContinueAsNew(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "ContinueAsNewTest", api.WithInput(0))
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "ContinueAsNewTest", api.WithInput(0))
 	if assert.NoError(t, err) {
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			assert.Equal(t, `10`, metadata.Output.Value)
@@ -571,25 +571,25 @@ func Test_ContinueAsNew(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("ContinueAsNewTest", id),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertTimer(id), utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
-		utils.AssertOrchestratorExecuted("ContinueAsNewTest", id, "COMPLETED"),
+		utils.AssertWorkflowCreated("ContinueAsNewTest", id),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertTimer(id), utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "CONTINUED_AS_NEW"),
+		utils.AssertWorkflowExecuted("ContinueAsNewTest", id, "COMPLETED"),
 	)
 }
 
 func Test_ContinueAsNew_Events(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ContinueAsNewTest", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ContinueAsNewTest", func(ctx *task.WorkflowContext) (any, error) {
 		var input int32
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
@@ -610,14 +610,14 @@ func Test_ContinueAsNew_Events(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "ContinueAsNewTest", api.WithInput(0))
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "ContinueAsNewTest", api.WithInput(0))
 	require.NoError(t, err)
 	for i := 0; i < 10; i++ {
 		require.NoError(t, client.RaiseEvent(ctx, id, "MyEvent", api.WithEventPayload(false)))
 	}
 	require.NoError(t, client.RaiseEvent(ctx, id, "MyEvent", api.WithEventPayload(true)))
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, `10`, metadata.Output.Value)
@@ -626,7 +626,7 @@ func Test_ContinueAsNew_Events(t *testing.T) {
 func Test_ExternalEventContention(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ContinueAsNewTest", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ContinueAsNewTest", func(ctx *task.WorkflowContext) (any, error) {
 		var data int32
 		if err := ctx.WaitForSingleEvent("MyEventData", 1*time.Second).Await(&data); err != nil && !errors.Is(err, task.ErrTaskCanceled) {
 			return nil, err
@@ -650,14 +650,14 @@ func Test_ExternalEventContention(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "ContinueAsNewTest")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "ContinueAsNewTest")
 	require.NoError(t, err)
 
 	// Wait for the timer to elapse
 	timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	_, err = client.WaitForOrchestrationCompletion(timeoutCtx, id)
+	_, err = client.WaitForWorkflowCompletion(timeoutCtx, id)
 	require.ErrorIs(t, err, timeoutCtx.Err())
 
 	// Now raise the event, which should queue correctly for the next time
@@ -666,18 +666,18 @@ func Test_ExternalEventContention(t *testing.T) {
 	require.NoError(t, client.RaiseEvent(ctx, id, "MyEventSignal", api.WithEventPayload(false)))
 	require.NoError(t, client.RaiseEvent(ctx, id, "MyEventSignal", api.WithEventPayload(true)))
 
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, `42`, metadata.Output.Value)
 }
 
-func Test_ExternalEventOrchestration(t *testing.T) {
+func Test_ExternalEventWorkflow(t *testing.T) {
 	const eventCount = 10
 
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ExternalEventOrchestration", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ExternalEventWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 		for i := 0; i < eventCount; i++ {
 			var value int
 			ctx.WaitForSingleEvent("MyEvent", 5*time.Second).Await(&value)
@@ -694,8 +694,8 @@ func Test_ExternalEventOrchestration(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "ExternalEventOrchestration", api.WithInput(0))
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "ExternalEventWorkflow", api.WithInput(0))
 	if assert.NoError(t, err) {
 		for i := 0; i < eventCount; i++ {
 			opts := api.WithEventPayload(i)
@@ -705,9 +705,9 @@ func Test_ExternalEventOrchestration(t *testing.T) {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
-		metadata, err := client.WaitForOrchestrationCompletion(timeoutCtx, id)
+		metadata, err := client.WaitForWorkflowCompletion(timeoutCtx, id)
 		require.NoError(t, err)
-		assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+		assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 		require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	}
 
@@ -715,8 +715,8 @@ func Test_ExternalEventOrchestration(t *testing.T) {
 	eventSizeInBytes := 1
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("ExternalEventOrchestration", id),
-		utils.AssertOrchestratorExecuted("ExternalEventOrchestration", id, "COMPLETED", utils.AssertSpanEvents(
+		utils.AssertWorkflowCreated("ExternalEventWorkflow", id),
+		utils.AssertWorkflowExecuted("ExternalEventWorkflow", id, "COMPLETED", utils.AssertSpanEvents(
 			utils.AssertExternalEvent("MyEvent", eventSizeInBytes),
 			utils.AssertExternalEvent("MyEvent", eventSizeInBytes),
 			utils.AssertExternalEvent("MyEvent", eventSizeInBytes),
@@ -734,7 +734,7 @@ func Test_ExternalEventOrchestration(t *testing.T) {
 func Test_ExternalEventTimeout(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ExternalEventOrchestrationWithTimeout", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ExternalEventWorkflowWithTimeout", func(ctx *task.WorkflowContext) (any, error) {
 		if err := ctx.WaitForSingleEvent("MyEvent", 2*time.Second).Await(nil); err != nil {
 			return nil, err
 		}
@@ -750,8 +750,8 @@ func Test_ExternalEventTimeout(t *testing.T) {
 	// Run two variations, one where we raise the external event and one where we don't (timeout)
 	for _, raiseEvent := range []bool{true, false} {
 		t.Run(fmt.Sprintf("RaiseEvent:%v", raiseEvent), func(t *testing.T) {
-			// Run the orchestration
-			id, err := client.ScheduleNewOrchestration(ctx, "ExternalEventOrchestrationWithTimeout")
+			// Run the workflow
+			id, err := client.ScheduleNewWorkflow(ctx, "ExternalEventWorkflowWithTimeout")
 			require.NoError(t, err)
 			if raiseEvent {
 				require.NoError(t, client.RaiseEvent(ctx, id, "MyEvent"))
@@ -760,23 +760,23 @@ func Test_ExternalEventTimeout(t *testing.T) {
 			timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 
-			metadata, err := client.WaitForOrchestrationCompletion(timeoutCtx, id)
+			metadata, err := client.WaitForWorkflowCompletion(timeoutCtx, id)
 			require.NoError(t, err)
 
 			// Validate the exported OTel traces
 			spans := exporter.GetSpans().Snapshots()
 			if raiseEvent {
-				assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+				assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 				assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 
 				utils.AssertSpanSequence(t, spans,
-					utils.AssertOrchestratorCreated("ExternalEventOrchestrationWithTimeout", id),
-					utils.AssertOrchestratorExecuted("ExternalEventOrchestrationWithTimeout", id, "COMPLETED", utils.AssertSpanEvents(
+					utils.AssertWorkflowCreated("ExternalEventWorkflowWithTimeout", id),
+					utils.AssertWorkflowExecuted("ExternalEventWorkflowWithTimeout", id, "COMPLETED", utils.AssertSpanEvents(
 						utils.AssertExternalEvent("MyEvent", 0),
 					)),
 				)
 			} else {
-				assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+				assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 				require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, metadata.RuntimeStatus)
 				if assert.NotNil(t, metadata.FailureDetails) {
 					// The exact message is not important - just make sure it's something clear
@@ -786,10 +786,10 @@ func Test_ExternalEventTimeout(t *testing.T) {
 				}
 
 				utils.AssertSpanSequence(t, spans,
-					utils.AssertOrchestratorCreated("ExternalEventOrchestrationWithTimeout", id),
+					utils.AssertWorkflowCreated("ExternalEventWorkflowWithTimeout", id),
 					// A timer is used to implement the event timeout
 					utils.AssertTimer(id),
-					utils.AssertOrchestratorExecuted("ExternalEventOrchestrationWithTimeout", id, "FAILED", utils.AssertSpanEvents()),
+					utils.AssertWorkflowExecuted("ExternalEventWorkflowWithTimeout", id, "FAILED", utils.AssertSpanEvents()),
 				)
 			}
 		})
@@ -797,12 +797,12 @@ func Test_ExternalEventTimeout(t *testing.T) {
 	}
 }
 
-func Test_SuspendResumeOrchestration(t *testing.T) {
+func Test_SuspendResumeWorkflow(t *testing.T) {
 	const eventCount = 10
 
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SuspendResumeOrchestration", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SuspendResumeWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 		for i := 0; i < eventCount; i++ {
 			var value int
 			ctx.WaitForSingleEvent("MyEvent", 5*time.Second).Await(&value)
@@ -819,49 +819,49 @@ func Test_SuspendResumeOrchestration(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration, which will block waiting for external events
-	id, err := client.ScheduleNewOrchestration(ctx, "SuspendResumeOrchestration", api.WithInput(0))
+	// Run the workflow, which will block waiting for external events
+	id, err := client.ScheduleNewWorkflow(ctx, "SuspendResumeWorkflow", api.WithInput(0))
 	require.NoError(t, err)
 
-	// Wait for the orchestration to finish starting
-	_, err = client.WaitForOrchestrationStart(ctx, id)
+	// Wait for the workflow to finish starting
+	_, err = client.WaitForWorkflowStart(ctx, id)
 	require.NoError(t, err)
 
-	// Suspend the orchestration
-	require.NoError(t, client.SuspendOrchestration(ctx, id, ""))
+	// Suspend the workflow
+	require.NoError(t, client.SuspendWorkflow(ctx, id, ""))
 
-	// Raise a bunch of events to the orchestration (they should get buffered but not consumed)
+	// Raise a bunch of events to the workflow (they should get buffered but not consumed)
 	for i := 0; i < eventCount; i++ {
 		opts := api.WithEventPayload(i)
 		require.NoError(t, client.RaiseEvent(ctx, id, "MyEvent", opts))
 	}
 
-	// Make sure the orchestration *doesn't* complete
+	// Make sure the workflow *doesn't* complete
 	timeoutCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	_, err = client.WaitForOrchestrationCompletion(timeoutCtx, id)
+	_, err = client.WaitForWorkflowCompletion(timeoutCtx, id)
 	require.ErrorIs(t, err, timeoutCtx.Err())
 
-	var metadata *backend.OrchestrationMetadata
-	metadata, err = client.FetchOrchestrationMetadata(ctx, id)
+	var metadata *backend.WorkflowMetadata
+	metadata, err = client.FetchWorkflowMetadata(ctx, id)
 	if assert.NoError(t, err) {
-		assert.True(t, api.OrchestrationMetadataIsRunning(metadata))
+		assert.True(t, api.WorkflowMetadataIsRunning(metadata))
 		assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED, metadata.RuntimeStatus)
 	}
 
-	// Resume the orchestration and wait for it to complete
-	require.NoError(t, client.ResumeOrchestration(ctx, id, ""))
+	// Resume the workflow and wait for it to complete
+	require.NoError(t, client.ResumeWorkflow(ctx, id, ""))
 	timeoutCtx, cancel = context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	_, err = client.WaitForOrchestrationCompletion(timeoutCtx, id)
+	_, err = client.WaitForWorkflowCompletion(timeoutCtx, id)
 	require.NoError(t, err)
 
 	// Validate the exported OTel traces
 	eventSizeInBytes := 1
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("SuspendResumeOrchestration", id),
-		utils.AssertOrchestratorExecuted("SuspendResumeOrchestration", id, "COMPLETED", utils.AssertSpanEvents(
+		utils.AssertWorkflowCreated("SuspendResumeWorkflow", id),
+		utils.AssertWorkflowExecuted("SuspendResumeWorkflow", id, "COMPLETED", utils.AssertSpanEvents(
 			utils.AssertSuspendedEvent(),
 			utils.AssertExternalEvent("MyEvent", eventSizeInBytes),
 			utils.AssertExternalEvent("MyEvent", eventSizeInBytes),
@@ -878,10 +878,10 @@ func Test_SuspendResumeOrchestration(t *testing.T) {
 	)
 }
 
-func Test_TerminateOrchestration(t *testing.T) {
+func Test_TerminateWorkflow(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("MyOrchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("MyWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 		ctx.CreateTimer(3 * time.Second).Await(nil)
 		return nil, nil
 	})
@@ -892,36 +892,36 @@ func Test_TerminateOrchestration(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration, which will block waiting for external events
-	id, err := client.ScheduleNewOrchestration(ctx, "MyOrchestrator")
+	// Run the workflow, which will block waiting for external events
+	id, err := client.ScheduleNewWorkflow(ctx, "MyWorkflow")
 	require.NoError(t, err)
 
-	// Terminate the orchestration before the timer expires
-	require.NoError(t, client.TerminateOrchestration(ctx, id, api.WithOutput("You got terminated!")))
+	// Terminate the workflow before the timer expires
+	require.NoError(t, client.TerminateWorkflow(ctx, id, api.WithOutput("You got terminated!")))
 
-	// Wait for the orchestration to complete
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	// Wait for the workflow to complete
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, metadata.RuntimeStatus)
 	require.Equal(t, `"You got terminated!"`, metadata.Output.Value)
 
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("MyOrchestrator", id),
-		utils.AssertOrchestratorExecuted("MyOrchestrator", id, "TERMINATED"),
+		utils.AssertWorkflowCreated("MyWorkflow", id),
+		utils.AssertWorkflowExecuted("MyWorkflow", id, "TERMINATED"),
 	)
 }
 
-func Test_TerminateOrchestration_Recursive(t *testing.T) {
+func Test_TerminateWorkflow_Recursive(t *testing.T) {
 	delayTime := 4 * time.Second
 	executedActivity := false
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("Root", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("Root", func(ctx *task.WorkflowContext) (any, error) {
 		tasks := []task.Task{}
 		for i := 0; i < 5; i++ {
-			task := ctx.CallSubOrchestrator("L1", task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_L1_"+strconv.Itoa(i)))
+			task := ctx.CallChildWorkflow("L1", task.WithChildWorkflowInstanceID(string(ctx.ID)+"_L1_"+strconv.Itoa(i)))
 			tasks = append(tasks, task)
 		}
 		for _, task := range tasks {
@@ -929,11 +929,11 @@ func Test_TerminateOrchestration_Recursive(t *testing.T) {
 		}
 		return nil, nil
 	})
-	r.AddOrchestratorN("L1", func(ctx *task.OrchestrationContext) (any, error) {
-		ctx.CallSubOrchestrator("L2", task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_L2")).Await(nil)
+	r.AddWorkflowN("L1", func(ctx *task.WorkflowContext) (any, error) {
+		ctx.CallChildWorkflow("L2", task.WithChildWorkflowInstanceID(string(ctx.ID)+"_L2")).Await(nil)
 		return nil, nil
 	})
-	r.AddOrchestratorN("L2", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("L2", func(ctx *task.WorkflowContext) (any, error) {
 		ctx.CreateTimer(delayTime).Await(nil)
 		ctx.CallActivity("Fail").Await(nil)
 		return nil, nil
@@ -951,21 +951,21 @@ func Test_TerminateOrchestration_Recursive(t *testing.T) {
 	// Test terminating with and without recursion
 	for _, recurse := range []bool{true, false} {
 		t.Run(fmt.Sprintf("Recurse = %v", recurse), func(t *testing.T) {
-			// Run the orchestration, which will block waiting for external events
-			id, err := client.ScheduleNewOrchestration(ctx, "Root")
+			// Run the workflow, which will block waiting for external events
+			id, err := client.ScheduleNewWorkflow(ctx, "Root")
 			require.NoError(t, err)
 
-			// Wait long enough to ensure all orchestrations have started (but not longer than the timer delay)
+			// Wait long enough to ensure all workflows have started (but not longer than the timer delay)
 			assert.Eventually(t, func() bool {
-				// List of all orchestrations created
-				orchestrationIDs := []string{string(id)}
+				// List of all workflows created
+				workflowIDs := []string{string(id)}
 				for i := 0; i < 5; i++ {
-					orchestrationIDs = append(orchestrationIDs, string(id)+"_L1_"+strconv.Itoa(i), string(id)+"_L1_"+strconv.Itoa(i)+"_L2")
+					workflowIDs = append(workflowIDs, string(id)+"_L1_"+strconv.Itoa(i), string(id)+"_L1_"+strconv.Itoa(i)+"_L2")
 				}
-				for _, orchID := range orchestrationIDs {
-					metadata, err := client.FetchOrchestrationMetadata(ctx, api.InstanceID(orchID))
+				for _, orchID := range workflowIDs {
+					metadata, err := client.FetchWorkflowMetadata(ctx, api.InstanceID(orchID))
 					require.NoError(t, err)
-					// All orchestrations should be running
+					// All workflows should be running
 					if metadata.RuntimeStatus != protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING {
 						return false
 					}
@@ -973,47 +973,47 @@ func Test_TerminateOrchestration_Recursive(t *testing.T) {
 				return true
 			}, 2*time.Second, 100*time.Millisecond)
 
-			// Terminate the root orchestration and mark whether a recursive termination
+			// Terminate the root workflow and mark whether a recursive termination
 			output := fmt.Sprintf("Recursive termination = %v", recurse)
 			opts := []api.TerminateOptions{api.WithOutput(output), api.WithRecursiveTerminate(recurse)}
-			require.NoError(t, client.TerminateOrchestration(ctx, id, opts...))
+			require.NoError(t, client.TerminateWorkflow(ctx, id, opts...))
 
-			// Wait for the root orchestration to complete and verify its terminated status
-			metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+			// Wait for the root workflow to complete and verify its terminated status
+			metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 			require.NoError(t, err)
 			require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, metadata.RuntimeStatus)
 			require.Equal(t, fmt.Sprintf("\"%s\"", output), metadata.Output.Value)
 
-			// Wait for all L2 suborchestrations to complete
+			// Wait for all L2 child workflows to complete
 			orchIDs := []string{}
 			for i := 0; i < 5; i++ {
 				orchIDs = append(orchIDs, string(id)+"_L1_"+strconv.Itoa(i)+"_L2")
 			}
 			for _, orchID := range orchIDs {
-				_, err := client.WaitForOrchestrationCompletion(ctx, api.InstanceID(orchID))
+				_, err := client.WaitForWorkflowCompletion(ctx, api.InstanceID(orchID))
 				require.NoError(t, err)
 			}
-			// Verify tht none of the L2 suborchestrations executed the activity in case of recursive termination
+			// Verify tht none of the L2 child workflows executed the activity in case of recursive termination
 			assert.NotEqual(t, recurse, executedActivity)
 		})
 	}
 }
 
-func Test_TerminateOrchestration_Recursive_TerminateCompletedSubOrchestration(t *testing.T) {
+func Test_TerminateWorkflow_Recursive_TerminateCompletedChildWorkflow(t *testing.T) {
 	delayTime := 4 * time.Second
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("Root", func(ctx *task.OrchestrationContext) (any, error) {
-		// Create L1 sub-orchestration and wait for it to complete
-		ctx.CallSubOrchestrator("L1", task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_L1")).Await(nil)
+	r.AddWorkflowN("Root", func(ctx *task.WorkflowContext) (any, error) {
+		// Create L1 child workflow and wait for it to complete
+		ctx.CallChildWorkflow("L1", task.WithChildWorkflowInstanceID(string(ctx.ID)+"_L1")).Await(nil)
 		ctx.CreateTimer(delayTime).Await(nil)
 		return nil, nil
 	})
-	r.AddOrchestratorN("L1", func(ctx *task.OrchestrationContext) (any, error) {
-		// Create L2 sub-orchestration but don't wait for it to complete
-		ctx.CallSubOrchestrator("L2", task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_L2"))
+	r.AddWorkflowN("L1", func(ctx *task.WorkflowContext) (any, error) {
+		// Create L2 child workflow but don't wait for it to complete
+		ctx.CallChildWorkflow("L2", task.WithChildWorkflowInstanceID(string(ctx.ID)+"_L2"))
 		return nil, nil
 	})
-	r.AddOrchestratorN("L2", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("L2", func(ctx *task.WorkflowContext) (any, error) {
 		// Wait for `delayTime`
 		ctx.CreateTimer(delayTime).Await(nil)
 		return nil, nil
@@ -1027,25 +1027,25 @@ func Test_TerminateOrchestration_Recursive_TerminateCompletedSubOrchestration(t 
 	// Test terminating with and without recursion
 	for _, recurse := range []bool{true, false} {
 		t.Run(fmt.Sprintf("Recurse = %v", recurse), func(t *testing.T) {
-			// Run the orchestration, which will block waiting for external events
-			id, err := client.ScheduleNewOrchestration(ctx, "Root")
+			// Run the workflow, which will block waiting for external events
+			id, err := client.ScheduleNewWorkflow(ctx, "Root")
 			require.NoError(t, err)
 
-			// Wait long enough to ensure that all L1 orchestrations have completed but Root and L2 are still running
+			// Wait long enough to ensure that all L1 workflows have completed but Root and L2 are still running
 			assert.Eventually(t, func() bool {
-				// List of all orchestrations created
-				orchestrationIDs := []string{string(id), string(id) + "_L1", string(id) + "_L1_L2"}
-				for _, orchID := range orchestrationIDs {
-					// Fetch orchestration metadata
-					metadata, err := client.FetchOrchestrationMetadata(ctx, api.InstanceID(orchID))
+				// List of all workflows created
+				workflowIDs := []string{string(id), string(id) + "_L1", string(id) + "_L1_L2"}
+				for _, orchID := range workflowIDs {
+					// Fetch workflow metadata
+					metadata, err := client.FetchWorkflowMetadata(ctx, api.InstanceID(orchID))
 					require.NoError(t, err)
 					if orchID == string(id)+"_L1" {
-						// L1 orchestration should have completed
+						// L1 workflow should have completed
 						if metadata.RuntimeStatus != protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED {
 							return false
 						}
 					} else {
-						// Root and L2 orchestrations should still be running
+						// Root and L2 workflows should still be running
 						if metadata.RuntimeStatus != protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING {
 							return false
 						}
@@ -1054,45 +1054,45 @@ func Test_TerminateOrchestration_Recursive_TerminateCompletedSubOrchestration(t 
 				return true
 			}, 2*time.Second, 100*time.Millisecond)
 
-			// Terminate the root orchestration and mark whether a recursive termination
+			// Terminate the root workflow and mark whether a recursive termination
 			output := fmt.Sprintf("Recursive termination = %v", recurse)
 			opts := []api.TerminateOptions{api.WithOutput(output), api.WithRecursiveTerminate(recurse)}
-			require.NoError(t, client.TerminateOrchestration(ctx, id, opts...))
+			require.NoError(t, client.TerminateWorkflow(ctx, id, opts...))
 
-			// Wait for the root orchestration to complete and verify its terminated status
-			metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+			// Wait for the root workflow to complete and verify its terminated status
+			metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 			require.NoError(t, err)
 			require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, metadata.RuntimeStatus)
 			require.Equal(t, fmt.Sprintf("\"%s\"", output), metadata.Output.Value)
 
-			// Verify that the L1 and L2 orchestrations have completed with the appropriate status
-			L1_OrchestrationStatus := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
-			L2_OrchestrationStatus := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
+			// Verify that the L1 and L2 workflows have completed with the appropriate status
+			L1_WorkflowStatus := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
+			L2_WorkflowStatus := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
 			L2_Output := ""
 			L1_Output := ""
 			if recurse {
-				L2_OrchestrationStatus = protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED
+				L2_WorkflowStatus = protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED
 				L2_Output = fmt.Sprintf("\"%s\"", output)
 			}
-			// In recursive case, L1 orchestration is not terminated because it was already completed when the root orchestration was terminated
-			metadata, err = client.WaitForOrchestrationCompletion(ctx, id+"_L1")
+			// In recursive case, L1 workflow is not terminated because it was already completed when the root workflow was terminated
+			metadata, err = client.WaitForWorkflowCompletion(ctx, id+"_L1")
 			require.NoError(t, err)
-			require.Equal(t, L1_OrchestrationStatus, metadata.RuntimeStatus)
+			require.Equal(t, L1_WorkflowStatus, metadata.RuntimeStatus)
 			require.Equal(t, L1_Output, metadata.Output.Value)
 
-			// In recursive case, L2 is terminated because it was still running when the root orchestration was terminated
-			metadata, err = client.WaitForOrchestrationCompletion(ctx, id+"_L1_L2")
+			// In recursive case, L2 is terminated because it was still running when the root workflow was terminated
+			metadata, err = client.WaitForWorkflowCompletion(ctx, id+"_L1_L2")
 			require.NoError(t, err)
-			require.Equal(t, L2_OrchestrationStatus, metadata.RuntimeStatus)
+			require.Equal(t, L2_WorkflowStatus, metadata.RuntimeStatus)
 			require.Equal(t, L2_Output, metadata.Output.Value)
 		})
 	}
 }
 
-func Test_PurgeCompletedOrchestration(t *testing.T) {
+func Test_PurgeCompletedWorkflow(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ExternalEventOrchestration", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ExternalEventWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 		if err := ctx.WaitForSingleEvent("MyEvent", 30*time.Second).Await(nil); err != nil {
 			return nil, err
 		}
@@ -1104,56 +1104,56 @@ func Test_PurgeCompletedOrchestration(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "ExternalEventOrchestration")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "ExternalEventWorkflow")
 	if !assert.NoError(t, err) {
 		return
 	}
-	if _, err = client.WaitForOrchestrationStart(ctx, id); !assert.NoError(t, err) {
+	if _, err = client.WaitForWorkflowStart(ctx, id); !assert.NoError(t, err) {
 		return
 	}
 
-	// Try to purge the orchestration state before it completes and verify that it fails with ErrNotCompleted
-	if err = client.PurgeOrchestrationState(ctx, id); !assert.ErrorIs(t, err, api.ErrNotCompleted) {
+	// Try to purge the workflow state before it completes and verify that it fails with ErrNotCompleted
+	if err = client.PurgeWorkflowState(ctx, id); !assert.ErrorIs(t, err, api.ErrNotCompleted) {
 		return
 	}
 
-	// Raise an event to the orchestration so that it can complete
+	// Raise an event to the workflow so that it can complete
 	if err = client.RaiseEvent(ctx, id, "MyEvent"); !assert.NoError(t, err) {
 		return
 	}
-	if _, err = client.WaitForOrchestrationCompletion(ctx, id); !assert.NoError(t, err) {
+	if _, err = client.WaitForWorkflowCompletion(ctx, id); !assert.NoError(t, err) {
 		return
 	}
 
-	// Try to purge the orchestration state again and verify that it succeeds
-	if err = client.PurgeOrchestrationState(ctx, id); !assert.NoError(t, err) {
+	// Try to purge the workflow state again and verify that it succeeds
+	if err = client.PurgeWorkflowState(ctx, id); !assert.NoError(t, err) {
 		return
 	}
 
-	// Try to fetch the orchestration metadata and verify that it fails with ErrInstanceNotFound
-	if _, err = client.FetchOrchestrationMetadata(ctx, id); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
+	// Try to fetch the workflow metadata and verify that it fails with ErrInstanceNotFound
+	if _, err = client.FetchWorkflowMetadata(ctx, id); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
 		return
 	}
 
 	// Try to purge again and verify that it also fails with ErrInstanceNotFound
-	if err = client.PurgeOrchestrationState(ctx, id); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
+	if err = client.PurgeWorkflowState(ctx, id); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
 		return
 	}
 }
 
-func Test_PurgeOrchestration_Recursive(t *testing.T) {
+func Test_PurgeWorkflow_Recursive(t *testing.T) {
 	delayTime := 4 * time.Second
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("Root", func(ctx *task.OrchestrationContext) (any, error) {
-		ctx.CallSubOrchestrator("L1", task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_L1")).Await(nil)
+	r.AddWorkflowN("Root", func(ctx *task.WorkflowContext) (any, error) {
+		ctx.CallChildWorkflow("L1", task.WithChildWorkflowInstanceID(string(ctx.ID)+"_L1")).Await(nil)
 		return nil, nil
 	})
-	r.AddOrchestratorN("L1", func(ctx *task.OrchestrationContext) (any, error) {
-		ctx.CallSubOrchestrator("L2", task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_L2")).Await(nil)
+	r.AddWorkflowN("L1", func(ctx *task.WorkflowContext) (any, error) {
+		ctx.CallChildWorkflow("L2", task.WithChildWorkflowInstanceID(string(ctx.ID)+"_L2")).Await(nil)
 		return nil, nil
 	})
-	r.AddOrchestratorN("L2", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("L2", func(ctx *task.WorkflowContext) (any, error) {
 		ctx.CreateTimer(delayTime).Await(nil)
 		return nil, nil
 	})
@@ -1166,37 +1166,37 @@ func Test_PurgeOrchestration_Recursive(t *testing.T) {
 	// Test terminating with and without recursion
 	for _, recurse := range []bool{true, false} {
 		t.Run(fmt.Sprintf("Recurse = %v", recurse), func(t *testing.T) {
-			// Run the orchestration, which will block waiting for external events
-			id, err := client.ScheduleNewOrchestration(ctx, "Root")
+			// Run the workflow, which will block waiting for external events
+			id, err := client.ScheduleNewWorkflow(ctx, "Root")
 			require.NoError(t, err)
 
-			metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+			metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 			require.NoError(t, err)
 			require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 
-			// Purge the root orchestration
+			// Purge the root workflow
 			opts := []api.PurgeOptions{api.WithRecursivePurge(recurse)}
-			err = client.PurgeOrchestrationState(ctx, id, opts...)
+			err = client.PurgeWorkflowState(ctx, id, opts...)
 			assert.NoError(t, err)
 
-			// Verify that root Orchestration has been purged
-			_, err = client.FetchOrchestrationMetadata(ctx, id)
+			// Verify that root Workflow has been purged
+			_, err = client.FetchWorkflowMetadata(ctx, id)
 			assert.ErrorIs(t, err, api.ErrInstanceNotFound)
 
 			if recurse {
-				// Verify that L1 and L2 orchestrations have been purged
-				_, err = client.FetchOrchestrationMetadata(ctx, id+"_L1")
+				// Verify that L1 and L2 workflows have been purged
+				_, err = client.FetchWorkflowMetadata(ctx, id+"_L1")
 				assert.ErrorIs(t, err, api.ErrInstanceNotFound)
 
-				_, err = client.FetchOrchestrationMetadata(ctx, id+"_L1_L2")
+				_, err = client.FetchWorkflowMetadata(ctx, id+"_L1_L2")
 				assert.ErrorIs(t, err, api.ErrInstanceNotFound)
 			} else {
-				// Verify that L1 and L2 orchestrations are not purged
-				metadata, err = client.FetchOrchestrationMetadata(ctx, id+"_L1")
+				// Verify that L1 and L2 workflows are not purged
+				metadata, err = client.FetchWorkflowMetadata(ctx, id+"_L1")
 				assert.NoError(t, err)
 				assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 
-				_, err = client.FetchOrchestrationMetadata(ctx, id+"_L1_L2")
+				_, err = client.FetchWorkflowMetadata(ctx, id+"_L1_L2")
 				assert.NoError(t, err)
 				assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			}
@@ -1204,12 +1204,12 @@ func Test_PurgeOrchestration_Recursive(t *testing.T) {
 	}
 }
 
-func Test_RecreateCompletedOrchestration(t *testing.T) {
+func Test_RecreateCompletedWorkflow(t *testing.T) {
 	t.Skip("Not yet supported. Needs https://github.com/dapr/durabletask-go/issues/42")
 
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("HelloOrchestration", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("HelloWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 		var input string
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
@@ -1232,20 +1232,20 @@ func Test_RecreateCompletedOrchestration(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the first orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "HelloOrchestration", api.WithInput("世界"))
+	// Run the first workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "HelloWorkflow", api.WithInput("世界"))
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, `"Hello, 世界!"`, metadata.Output.Value)
 
-	// Run the second orchestration with the same ID as the first
+	// Run the second workflow with the same ID as the first
 	var newID api.InstanceID
-	newID, err = client.ScheduleNewOrchestration(ctx, "HelloOrchestration", api.WithInstanceID(id), api.WithInput("World"))
+	newID, err = client.ScheduleNewWorkflow(ctx, "HelloWorkflow", api.WithInstanceID(id), api.WithInput("World"))
 	require.NoError(t, err)
 	require.Equal(t, id, newID)
-	metadata, err = client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err = client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, `"Hello, World!"`, metadata.Output.Value)
@@ -1253,121 +1253,19 @@ func Test_RecreateCompletedOrchestration(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("SingleActivity", id),
+		utils.AssertWorkflowCreated("SingleActivity", id),
 		utils.AssertActivity("SayHello", id, 0),
-		utils.AssertOrchestratorExecuted("SingleActivity", id, "COMPLETED"),
-		utils.AssertOrchestratorCreated("SingleActivity", id),
+		utils.AssertWorkflowExecuted("SingleActivity", id, "COMPLETED"),
+		utils.AssertWorkflowCreated("SingleActivity", id),
 		utils.AssertActivity("SayHello", id, 0),
-		utils.AssertOrchestratorExecuted("SingleActivity", id, "COMPLETED"),
+		utils.AssertWorkflowExecuted("SingleActivity", id, "COMPLETED"),
 	)
-}
-
-func Test_SingleActivity_ReuseInstanceIDIgnore(t *testing.T) {
-	// Registration
-	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity", func(ctx *task.OrchestrationContext) (any, error) {
-		var input string
-		if err := ctx.GetInput(&input); err != nil {
-			return nil, err
-		}
-		var output string
-		err := ctx.CallActivity("SayHello", task.WithActivityInput(input)).Await(&output)
-		return output, err
-	})
-	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
-		var name string
-		if err := ctx.GetInput(&name); err != nil {
-			return nil, err
-		}
-		return fmt.Sprintf("Hello, %s!", name), nil
-	})
-
-	// Initialization
-	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
-
-	instanceID := api.InstanceID("IGNORE_IF_RUNNING_OR_COMPLETED")
-	reuseIdPolicy := &api.OrchestrationIdReusePolicy{
-		Action:          api.REUSE_ID_ACTION_IGNORE,
-		OperationStatus: []api.OrchestrationStatus{api.RUNTIME_STATUS_RUNNING, api.RUNTIME_STATUS_COMPLETED, api.RUNTIME_STATUS_PENDING},
-	}
-
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
-	require.NoError(t, err)
-	// wait orchestration to start
-	client.WaitForOrchestrationStart(ctx, id)
-	pivotTime := time.Now()
-	// schedule again, it should ignore creating the new orchestration
-	id, err = client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id), api.WithOrchestrationIdReusePolicy(reuseIdPolicy))
-	require.NoError(t, err)
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelTimeout()
-	metadata, err := client.WaitForOrchestrationCompletion(timeoutCtx, id)
-	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
-	// the first orchestration should complete as the second one is ignored
-	assert.Equal(t, `"Hello, 世界!"`, metadata.Output.Value)
-	// assert the orchestration created timestamp
-	assert.True(t, pivotTime.After(metadata.CreatedAt.AsTime()))
-}
-
-func Test_SingleActivity_ReuseInstanceIDTerminate(t *testing.T) {
-	// Registration
-	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity", func(ctx *task.OrchestrationContext) (any, error) {
-		var input string
-		if err := ctx.GetInput(&input); err != nil {
-			return nil, err
-		}
-		var output string
-		err := ctx.CallActivity("SayHello", task.WithActivityInput(input)).Await(&output)
-		return output, err
-	})
-	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
-		var name string
-		if err := ctx.GetInput(&name); err != nil {
-			return nil, err
-		}
-		return fmt.Sprintf("Hello, %s!", name), nil
-	})
-
-	// Initialization
-	ctx := context.Background()
-	client, worker := initTaskHubWorker(ctx, r)
-	defer worker.Shutdown(ctx)
-
-	instanceID := api.InstanceID("TERMINATE_IF_RUNNING_OR_COMPLETED")
-	reuseIdPolicy := &api.OrchestrationIdReusePolicy{
-		Action:          api.REUSE_ID_ACTION_TERMINATE,
-		OperationStatus: []api.OrchestrationStatus{api.RUNTIME_STATUS_RUNNING, api.RUNTIME_STATUS_COMPLETED, api.RUNTIME_STATUS_PENDING},
-	}
-
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
-	require.NoError(t, err)
-	// wait orchestration to start
-	client.WaitForOrchestrationStart(ctx, id)
-	pivotTime := time.Now()
-	// schedule again, it should terminate the first orchestration and start a new one
-	id, err = client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id), api.WithOrchestrationIdReusePolicy(reuseIdPolicy))
-	require.NoError(t, err)
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelTimeout()
-	metadata, err := client.WaitForOrchestrationCompletion(timeoutCtx, id)
-	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
-	// the second orchestration should complete.
-	assert.Equal(t, `"Hello, World!"`, metadata.Output.Value)
-	// assert the orchestration created timestamp
-	assert.True(t, pivotTime.Before(metadata.CreatedAt.AsTime()))
 }
 
 func Test_SingleActivity_ReuseInstanceIDError(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SingleActivity", func(ctx *task.WorkflowContext) (any, error) {
 		var input string
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
@@ -1391,10 +1289,10 @@ func Test_SingleActivity_ReuseInstanceIDError(t *testing.T) {
 
 	instanceID := api.InstanceID("ERROR_IF_RUNNING_OR_COMPLETED")
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
 	require.NoError(t, err)
-	id, err = client.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id))
+	id, err = client.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id))
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), "orchestration instance already exists")
 	}
@@ -1404,7 +1302,7 @@ func Test_TaskExecutionId(t *testing.T) {
 	t.Run("SingleActivityWithRetry", func(t *testing.T) {
 		// Registration
 		r := task.NewTaskRegistry()
-		require.NoError(t, r.AddOrchestratorN("TaskExecutionID", func(ctx *task.OrchestrationContext) (any, error) {
+		require.NoError(t, r.AddWorkflowN("TaskExecutionID", func(ctx *task.WorkflowContext) (any, error) {
 			if err := ctx.CallActivity("FailActivity", task.WithActivityRetryPolicy(&task.RetryPolicy{
 				MaxAttempts:          3,
 				InitialRetryInterval: 10 * time.Millisecond,
@@ -1431,11 +1329,11 @@ func Test_TaskExecutionId(t *testing.T) {
 		client, worker := initTaskHubWorker(ctx, r)
 		defer worker.Shutdown(ctx)
 
-		// Run the orchestration
-		id, err := client.ScheduleNewOrchestration(ctx, "TaskExecutionID")
+		// Run the workflow
+		id, err := client.ScheduleNewWorkflow(ctx, "TaskExecutionID")
 		require.NoError(t, err)
 
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		require.NoError(t, err)
 
 		assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
@@ -1449,7 +1347,7 @@ func Test_TaskExecutionId(t *testing.T) {
 	t.Run("ParallelActivityWithRetry", func(t *testing.T) {
 		// Registration
 		r := task.NewTaskRegistry()
-		require.NoError(t, r.AddOrchestratorN("TaskExecutionID", func(ctx *task.OrchestrationContext) (any, error) {
+		require.NoError(t, r.AddWorkflowN("TaskExecutionID", func(ctx *task.WorkflowContext) (any, error) {
 			t1 := ctx.CallActivity("FailActivity", task.WithActivityRetryPolicy(&task.RetryPolicy{
 				MaxAttempts:          3,
 				InitialRetryInterval: 10 * time.Millisecond,
@@ -1492,11 +1390,11 @@ func Test_TaskExecutionId(t *testing.T) {
 		client, worker := initTaskHubWorker(ctx, r)
 		defer worker.Shutdown(ctx)
 
-		// Run the orchestration
-		id, err := client.ScheduleNewOrchestration(ctx, "TaskExecutionID")
+		// Run the workflow
+		id, err := client.ScheduleNewWorkflow(ctx, "TaskExecutionID")
 		require.NoError(t, err)
 
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		require.NoError(t, err)
 
 		assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
@@ -1514,7 +1412,7 @@ func Test_TaskExecutionId(t *testing.T) {
 	t.Run("SingleActivityWithNoRetry", func(t *testing.T) {
 		// Registration
 		r := task.NewTaskRegistry()
-		require.NoError(t, r.AddOrchestratorN("TaskExecutionID", func(ctx *task.OrchestrationContext) (any, error) {
+		require.NoError(t, r.AddWorkflowN("TaskExecutionID", func(ctx *task.WorkflowContext) (any, error) {
 			if err := ctx.CallActivity("Activity").Await(nil); err != nil {
 				return nil, err
 			}
@@ -1533,11 +1431,11 @@ func Test_TaskExecutionId(t *testing.T) {
 		client, worker := initTaskHubWorker(ctx, r)
 		defer worker.Shutdown(ctx)
 
-		// Run the orchestration
-		id, err := client.ScheduleNewOrchestration(ctx, "TaskExecutionID")
+		// Run the workflow
+		id, err := client.ScheduleNewWorkflow(ctx, "TaskExecutionID")
 		require.NoError(t, err)
 
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		require.NoError(t, err)
 
 		assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
@@ -1550,7 +1448,7 @@ func Test_ActivityTraceContext(t *testing.T) {
 	t.Run("TraceContext is propagated in the activity context", func(t *testing.T) {
 		// Registration
 		r := task.NewTaskRegistry()
-		require.NoError(t, r.AddOrchestratorN("TraceContextOrchestration", func(ctx *task.OrchestrationContext) (any, error) {
+		require.NoError(t, r.AddWorkflowN("TraceContextWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 			if err := ctx.CallActivity("ActivityWithContext", task.WithActivityRetryPolicy(&task.RetryPolicy{
 				MaxAttempts:          3,
 				InitialRetryInterval: 10 * time.Millisecond,
@@ -1590,11 +1488,11 @@ func Test_ActivityTraceContext(t *testing.T) {
 		client, worker := initTaskHubWorker(ctx, r)
 		defer worker.Shutdown(ctx)
 
-		// Run the orchestration
-		id, err := client.ScheduleNewOrchestration(ctx, "TraceContextOrchestration")
+		// Run the workflow
+		id, err := client.ScheduleNewWorkflow(ctx, "TraceContextWorkflow")
 		require.NoError(t, err)
 
-		metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 		require.NoError(t, err)
 
 		assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
@@ -1604,19 +1502,19 @@ func Test_ActivityTraceContext(t *testing.T) {
 		// Validate the exported OTel traces include patch spans
 		spans := exporter.GetSpans().Snapshots()
 		utils.AssertSpanSequence(t, spans,
-			utils.AssertOrchestratorCreated("TraceContextOrchestration", id),
+			utils.AssertWorkflowCreated("TraceContextWorkflow", id),
 			utils.AssertSpan("ActivityWith1Context"),
 			utils.AssertActivity("ActivityWithContext", id, 0),
-			utils.AssertOrchestratorExecuted("TraceContextOrchestration", id, "COMPLETED"),
+			utils.AssertWorkflowExecuted("TraceContextWorkflow", id, "COMPLETED"),
 		)
 	})
 }
 
-func Test_OrchestrationPatching_DefaultToPatched(t *testing.T) {
+func Test_WorkflowPatching_DefaultToPatched(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
 	patchesFound := []bool{}
-	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	require.NoError(t, r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
 		patchesFound = append(patchesFound, ctx.IsPatched("patch1"))
 		return nil, nil
 	}))
@@ -1626,21 +1524,21 @@ func Test_OrchestrationPatching_DefaultToPatched(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "Workflow")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, []bool{true}, patchesFound)
 }
 
-func Test_OrchestrationPatching_RunUnpatchedVersion(t *testing.T) {
+func Test_WorkflowPatching_RunUnpatchedVersion(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
 	runNumber := atomic.Uint32{}
 	patchesFound := []bool{}
-	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	require.NoError(t, r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
 		currentRun := runNumber.Add(1)
 		// Simulate a version upgrade across runs, first run supports version 1 and 2, following runs support version 1, 2 and 3
 		// It's expected to respect first run, and receive version 2 in the second run.
@@ -1661,23 +1559,23 @@ func Test_OrchestrationPatching_RunUnpatchedVersion(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "Workflow")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, uint32(2), runNumber.Load())
 	assert.Equal(t, []bool{false}, patchesFound)
 }
 
-func Test_OrchestrationPatching_MultiplePatches(t *testing.T) {
+func Test_WorkflowPatching_MultiplePatches(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
 	runNumber := atomic.Uint32{}
 	patches1Found := []bool{}
 	patches2Found := []bool{}
-	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	require.NoError(t, r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
 		currentRun := runNumber.Add(1)
 		if currentRun > 1 {
 			patches1Found = append(patches1Found, ctx.IsPatched("patch1"))
@@ -1698,10 +1596,10 @@ func Test_OrchestrationPatching_MultiplePatches(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "Workflow")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, uint32(3), runNumber.Load())
@@ -1709,13 +1607,13 @@ func Test_OrchestrationPatching_MultiplePatches(t *testing.T) {
 	assert.Equal(t, []bool{true, true}, patches2Found)
 }
 
-func Test_OrchestrationPatching_ContinueAsNewDoNotCarryOverChoices(t *testing.T) {
+func Test_WorkflowPatching_ContinueAsNewDoNotCarryOverChoices(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
 	patchesFound := []bool{}
 	ranContinueAsNew := false
 	runNumber := atomic.Uint32{}
-	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	require.NoError(t, r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
 		currentRun := runNumber.Add(1)
 		// The patch is checked from the 2nd rerun, so it should be false for the in-flight run, but true for the continue-as-new run.
 		if currentRun > 1 {
@@ -1738,23 +1636,23 @@ func Test_OrchestrationPatching_ContinueAsNewDoNotCarryOverChoices(t *testing.T)
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	// Run the orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "Workflow")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, []bool{false, true, true}, patchesFound)
 }
 
-func Test_OrchestrationPatching_PatchPersistsAcrossReplays(t *testing.T) {
+func Test_WorkflowPatching_PatchPersistsAcrossReplays(t *testing.T) {
 	// This test verifies that once a patch is enabled, it remains enabled
 	// across multiple activity completions (replays).
 	r := task.NewTaskRegistry()
 	runNumber := atomic.Uint32{}
 	patchResults := []bool{}
 
-	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	require.NoError(t, r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
 		runNumber.Add(1)
 
 		// First activity - patch should be enabled (at end of history)
@@ -1780,13 +1678,13 @@ func Test_OrchestrationPatching_PatchPersistsAcrossReplays(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	id, err := client.ScheduleNewWorkflow(ctx, "Workflow")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 
-	// Orchestrator runs 4 times: initial + 3 activity completions
+	// Workflow runs 4 times: initial + 3 activity completions
 	assert.Equal(t, uint32(4), runNumber.Load())
 	// All patch checks should return true (first time enabled, subsequent times from history)
 	// Run 1: [true] - first check at end of history
@@ -1800,12 +1698,12 @@ func Test_OrchestrationPatching_PatchPersistsAcrossReplays(t *testing.T) {
 	}
 }
 
-func Test_OrchestrationPatching_PatchRemembersToStayFalse(t *testing.T) {
+func Test_WorkflowPatching_PatchRemembersToStayFalse(t *testing.T) {
 	r := task.NewTaskRegistry()
 	runNumber := atomic.Uint32{}
 	patchResults := []bool{}
 
-	require.NoError(t, r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	require.NoError(t, r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
 		currentRun := runNumber.Add(1)
 
 		// Simulate code upgrade: patch check is only present from run 2 onwards
@@ -1833,9 +1731,9 @@ func Test_OrchestrationPatching_PatchRemembersToStayFalse(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	id, err := client.ScheduleNewOrchestration(ctx, "Orchestrator")
+	id, err := client.ScheduleNewWorkflow(ctx, "Workflow")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 
@@ -1846,10 +1744,10 @@ func Test_OrchestrationPatching_PatchRemembersToStayFalse(t *testing.T) {
 	assert.False(t, patchResults[1])
 }
 
-func Test_OrchestrationPatching_TracingSpans(t *testing.T) {
+func Test_WorkflowPatching_TracingSpans(t *testing.T) {
 	// This test verifies that patch checks generate distributed tracing spans.
 	r := task.NewTaskRegistry()
-	require.NoError(t, r.AddOrchestratorN("PatchTracingOrchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	require.NoError(t, r.AddWorkflowN("PatchTracingWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 		ctx.IsPatched("patch1")
 		if err := ctx.CallActivity("SayHello").Await(nil); err != nil {
 			return nil, err
@@ -1871,19 +1769,19 @@ func Test_OrchestrationPatching_TracingSpans(t *testing.T) {
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
 
-	id, err := client.ScheduleNewOrchestration(ctx, "PatchTracingOrchestrator")
+	id, err := client.ScheduleNewWorkflow(ctx, "PatchTracingWorkflow")
 	require.NoError(t, err)
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 
 	// Validate the exported OTel traces include patch spans
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("PatchTracingOrchestrator", id),
+		utils.AssertWorkflowCreated("PatchTracingWorkflow", id),
 		utils.AssertActivity("SayHello", id, 0),
 		utils.AssertActivity("SayHello", id, 1),
-		utils.AssertOrchestratorExecuted("PatchTracingOrchestrator", id, "COMPLETED",
+		utils.AssertWorkflowExecuted("PatchTracingWorkflow", id, "COMPLETED",
 			utils.AssertSpanStringSliceAttribute("applied_patches", []string{"patch1", "patch2", "patch3"}),
 		),
 	)
@@ -1894,14 +1792,14 @@ func initTaskHubWorker(ctx context.Context, r *task.TaskRegistry, opts ...backen
 	logger := backend.DefaultLogger()
 	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(""), logger)
 	executor := task.NewTaskExecutor(r)
-	orchestrationWorker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+	workflowWorker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
 		Backend:  be,
 		Executor: executor,
 		Logger:   logger,
 		AppID:    "testapp",
 	}, opts...)
 	activityWorker := backend.NewActivityTaskWorker(be, executor, logger, opts...)
-	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
+	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 	if err := taskHubWorker.Start(ctx); err != nil {
 		panic(err)
 	}

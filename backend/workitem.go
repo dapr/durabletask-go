@@ -13,26 +13,26 @@ type WorkItem interface {
 	IsWorkItem() bool
 }
 
-type OrchestrationWorkItem struct {
+type WorkflowWorkItem struct {
 	InstanceID api.InstanceID
 	NewEvents  []*HistoryEvent
 	LockedBy   string
 	RetryCount int32
-	State      *protos.OrchestrationRuntimeState
+	State      *protos.WorkflowRuntimeState
 	Properties map[string]interface{}
 }
 
 // String implements core.WorkItem and fmt.Stringer
-func (wi OrchestrationWorkItem) String() string {
+func (wi WorkflowWorkItem) String() string {
 	return fmt.Sprintf("%s (%d event(s))", wi.InstanceID, len(wi.NewEvents))
 }
 
 // IsWorkItem implements core.WorkItem
-func (wi OrchestrationWorkItem) IsWorkItem() bool {
+func (wi WorkflowWorkItem) IsWorkItem() bool {
 	return true
 }
 
-func (wi *OrchestrationWorkItem) GetAbandonDelay() time.Duration {
+func (wi *WorkflowWorkItem) GetAbandonDelay() time.Duration {
 	switch {
 	case wi.RetryCount == 0:
 		return time.Duration(0) // no delay

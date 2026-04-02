@@ -13,9 +13,9 @@ import (
 )
 
 func main() {
-	// Create a new task registry and add the orchestrator and activities
+	// Create a new task registry and add the workflow and activities
 	r := task.NewTaskRegistry()
-	r.AddOrchestrator(ExternalEventOrchestrator)
+	r.AddWorkflow(ExternalEventWorkflow)
 
 	// Init the client
 	ctx := context.Background()
@@ -25,17 +25,17 @@ func main() {
 	}
 	defer worker.Shutdown(ctx)
 
-	// Start a new orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, "ExternalEventOrchestrator")
+	// Start a new workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "ExternalEventWorkflow")
 	if err != nil {
-		log.Fatalf("Failed to schedule new orchestration: %v", err)
+		log.Fatalf("Failed to schedule new workflow: %v", err)
 	}
-	metadata, err := client.WaitForOrchestrationStart(ctx, id)
+	metadata, err := client.WaitForWorkflowStart(ctx, id)
 	if err != nil {
-		log.Fatalf("Failed to wait for orchestration to start: %v", err)
+		log.Fatalf("Failed to wait for workflow to start: %v", err)
 	}
 
-	// Prompt the user for their name and send that to the orchestrator
+	// Prompt the user for their name and send that to the workflow
 	go func() {
 		fmt.Println("Enter your first name: ")
 		var nameInput string
@@ -45,15 +45,15 @@ func main() {
 		}
 	}()
 
-	// After the orchestration receives the event, it should complete on its own
-	metadata, err = client.WaitForOrchestrationCompletion(ctx, id)
+	// After the workflow receives the event, it should complete on its own
+	metadata, err = client.WaitForWorkflowCompletion(ctx, id)
 	if err != nil {
-		log.Fatalf("Failed to wait for orchestration to complete: %v", err)
+		log.Fatalf("Failed to wait for workflow to complete: %v", err)
 	}
 	if metadata.FailureDetails != nil {
-		log.Println("orchestration failed:", metadata.FailureDetails.ErrorMessage)
+		log.Println("workflow failed:", metadata.FailureDetails.ErrorMessage)
 	} else {
-		log.Println("orchestration completed:", metadata.Output)
+		log.Println("workflow completed:", metadata.Output)
 	}
 }
 
@@ -67,13 +67,13 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	// Create a new backend
 	// Use the in-memory sqlite provider by specifying ""
 	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(""), logger)
-	orchestrationWorker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+	workflowWorker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
 		Backend:  be,
 		Executor: executor,
 		Logger:   logger,
 	})
 	activityWorker := backend.NewActivityTaskWorker(be, executor, logger)
-	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
+	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 
 	// Start the worker
 	err := taskHubWorker.Start(ctx)
@@ -87,9 +87,9 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	return taskHubClient, taskHubWorker, nil
 }
 
-// ExternalEventOrchestrator is an orchestrator function that blocks for 30 seconds or
+// ExternalEventWorkflow is a workflow function that blocks for 30 seconds or
 // until a "Name" event is sent to it.
-func ExternalEventOrchestrator(ctx *task.OrchestrationContext) (any, error) {
+func ExternalEventWorkflow(ctx *task.WorkflowContext) (any, error) {
 	var nameInput string
 	if err := ctx.WaitForSingleEvent("Name", 30*time.Second).Await(&nameInput); err != nil {
 		// Timeout expired

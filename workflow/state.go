@@ -17,7 +17,7 @@ const (
 	StatusStalled        = api.RUNTIME_STATUS_STALLED
 )
 
-type WorkflowMetadata protos.OrchestrationMetadata
+type WorkflowMetadata protos.WorkflowMetadata
 type ListInstanceIDsResponse protos.ListInstanceIDsResponse
 type GetInstanceHistoryResponse protos.GetInstanceHistoryResponse
 

@@ -1,3 +1,16 @@
+/*
+Copyright 2026 The Dapr Authors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package runtimestate
 
 import (
@@ -23,7 +36,7 @@ func NewApplier(appID string) *Applier {
 }
 
 // Actions takes a set of actions and updates its internal state, including populating the outbox.
-func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wrapperspb.StringValue, actions []*protos.OrchestratorAction, currentTraceContext *protos.TraceContext) (bool, error) {
+func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrapperspb.StringValue, actions []*protos.WorkflowAction, currentTraceContext *protos.TraceContext) (bool, error) {
 	s.CustomStatus = customStatus
 	s.Stalled = nil
 
@@ -36,15 +49,15 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 			action.Router.SourceAppID = a.appID
 		}
 
-		if completedAction := action.GetCompleteOrchestration(); completedAction != nil {
-			if completedAction.OrchestrationStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
-				newState := NewOrchestrationRuntimeState(s.InstanceId, customStatus, []*protos.HistoryEvent{})
+		if completedAction := action.GetCompleteWorkflow(); completedAction != nil {
+			if completedAction.WorkflowStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
+				newState := NewWorkflowRuntimeState(s.InstanceId, customStatus, []*protos.HistoryEvent{})
 				newState.ContinuedAsNew = true
 				_ = AddEvent(newState, &protos.HistoryEvent{
 					EventId:   -1,
 					Timestamp: timestamppb.Now(),
-					EventType: &protos.HistoryEvent_OrchestratorStarted{
-						OrchestratorStarted: &protos.OrchestratorStartedEvent{},
+					EventType: &protos.HistoryEvent_WorkflowStarted{
+						WorkflowStarted: &protos.WorkflowStartedEvent{},
 					},
 					Router: action.Router,
 				})
@@ -59,7 +72,7 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 								Name:           s.StartEvent.Name,
 								ParentInstance: s.StartEvent.ParentInstance,
 								Input:          completedAction.Result,
-								OrchestrationInstance: &protos.OrchestrationInstance{
+								WorkflowInstance: &protos.WorkflowInstance{
 									InstanceId:  s.InstanceId,
 									ExecutionId: wrapperspb.String(uuid.New().String()),
 								},
@@ -86,9 +99,9 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 					Timestamp: timestamppb.Now(),
 					EventType: &protos.HistoryEvent_ExecutionCompleted{
 						ExecutionCompleted: &protos.ExecutionCompletedEvent{
-							OrchestrationStatus: completedAction.OrchestrationStatus,
-							Result:              completedAction.Result,
-							FailureDetails:      completedAction.FailureDetails,
+							WorkflowStatus: completedAction.WorkflowStatus,
+							Result:         completedAction.Result,
+							FailureDetails: completedAction.FailureDetails,
 						},
 					},
 					Router: action.Router,
@@ -105,25 +118,25 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 						completionRouter = action.Router
 					}
 
-					msg := &protos.OrchestrationRuntimeStateMessage{
+					msg := &protos.WorkflowRuntimeStateMessage{
 						HistoryEvent: &protos.HistoryEvent{
 							EventId:   -1,
 							Timestamp: timestamppb.Now(),
 							Router:    completionRouter,
 						},
-						TargetInstanceID: s.StartEvent.GetParentInstance().OrchestrationInstance.InstanceId,
+						TargetInstanceId: s.StartEvent.GetParentInstance().WorkflowInstance.InstanceId,
 					}
-					if completedAction.OrchestrationStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED {
-						msg.HistoryEvent.EventType = &protos.HistoryEvent_SubOrchestrationInstanceCompleted{
-							SubOrchestrationInstanceCompleted: &protos.SubOrchestrationInstanceCompletedEvent{
+					if completedAction.WorkflowStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED {
+						msg.HistoryEvent.EventType = &protos.HistoryEvent_ChildWorkflowInstanceCompleted{
+							ChildWorkflowInstanceCompleted: &protos.ChildWorkflowInstanceCompletedEvent{
 								TaskScheduledId: s.StartEvent.ParentInstance.TaskScheduledId,
 								Result:          completedAction.Result,
 							},
 						}
 					} else {
 						// TODO: What is the expected result for termination?
-						msg.HistoryEvent.EventType = &protos.HistoryEvent_SubOrchestrationInstanceFailed{
-							SubOrchestrationInstanceFailed: &protos.SubOrchestrationInstanceFailedEvent{
+						msg.HistoryEvent.EventType = &protos.HistoryEvent_ChildWorkflowInstanceFailed{
+							ChildWorkflowInstanceFailed: &protos.ChildWorkflowInstanceFailedEvent{
 								TaskScheduledId: s.StartEvent.ParentInstance.TaskScheduledId,
 								FailureDetails:  completedAction.FailureDetails,
 							},
@@ -182,8 +195,8 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 			}
 			_ = AddEvent(s, scheduledEvent)
 			s.PendingTasks = append(s.PendingTasks, scheduledEvent)
-		} else if createSO := action.GetCreateSubOrchestration(); createSO != nil {
-			// Autogenerate an instance ID for the sub-orchestration if none is provided, using a
+		} else if createSO := action.GetCreateChildWorkflow(); createSO != nil {
+			// Autogenerate an instance ID for the child workflow if none is provided, using a
 			// deterministic algorithm based on the parent instance ID to help enable de-duplication.
 			if createSO.InstanceId == "" {
 				createSO.InstanceId = fmt.Sprintf("%s:%04x", s.InstanceId, action.Id)
@@ -191,8 +204,8 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,
 				Timestamp: timestamppb.New(time.Now()),
-				EventType: &protos.HistoryEvent_SubOrchestrationInstanceCreated{
-					SubOrchestrationInstanceCreated: &protos.SubOrchestrationInstanceCreatedEvent{
+				EventType: &protos.HistoryEvent_ChildWorkflowInstanceCreated{
+					ChildWorkflowInstanceCreated: &protos.ChildWorkflowInstanceCreatedEvent{
 						Name:               createSO.Name,
 						Version:            createSO.Version,
 						Input:              createSO.Input,
@@ -209,13 +222,13 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 					ExecutionStarted: &protos.ExecutionStartedEvent{
 						Name: createSO.Name,
 						ParentInstance: &protos.ParentInstanceInfo{
-							TaskScheduledId:       action.Id,
-							Name:                  wrapperspb.String(s.StartEvent.Name),
-							OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: string(s.InstanceId)},
-							AppID:                 ptr.Of(action.Router.GetSourceAppID()),
+							TaskScheduledId:  action.Id,
+							Name:             wrapperspb.String(s.StartEvent.Name),
+							WorkflowInstance: &protos.WorkflowInstance{InstanceId: string(s.InstanceId)},
+							AppID:            ptr.Of(action.Router.GetSourceAppID()),
 						},
 						Input: createSO.Input,
-						OrchestrationInstance: &protos.OrchestrationInstance{
+						WorkflowInstance: &protos.WorkflowInstance{
 							InstanceId:  createSO.InstanceId,
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
@@ -225,7 +238,7 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 				Router: action.Router,
 			}
 
-			s.PendingMessages = append(s.PendingMessages, &protos.OrchestrationRuntimeStateMessage{HistoryEvent: startEvent, TargetInstanceID: createSO.InstanceId})
+			s.PendingMessages = append(s.PendingMessages, &protos.WorkflowRuntimeStateMessage{HistoryEvent: startEvent, TargetInstanceId: createSO.InstanceId})
 		} else if sendEvent := action.GetSendEvent(); sendEvent != nil {
 			e := &protos.HistoryEvent{
 				EventId:   action.Id,
@@ -240,11 +253,11 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 				Router: action.Router,
 			}
 			_ = AddEvent(s, e)
-			s.PendingMessages = append(s.PendingMessages, &protos.OrchestrationRuntimeStateMessage{HistoryEvent: e, TargetInstanceID: sendEvent.Instance.InstanceId})
-		} else if terminate := action.GetTerminateOrchestration(); terminate != nil {
-			// Send a message to terminate the target orchestration
-			msg := &protos.OrchestrationRuntimeStateMessage{
-				TargetInstanceID: terminate.InstanceId,
+			s.PendingMessages = append(s.PendingMessages, &protos.WorkflowRuntimeStateMessage{HistoryEvent: e, TargetInstanceId: sendEvent.Instance.InstanceId})
+		} else if terminate := action.GetTerminateWorkflow(); terminate != nil {
+			// Send a message to terminate the target workflow
+			msg := &protos.WorkflowRuntimeStateMessage{
+				TargetInstanceId: terminate.InstanceId,
 				HistoryEvent: &protos.HistoryEvent{
 					EventId:   -1,
 					Timestamp: timestamppb.Now(),
@@ -258,16 +271,16 @@ func (a *Applier) Actions(s *protos.OrchestrationRuntimeState, customStatus *wra
 				},
 			}
 			s.PendingMessages = append(s.PendingMessages, msg)
-		} else if versionNotAvailable := action.GetOrchestratorVersionNotAvailable(); versionNotAvailable != nil {
+		} else if versionNotAvailable := action.GetWorkflowVersionNotAvailable(); versionNotAvailable != nil {
 			versionName := ""
 			for _, e := range s.OldEvents {
-				if es := e.GetOrchestratorStarted(); es != nil {
+				if es := e.GetWorkflowStarted(); es != nil {
 					versionName = es.GetVersion().GetName()
 					break
 				}
 			}
 
-			msg := &protos.OrchestrationRuntimeStateMessage{
+			msg := &protos.WorkflowRuntimeStateMessage{
 				HistoryEvent: &protos.HistoryEvent{
 					EventId:   -1,
 					Timestamp: timestamppb.Now(),

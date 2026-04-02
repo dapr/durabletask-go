@@ -7,7 +7,7 @@ import (
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
-// ErrTaskBlocked is not an error, but rather a control flow signal indicating that an orchestrator
+// ErrTaskBlocked is not an error, but rather a control flow signal indicating that a workflow
 // function has executed as far as it can and that it now needs to unload, dispatch any scheduled tasks,
 // and commit its current execution progress to durable storage.
 var ErrTaskBlocked = errors.New("the current task is blocked")
@@ -23,7 +23,7 @@ type Task interface {
 }
 
 type completableTask struct {
-	orchestrationCtx  *OrchestrationContext
+	workflowCtx       *WorkflowContext
 	isCompleted       bool
 	isCanceled        bool
 	rawResult         []byte
@@ -32,21 +32,21 @@ type completableTask struct {
 	taskExecutionId   string
 }
 
-func newTask(ctx *OrchestrationContext) *completableTask {
+func newTask(ctx *WorkflowContext) *completableTask {
 	return &completableTask{
-		orchestrationCtx: ctx,
+		workflowCtx: ctx,
 	}
 }
 
-// Await blocks the current orchestrator until the task is complete and then saves the unmarshalled
+// Await blocks the current workflow until the task is complete and then saves the unmarshalled
 // result of the task (if any) into [v].
 //
 // Await will return ErrTaskCanceled if the task was canceled - e.g. due to a timeout.
 //
 // Await may panic with ErrTaskBlocked as the panic value if called on a task that has not yet completed.
-// This is normal control flow behavior for orchestrator functions and doesn't actually indicate a failure
-// of any kind. However, orchestrator functions must never attempt to recover from such panics to ensure that
-// the orchestration execution can procede normally.
+// This is normal control flow behavior for workflow functions and doesn't actually indicate a failure
+// of any kind. However, workflow functions must never attempt to recover from such panics to ensure that
+// the workflow execution can proceed normally.
 func (t *completableTask) Await(v any) error {
 	for {
 		if t.isCompleted {
@@ -63,7 +63,7 @@ func (t *completableTask) Await(v any) error {
 			return nil
 		}
 
-		ok, err := t.orchestrationCtx.processNextEvent()
+		ok, err := t.workflowCtx.processNextEvent()
 		if err != nil {
 			return err
 		}
@@ -71,7 +71,7 @@ func (t *completableTask) Await(v any) error {
 			break
 		}
 	}
-	// TODO: Need a rule about using "defer" in orchestrations because planned panics will invoke them unexpectedly
+	// TODO: Need a rule about using "defer" in workflows because planned panics will invoke them unexpectedly
 	// TODO: @joshvanl: remove panic- panic is something that should
 	// _never_ be called in normal operation.
 	panic(ErrTaskBlocked)

@@ -27,7 +27,7 @@ var emptyCompleteTaskResponse = &protos.CompleteTaskResponse{}
 
 var errShuttingDown error = status.Error(codes.Canceled, "shutting down")
 
-type pendingOrchestrator struct {
+type pendingWorkflow struct {
 	instanceID api.InstanceID
 	streamID   string
 }
@@ -39,7 +39,7 @@ type pendingActivity struct {
 }
 
 type Executor interface {
-	ExecuteOrchestrator(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.OrchestratorResponse, error)
+	ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error)
 	ExecuteActivity(context.Context, api.InstanceID, *protos.HistoryEvent) (*protos.HistoryEvent, error)
 	Shutdown(ctx context.Context) error
 }
@@ -48,7 +48,7 @@ type grpcExecutor struct {
 	protos.UnimplementedTaskHubSidecarServiceServer
 
 	workItemQueue            chan *protos.WorkItem
-	pendingOrchestrators     *sync.Map // map[api.InstanceID]*pendingOrchestrator
+	pendingWorkflows         *sync.Map // map[api.InstanceID]*pendingWorkflow
 	pendingActivities        *sync.Map // map[string]*pendingActivity
 	backend                  Backend
 	logger                   Logger
@@ -106,11 +106,11 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 // NewGrpcExecutor returns the Executor object and a method to invoke to register the gRPC server in the executor.
 func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (executor Executor, registerServerFn func(grpcServer grpc.ServiceRegistrar)) {
 	grpcExecutor := &grpcExecutor{
-		workItemQueue:        make(chan *protos.WorkItem),
-		backend:              be,
-		logger:               logger,
-		pendingOrchestrators: &sync.Map{},
-		pendingActivities:    &sync.Map{},
+		workItemQueue:     make(chan *protos.WorkItem),
+		backend:           be,
+		logger:            logger,
+		pendingWorkflows:  &sync.Map{},
+		pendingActivities: &sync.Map{},
 	}
 
 	for _, opt := range opts {
@@ -122,11 +122,11 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 	}
 }
 
-// ExecuteOrchestrator implements Executor
-func (executor *grpcExecutor) ExecuteOrchestrator(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.OrchestratorResponse, error) {
-	executor.pendingOrchestrators.Store(iid, &pendingOrchestrator{instanceID: iid})
+// ExecuteWorkflow implements Executor
+func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
+	executor.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
 
-	req := &protos.OrchestratorRequest{
+	req := &protos.WorkflowRequest{
 		InstanceId:  string(iid),
 		ExecutionId: nil,
 		PastEvents:  oldEvents,
@@ -134,31 +134,31 @@ func (executor *grpcExecutor) ExecuteOrchestrator(ctx context.Context, iid api.I
 	}
 
 	workItem := &protos.WorkItem{
-		Request: &protos.WorkItem_OrchestratorRequest{
-			OrchestratorRequest: req,
+		Request: &protos.WorkItem_WorkflowRequest{
+			WorkflowRequest: req,
 		},
 	}
 
-	wait := executor.backend.WaitForOrchestratorCompletion(req)
+	wait := executor.backend.WaitForWorkflowTaskCompletion(req)
 
-	// Send the orchestration execution work-item to the connected worker.
+	// Send the workflow execution work-item to the connected worker.
 	// This will block if the worker isn't listening for work items.
 	select {
 	case <-ctx.Done():
-		executor.logger.Warnf("%s: context canceled before dispatching orchestrator work item", iid)
-		return nil, fmt.Errorf("context canceled before dispatching orchestrator work item: %w", ctx.Err())
+		executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
+		return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", ctx.Err())
 	case executor.workItemQueue <- workItem:
 	}
 
 	resp, err := wait(ctx)
 
-	// this orchestrator is either completed or cancelled, but its no longer pending, delete it
-	executor.pendingOrchestrators.Delete(iid)
+	// this workflow is either completed or cancelled, but its no longer pending, delete it
+	executor.pendingWorkflows.Delete(iid)
 	if err != nil {
 		if errors.Is(err, api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
 		}
-		executor.logger.Warnf("%s: failed before receiving orchestration result", iid)
+		executor.logger.Warnf("%s: failed before receiving workflow result", iid)
 		return nil, err
 	}
 
@@ -173,13 +173,13 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 	task := e.GetTaskScheduled()
 
 	req := &protos.ActivityRequest{
-		Name:                  task.Name,
-		Version:               task.Version,
-		Input:                 task.Input,
-		OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: string(iid)},
-		TaskId:                e.EventId,
-		TaskExecutionId:       task.TaskExecutionId,
-		ParentTraceContext:    task.ParentTraceContext,
+		Name:               task.Name,
+		Version:            task.Version,
+		Input:              task.Input,
+		WorkflowInstance:   &protos.WorkflowInstance{InstanceId: string(iid)},
+		TaskId:             e.EventId,
+		TaskExecutionId:    task.TaskExecutionId,
+		ParentTraceContext: task.ParentTraceContext,
 	}
 	workItem := &protos.WorkItem{
 		Request: &protos.WorkItem_ActivityRequest{
@@ -258,12 +258,12 @@ func (g *grpcExecutor) Shutdown(ctx context.Context) error {
 		}
 		return true
 	})
-	g.pendingOrchestrators.Range(func(_, value any) bool {
-		p, ok := value.(*pendingOrchestrator)
+	g.pendingWorkflows.Range(func(_, value any) bool {
+		p, ok := value.(*pendingWorkflow)
 		if ok {
-			err := g.backend.CancelOrchestratorTask(ctx, p.instanceID)
+			err := g.backend.CancelWorkflowTask(ctx, p.instanceID)
 			if err != nil {
-				g.logger.Warnf("failed to cancel orchestrator task: %v", err)
+				g.logger.Warnf("failed to cancel workflow task: %v", err)
 			}
 		}
 		return true
@@ -311,12 +311,12 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 			}
 			return true
 		})
-		g.pendingOrchestrators.Range(func(key, value any) bool {
-			if p, ok := value.(*pendingOrchestrator); ok && p.streamID == streamID {
-				g.logger.Debugf("cleaning up pending orchestrator: %s", key)
-				err := g.backend.CancelOrchestratorTask(context.Background(), p.instanceID)
+		g.pendingWorkflows.Range(func(key, value any) bool {
+			if p, ok := value.(*pendingWorkflow); ok && p.streamID == streamID {
+				g.logger.Debugf("cleaning up pending workflow: %s", key)
+				err := g.backend.CancelWorkflowTask(context.Background(), p.instanceID)
 				if err != nil {
-					g.logger.Warnf("failed to cancel orchestrator task: %v", err)
+					g.logger.Warnf("failed to cancel workflow task: %v", err)
 				}
 			}
 			return true
@@ -351,15 +351,15 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 			}
 
 			switch x := wi.Request.(type) {
-			case *protos.WorkItem_OrchestratorRequest:
-				key := x.OrchestratorRequest.GetInstanceId()
-				if value, ok := g.pendingOrchestrators.Load(api.InstanceID(key)); ok {
-					if p, ok := value.(*pendingOrchestrator); ok {
+			case *protos.WorkItem_WorkflowRequest:
+				key := x.WorkflowRequest.GetInstanceId()
+				if value, ok := g.pendingWorkflows.Load(api.InstanceID(key)); ok {
+					if p, ok := value.(*pendingWorkflow); ok {
 						p.streamID = streamID
 					}
 				}
 			case *protos.WorkItem_ActivityRequest:
-				key := GetActivityExecutionKey(x.ActivityRequest.GetOrchestrationInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
+				key := GetActivityExecutionKey(x.ActivityRequest.GetWorkflowInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
 				if value, ok := g.pendingActivities.Load(key); ok {
 					if p, ok := value.(*pendingActivity); ok {
 						p.streamID = streamID
@@ -421,9 +421,15 @@ func (g *grpcExecutor) executeOnWorkItemDisconnect(ctx context.Context) error {
 	return nil
 }
 
-// CompleteOrchestratorTask implements protos.TaskHubSidecarServiceServer
-func (g *grpcExecutor) CompleteOrchestratorTask(ctx context.Context, res *protos.OrchestratorResponse) (*protos.CompleteTaskResponse, error) {
-	return emptyCompleteTaskResponse, g.backend.CompleteOrchestratorTask(ctx, res)
+// CompleteWorkflowTask implements protos.TaskHubSidecarServiceServer
+func (g *grpcExecutor) CompleteWorkflowTask(ctx context.Context, res *protos.WorkflowResponse) (*protos.CompleteTaskResponse, error) {
+	return emptyCompleteTaskResponse, g.backend.CompleteWorkflowTask(ctx, res)
+}
+
+// CompleteOrchestratorTask implements the deprecated protos.TaskHubSidecarServiceServer method.
+// Deprecated: Use CompleteWorkflowTask instead.
+func (g *grpcExecutor) CompleteOrchestratorTask(ctx context.Context, res *protos.WorkflowResponse) (*protos.CompleteTaskResponse, error) {
+	return g.CompleteWorkflowTask(ctx, res)
 }
 
 // CompleteActivityTask implements protos.TaskHubSidecarServiceServer
@@ -437,7 +443,7 @@ func GetActivityExecutionKey(iid string, taskID int32) string {
 
 // GetInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) GetInstance(ctx context.Context, req *protos.GetInstanceRequest) (*protos.GetInstanceResponse, error) {
-	metadata, err := g.backend.GetOrchestrationMetadata(ctx, api.InstanceID(req.InstanceId))
+	metadata, err := g.backend.GetWorkflowMetadata(ctx, api.InstanceID(req.InstanceId))
 	if err != nil {
 		if errors.Is(err, api.ErrInstanceNotFound) {
 			return &protos.GetInstanceResponse{Exists: false}, nil
@@ -457,10 +463,10 @@ func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInst
 	if req.GetPurgeInstanceFilter() != nil {
 		return nil, errors.New("multi-instance purge is not unimplemented")
 	}
-	count, err := purgeOrchestrationState(ctx, g.backend, api.InstanceID(req.GetInstanceId()), req.Recursive, req.GetForce())
+	count, err := purgeWorkflowState(ctx, g.backend, api.InstanceID(req.GetInstanceId()), req.Recursive, req.GetForce())
 	resp := &protos.PurgeInstancesResponse{DeletedInstanceCount: int32(count)}
 	if err != nil {
-		return resp, fmt.Errorf("failed to purge orchestration state: %w", err)
+		return resp, fmt.Errorf("failed to purge workflow state: %w", err)
 	}
 
 	return resp, nil
@@ -475,7 +481,7 @@ func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventReq
 			EventRaised: &protos.EventRaisedEvent{Name: req.Name, Input: req.Input},
 		},
 	}
-	if err := g.backend.AddNewOrchestrationEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
+	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, err
 	}
 
@@ -493,7 +499,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 	}
 
 	instanceID := req.InstanceId
-	ctx, span := helpers.StartNewCreateOrchestrationSpan(ctx, req.Name, req.Version.GetValue(), instanceID)
+	ctx, span := helpers.StartNewCreateWorkflowSpan(ctx, req.Name, req.Version.GetValue(), instanceID)
 	defer span.End()
 
 	e := &protos.HistoryEvent{
@@ -503,7 +509,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 			ExecutionStarted: &protos.ExecutionStartedEvent{
 				Name:  req.Name,
 				Input: req.Input,
-				OrchestrationInstance: &protos.OrchestrationInstance{
+				WorkflowInstance: &protos.WorkflowInstance{
 					InstanceId:  instanceID,
 					ExecutionId: wrapperspb.String(uuid.New().String()),
 				},
@@ -512,8 +518,8 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 			},
 		},
 	}
-	if err := g.backend.CreateOrchestrationInstance(ctx, e, WithOrchestrationIdReusePolicy(req.OrchestrationIdReusePolicy)); err != nil {
-		return nil, fmt.Errorf("failed to create orchestration instance: %w", err)
+	if err := g.backend.CreateWorkflowInstance(ctx, e); err != nil {
+		return nil, fmt.Errorf("failed to create workflow instance: %w", err)
 	}
 
 	if req.ScheduledStartTimestamp == nil && !g.skipWaitForInstanceStart {
@@ -564,7 +570,7 @@ func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.Termin
 			},
 		},
 	}
-	if err := g.backend.AddNewOrchestrationEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
+	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, fmt.Errorf("failed to submit termination request: %w", err)
 	}
 
@@ -588,15 +594,15 @@ func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendR
 			},
 		},
 	}
-	if err := g.backend.AddNewOrchestrationEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
+	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, err
 	}
 
 	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
 		InstanceId: req.InstanceId,
-	}, func(metadata *OrchestrationMetadata) bool {
+	}, func(metadata *WorkflowMetadata) bool {
 		return metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED ||
-			api.OrchestrationMetadataIsComplete(metadata)
+			api.WorkflowMetadataIsComplete(metadata)
 	})
 
 	return &protos.SuspendResponse{}, err
@@ -617,15 +623,15 @@ func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeReq
 			},
 		},
 	}
-	if err := g.backend.AddNewOrchestrationEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
+	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, err
 	}
 
 	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
 		InstanceId: req.InstanceId,
-	}, func(metadata *OrchestrationMetadata) bool {
+	}, func(metadata *WorkflowMetadata) bool {
 		return metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING ||
-			api.OrchestrationMetadataIsComplete(metadata)
+			api.WorkflowMetadataIsComplete(metadata)
 	})
 
 	return &protos.ResumeResponse{}, err
@@ -633,21 +639,21 @@ func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeReq
 
 // WaitForInstanceCompletion implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) WaitForInstanceCompletion(ctx context.Context, req *protos.GetInstanceRequest) (*protos.GetInstanceResponse, error) {
-	return g.waitForInstance(ctx, req, api.OrchestrationMetadataIsComplete)
+	return g.waitForInstance(ctx, req, api.WorkflowMetadataIsComplete)
 }
 
 // WaitForInstanceStart implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) WaitForInstanceStart(ctx context.Context, req *protos.GetInstanceRequest) (*protos.GetInstanceResponse, error) {
-	return g.waitForInstance(ctx, req, func(m *OrchestrationMetadata) bool {
+	return g.waitForInstance(ctx, req, func(m *WorkflowMetadata) bool {
 		return m.RuntimeStatus != protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
 	})
 }
 
-func (g *grpcExecutor) waitForInstance(ctx context.Context, req *protos.GetInstanceRequest, condition func(*OrchestrationMetadata) bool) (*protos.GetInstanceResponse, error) {
+func (g *grpcExecutor) waitForInstance(ctx context.Context, req *protos.GetInstanceRequest, condition func(*WorkflowMetadata) bool) (*protos.GetInstanceResponse, error) {
 	iid := api.InstanceID(req.InstanceId)
 
-	var metadata *protos.OrchestrationMetadata
-	err := g.backend.WatchOrchestrationRuntimeStatus(ctx, iid, func(m *OrchestrationMetadata) bool {
+	var metadata *protos.WorkflowMetadata
+	err := g.backend.WatchWorkflowRuntimeStatus(ctx, iid, func(m *WorkflowMetadata) bool {
 		metadata = m
 		return condition(m)
 	})
@@ -662,11 +668,11 @@ func (g *grpcExecutor) waitForInstance(ctx context.Context, req *protos.GetInsta
 	return createGetInstanceResponse(req, metadata), nil
 }
 
-func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *OrchestrationMetadata) *protos.GetInstanceResponse {
-	state := &protos.OrchestrationState{
+func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *WorkflowMetadata) *protos.GetInstanceResponse {
+	state := &protos.WorkflowState{
 		InstanceId:           req.InstanceId,
 		Name:                 metadata.Name,
-		OrchestrationStatus:  metadata.RuntimeStatus,
+		WorkflowStatus:       metadata.RuntimeStatus,
 		CreatedTimestamp:     metadata.CreatedAt,
 		LastUpdatedTimestamp: metadata.LastUpdatedAt,
 	}
@@ -678,6 +684,5 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Orchest
 		state.FailureDetails = metadata.FailureDetails
 	}
 
-	return &protos.GetInstanceResponse{Exists: true, OrchestrationState: state}
+	return &protos.GetInstanceResponse{Exists: true, WorkflowState: state}
 }
-

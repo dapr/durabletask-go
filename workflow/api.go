@@ -9,8 +9,8 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-type NewWorkflowOptions api.NewOrchestrationOptions
-type FetchWorkflowMetadataOptions api.FetchOrchestrationMetadataOptions
+type NewWorkflowOptions api.NewWorkflowOptions
+type FetchWorkflowMetadataOptions api.FetchWorkflowMetadataOptions
 type RaiseEventOptions api.RaiseEventOptions
 type TerminateOptions api.TerminateOptions
 type PurgeOptions api.PurgeOptions
@@ -91,11 +91,11 @@ func WithForcePurge(force bool) PurgeOptions {
 }
 
 func WorkflowMetadataIsRunning(o *WorkflowMetadata) bool {
-	return api.OrchestrationMetadataIsComplete(ptr.Of(protos.OrchestrationMetadata(*o)))
+	return !WorkflowMetadataIsComplete(o)
 }
 
 func WorkflowMetadataIsComplete(o *WorkflowMetadata) bool {
-	return api.OrchestrationMetadataIsComplete(ptr.Of(protos.OrchestrationMetadata(*o)))
+	return api.WorkflowMetadataIsComplete(ptr.Of(protos.WorkflowMetadata(*o)))
 }
 
 func WithRerunInput(input any) RerunOptions {

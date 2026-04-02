@@ -85,24 +85,24 @@ func (_c *Executor_ExecuteActivity_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
-// ExecuteOrchestrator provides a mock function with given fields: ctx, iid, oldEvents, newEvents
-func (_m *Executor) ExecuteOrchestrator(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.OrchestratorResponse, error) {
+// ExecuteWorkflow provides a mock function with given fields: ctx, iid, oldEvents, newEvents
+func (_m *Executor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
 	ret := _m.Called(ctx, iid, oldEvents, newEvents)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ExecuteOrchestrator")
+		panic("no return value specified for ExecuteWorkflow")
 	}
 
-	var r0 *protos.OrchestratorResponse
+	var r0 *protos.WorkflowResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, []*protos.HistoryEvent, []*protos.HistoryEvent) (*protos.OrchestratorResponse, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, []*protos.HistoryEvent, []*protos.HistoryEvent) (*protos.WorkflowResponse, error)); ok {
 		return rf(ctx, iid, oldEvents, newEvents)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, []*protos.HistoryEvent, []*protos.HistoryEvent) *protos.OrchestratorResponse); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, []*protos.HistoryEvent, []*protos.HistoryEvent) *protos.WorkflowResponse); ok {
 		r0 = rf(ctx, iid, oldEvents, newEvents)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*protos.OrchestratorResponse)
+			r0 = ret.Get(0).(*protos.WorkflowResponse)
 		}
 	}
 
@@ -115,33 +115,33 @@ func (_m *Executor) ExecuteOrchestrator(ctx context.Context, iid api.InstanceID,
 	return r0, r1
 }
 
-// Executor_ExecuteOrchestrator_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExecuteOrchestrator'
-type Executor_ExecuteOrchestrator_Call struct {
+// Executor_ExecuteWorkflow_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExecuteWorkflow'
+type Executor_ExecuteWorkflow_Call struct {
 	*mock.Call
 }
 
-// ExecuteOrchestrator is a helper method to define mock.On call
+// ExecuteWorkflow is a helper method to define mock.On call
 //   - ctx context.Context
 //   - iid api.InstanceID
 //   - oldEvents []*protos.HistoryEvent
 //   - newEvents []*protos.HistoryEvent
-func (_e *Executor_Expecter) ExecuteOrchestrator(ctx interface{}, iid interface{}, oldEvents interface{}, newEvents interface{}) *Executor_ExecuteOrchestrator_Call {
-	return &Executor_ExecuteOrchestrator_Call{Call: _e.mock.On("ExecuteOrchestrator", ctx, iid, oldEvents, newEvents)}
+func (_e *Executor_Expecter) ExecuteWorkflow(ctx interface{}, iid interface{}, oldEvents interface{}, newEvents interface{}) *Executor_ExecuteWorkflow_Call {
+	return &Executor_ExecuteWorkflow_Call{Call: _e.mock.On("ExecuteWorkflow", ctx, iid, oldEvents, newEvents)}
 }
 
-func (_c *Executor_ExecuteOrchestrator_Call) Run(run func(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent)) *Executor_ExecuteOrchestrator_Call {
+func (_c *Executor_ExecuteWorkflow_Call) Run(run func(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent)) *Executor_ExecuteWorkflow_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].([]*protos.HistoryEvent), args[3].([]*protos.HistoryEvent))
 	})
 	return _c
 }
 
-func (_c *Executor_ExecuteOrchestrator_Call) Return(_a0 *protos.OrchestratorResponse, _a1 error) *Executor_ExecuteOrchestrator_Call {
+func (_c *Executor_ExecuteWorkflow_Call) Return(_a0 *protos.WorkflowResponse, _a1 error) *Executor_ExecuteWorkflow_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Executor_ExecuteOrchestrator_Call) RunAndReturn(run func(context.Context, api.InstanceID, []*protos.HistoryEvent, []*protos.HistoryEvent) (*protos.OrchestratorResponse, error)) *Executor_ExecuteOrchestrator_Call {
+func (_c *Executor_ExecuteWorkflow_Call) RunAndReturn(run func(context.Context, api.InstanceID, []*protos.HistoryEvent, []*protos.HistoryEvent) (*protos.WorkflowResponse, error)) *Executor_ExecuteWorkflow_Call {
 	_c.Call.Return(run)
 	return _c
 }

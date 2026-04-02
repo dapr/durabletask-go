@@ -21,7 +21,7 @@ import (
 var tracer = otel.Tracer("distributedtracing-example")
 
 func main() {
-	// Tracing can be configured independently of the orchestration code.
+	// Tracing can be configured independently of the workflow code.
 	tp, err := ConfigureZipkinTracing()
 	if err != nil {
 		log.Fatalf("Failed to create tracer: %v", err)
@@ -32,9 +32,9 @@ func main() {
 		}
 	}()
 
-	// Create a new task registry and add the orchestrator and activities
+	// Create a new task registry and add the workflow and activities
 	r := task.NewTaskRegistry()
-	r.AddOrchestrator(DistributedTraceSampleOrchestrator)
+	r.AddWorkflow(DistributedTraceSampleWorkflow)
 	r.AddActivity(DoWorkActivity)
 	r.AddActivity(CallHttpEndpointActivity)
 
@@ -46,16 +46,16 @@ func main() {
 	}
 	defer worker.Shutdown(ctx)
 
-	// Start a new orchestration
-	id, err := client.ScheduleNewOrchestration(ctx, DistributedTraceSampleOrchestrator)
+	// Start a new workflow
+	id, err := client.ScheduleNewWorkflow(ctx, DistributedTraceSampleWorkflow)
 	if err != nil {
-		log.Fatalf("Failed to schedule new orchestration: %v", err)
+		log.Fatalf("Failed to schedule new workflow: %v", err)
 	}
 
-	// Wait for the orchestration to complete
-	metadata, err := client.WaitForOrchestrationCompletion(ctx, id)
+	// Wait for the workflow to complete
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	if err != nil {
-		log.Fatalf("Failed to wait for orchestration to complete: %v", err)
+		log.Fatalf("Failed to wait for workflow to complete: %v", err)
 	}
 
 	// Print the results
@@ -63,7 +63,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to encode result to JSON: %v", err)
 	}
-	log.Printf("Orchestration completed: %v", string(metadataEnc))
+	log.Printf("Workflow completed: %v", string(metadataEnc))
 }
 
 // Init creates and initializes an in-memory client and worker pair with default configuration.
@@ -76,13 +76,13 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 	// Create a new backend
 	// Use the in-memory sqlite provider by specifying ""
 	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(""), logger)
-	orchestrationWorker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+	workflowWorker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
 		Backend:  be,
 		Executor: executor,
 		Logger:   logger,
 	})
 	activityWorker := backend.NewActivityTaskWorker(be, executor, logger)
-	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
+	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 
 	// Start the worker
 	err := taskHubWorker.Start(ctx)
@@ -120,9 +120,9 @@ func ConfigureZipkinTracing() (*trace.TracerProvider, error) {
 	return tp, nil
 }
 
-// DistributedTraceSampleOrchestrator is a simple orchestration that's intended to generate
+// DistributedTraceSampleWorkflow is a simple workflow that's intended to generate
 // distributed trace output to the configured exporter (e.g. zipkin).
-func DistributedTraceSampleOrchestrator(ctx *task.OrchestrationContext) (any, error) {
+func DistributedTraceSampleWorkflow(ctx *task.WorkflowContext) (any, error) {
 	if err := ctx.CallActivity(DoWorkActivity, task.WithActivityInput(1*time.Second)).Await(nil); err != nil {
 		return nil, err
 	}
