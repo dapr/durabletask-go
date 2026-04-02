@@ -25,7 +25,7 @@ func Test_NewWorkflow(t *testing.T) {
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
 				WorkflowInstance: &protos.WorkflowInstance{InstanceId: iid},
-				Name:                  expectedName,
+				Name:             expectedName,
 			},
 		},
 	}
@@ -70,7 +70,7 @@ func Test_CompletedWorkflow(t *testing.T) {
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
 				WorkflowInstance: &protos.WorkflowInstance{InstanceId: iid},
-				Name:                  expectedName,
+				Name:             expectedName,
 			},
 		},
 	}, {
@@ -126,8 +126,8 @@ func Test_CompletedChildWorkflow(t *testing.T) {
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
 					ParentInstance: &protos.ParentInstanceInfo{
-						TaskScheduledId:       expectedTaskID,
-						Name:                  wrapperspb.String("Parent"),
+						TaskScheduledId:  expectedTaskID,
+						Name:             wrapperspb.String("Parent"),
 						WorkflowInstance: &protos.WorkflowInstance{InstanceId: "parent_id"},
 					},
 				},
@@ -140,9 +140,9 @@ func Test_CompletedChildWorkflow(t *testing.T) {
 			Id: expectedTaskID,
 			WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
 				CompleteWorkflow: &protos.CompleteWorkflowAction{
-					WorkflowStatus: status,
-					Result:              wrapperspb.String(expectedOutput),
-					CarryoverEvents:     []*protos.HistoryEvent{},
+					WorkflowStatus:  status,
+					Result:          wrapperspb.String(expectedOutput),
+					CarryoverEvents: []*protos.HistoryEvent{},
 				},
 			},
 		},
@@ -210,9 +210,9 @@ func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 			Id: expectedTaskID,
 			WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
 				CompleteWorkflow: &protos.CompleteWorkflowAction{
-					WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW,
-					Result:              wrapperspb.String(continueAsNewInput),
-					CarryoverEvents:     carryoverEvents,
+					WorkflowStatus:  protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW,
+					Result:          wrapperspb.String(continueAsNewInput),
+					CarryoverEvents: carryoverEvents,
 				},
 			},
 		},

@@ -204,7 +204,7 @@ func Test_TryProcessSingleWorkflowWorkItem_ExecutionStartedAndCompleted(t *testi
 				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
 					CompleteWorkflow: &protos.CompleteWorkflowAction{
 						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
-						Result:              wrapperspb.String(resultValue),
+						Result:         wrapperspb.String(resultValue),
 					},
 				},
 			},

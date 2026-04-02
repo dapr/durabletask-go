@@ -36,8 +36,8 @@ var errNoWorkItems = errors.New("no work items were found")
 
 type SqliteOptions struct {
 	WorkflowLockTimeout time.Duration
-	ActivityLockTimeout      time.Duration
-	FilePath                 string
+	ActivityLockTimeout time.Duration
+	FilePath            string
 }
 
 type sqliteBackend struct {
@@ -55,9 +55,9 @@ type sqliteBackend struct {
 func NewSqliteOptions(filePath string) *SqliteOptions {
 	// Default values are provided for required options
 	return &SqliteOptions{
-		FilePath:                 filePath,
+		FilePath:            filePath,
 		WorkflowLockTimeout: 2 * time.Minute,
-		ActivityLockTimeout:      2 * time.Minute,
+		ActivityLockTimeout: 2 * time.Minute,
 	}
 }
 
@@ -508,7 +508,6 @@ func insertOrIgnoreInstanceTableInternal(ctx context.Context, tx *sql.Tx, e *bac
 	}
 	return rows, nil
 }
-
 
 func isStatusMatch(statuses []protos.OrchestrationStatus, runtimeStatus protos.OrchestrationStatus) bool {
 	for _, status := range statuses {

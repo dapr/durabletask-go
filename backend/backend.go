@@ -21,22 +21,22 @@ var (
 )
 
 type (
-	HistoryEvent                     = protos.HistoryEvent
-	TaskFailureDetails               = protos.TaskFailureDetails
-	WorkflowState                    = protos.WorkflowState
-	CreateWorkflowInstanceRequest    = protos.CreateWorkflowInstanceRequest
-	ActivityRequest                  = protos.ActivityRequest
-	WorkflowMetadata            = protos.WorkflowMetadata
-	OrchestrationStatus              = protos.OrchestrationStatus
-	BackendWorkflowStateMetadata            = protos.BackendWorkflowStateMetadata
-	DurableTimer                     = protos.DurableTimer
-	WorkflowRuntimeState        = protos.WorkflowRuntimeState
-	WorkflowRuntimeStateMessage = protos.WorkflowRuntimeStateMessage
-	RerunWorkflowFromEventRequest    = protos.RerunWorkflowFromEventRequest
-	ListInstanceIDsRequest           = protos.ListInstanceIDsRequest
-	ListInstanceIDsResponse          = protos.ListInstanceIDsResponse
-	GetInstanceHistoryRequest        = protos.GetInstanceHistoryRequest
-	GetInstanceHistoryResponse       = protos.GetInstanceHistoryResponse
+	HistoryEvent                  = protos.HistoryEvent
+	TaskFailureDetails            = protos.TaskFailureDetails
+	WorkflowState                 = protos.WorkflowState
+	CreateWorkflowInstanceRequest = protos.CreateWorkflowInstanceRequest
+	ActivityRequest               = protos.ActivityRequest
+	WorkflowMetadata              = protos.WorkflowMetadata
+	OrchestrationStatus           = protos.OrchestrationStatus
+	BackendWorkflowStateMetadata  = protos.BackendWorkflowStateMetadata
+	DurableTimer                  = protos.DurableTimer
+	WorkflowRuntimeState          = protos.WorkflowRuntimeState
+	WorkflowRuntimeStateMessage   = protos.WorkflowRuntimeStateMessage
+	RerunWorkflowFromEventRequest = protos.RerunWorkflowFromEventRequest
+	ListInstanceIDsRequest        = protos.ListInstanceIDsRequest
+	ListInstanceIDsResponse       = protos.ListInstanceIDsResponse
+	GetInstanceHistoryRequest     = protos.GetInstanceHistoryRequest
+	GetInstanceHistoryResponse    = protos.GetInstanceHistoryResponse
 )
 
 type Backend interface {

@@ -23,7 +23,7 @@ type Task interface {
 }
 
 type completableTask struct {
-	workflowCtx  *WorkflowContext
+	workflowCtx       *WorkflowContext
 	isCompleted       bool
 	isCanceled        bool
 	rawResult         []byte

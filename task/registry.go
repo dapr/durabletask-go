@@ -11,14 +11,14 @@ type TaskRegistry struct {
 	workflows                map[string]Workflow
 	versionedWorkflows       map[string]map[string]Workflow
 	latestVersionedWorkflows map[string]string
-	activities                   map[string]Activity
+	activities               map[string]Activity
 }
 
 // NewTaskRegistry returns a new [TaskRegistry] struct.
 func NewTaskRegistry() *TaskRegistry {
 	r := &TaskRegistry{
 		workflows:                make(map[string]Workflow),
-		activities:                   make(map[string]Activity),
+		activities:               make(map[string]Activity),
 		versionedWorkflows:       make(map[string]map[string]Workflow),
 		latestVersionedWorkflows: make(map[string]string),
 	}

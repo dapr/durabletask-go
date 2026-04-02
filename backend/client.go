@@ -27,6 +27,23 @@ type TaskHubClient interface {
 	ResumeWorkflow(ctx context.Context, id api.InstanceID, reason string) error
 	PurgeWorkflowState(ctx context.Context, id api.InstanceID, opts ...api.PurgeOptions) error
 	RerunWorkflowFromEvent(ctx context.Context, source api.InstanceID, eventID uint32, opts ...api.RerunOptions) (api.InstanceID, error)
+
+	// Deprecated: Use ScheduleNewWorkflow instead.
+	ScheduleNewOrchestration(ctx context.Context, workflow interface{}, opts ...api.NewWorkflowOptions) (api.InstanceID, error)
+	// Deprecated: Use FetchWorkflowMetadata instead.
+	FetchOrchestrationMetadata(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error)
+	// Deprecated: Use WaitForWorkflowStart instead.
+	WaitForOrchestrationStart(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error)
+	// Deprecated: Use WaitForWorkflowCompletion instead.
+	WaitForOrchestrationCompletion(ctx context.Context, id api.InstanceID) (*WorkflowMetadata, error)
+	// Deprecated: Use TerminateWorkflow instead.
+	TerminateOrchestration(ctx context.Context, id api.InstanceID, opts ...api.TerminateOptions) error
+	// Deprecated: Use SuspendWorkflow instead.
+	SuspendOrchestration(ctx context.Context, id api.InstanceID, reason string) error
+	// Deprecated: Use ResumeWorkflow instead.
+	ResumeOrchestration(ctx context.Context, id api.InstanceID, reason string) error
+	// Deprecated: Use PurgeWorkflowState instead.
+	PurgeOrchestrationState(ctx context.Context, id api.InstanceID, opts ...api.PurgeOptions) error
 }
 
 type backendClient struct {

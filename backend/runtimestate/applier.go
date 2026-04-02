@@ -87,8 +87,8 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 					EventType: &protos.HistoryEvent_ExecutionCompleted{
 						ExecutionCompleted: &protos.ExecutionCompletedEvent{
 							WorkflowStatus: completedAction.WorkflowStatus,
-							Result:              completedAction.Result,
-							FailureDetails:      completedAction.FailureDetails,
+							Result:         completedAction.Result,
+							FailureDetails: completedAction.FailureDetails,
 						},
 					},
 					Router: action.Router,
@@ -209,10 +209,10 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 					ExecutionStarted: &protos.ExecutionStartedEvent{
 						Name: createSO.Name,
 						ParentInstance: &protos.ParentInstanceInfo{
-							TaskScheduledId:       action.Id,
-							Name:                  wrapperspb.String(s.StartEvent.Name),
+							TaskScheduledId:  action.Id,
+							Name:             wrapperspb.String(s.StartEvent.Name),
 							WorkflowInstance: &protos.WorkflowInstance{InstanceId: string(s.InstanceId)},
-							AppID:                 ptr.Of(action.Router.GetSourceAppID()),
+							AppID:            ptr.Of(action.Router.GetSourceAppID()),
 						},
 						Input: createSO.Input,
 						WorkflowInstance: &protos.WorkflowInstance{

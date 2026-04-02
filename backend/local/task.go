@@ -20,14 +20,14 @@ type pendingActivity struct {
 }
 
 type TasksBackend struct {
-	pendingWorkflows *sync.Map
-	pendingActivities    *sync.Map
+	pendingWorkflows  *sync.Map
+	pendingActivities *sync.Map
 }
 
 func NewTasksBackend() *TasksBackend {
 	return &TasksBackend{
-		pendingWorkflows: &sync.Map{},
-		pendingActivities:    &sync.Map{},
+		pendingWorkflows:  &sync.Map{},
+		pendingActivities: &sync.Map{},
 	}
 }
 

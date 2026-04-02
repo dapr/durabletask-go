@@ -14,18 +14,18 @@ type TaskHubWorker interface {
 }
 
 type taskHubWorker struct {
-	backend             Backend
+	backend        Backend
 	workflowWorker TaskWorker[*WorkflowWorkItem]
-	activityWorker      TaskWorker[*ActivityWorkItem]
-	logger              Logger
+	activityWorker TaskWorker[*ActivityWorkItem]
+	logger         Logger
 }
 
 func NewTaskHubWorker(be Backend, workflowWorker TaskWorker[*WorkflowWorkItem], activityWorker TaskWorker[*ActivityWorkItem], logger Logger) TaskHubWorker {
 	return &taskHubWorker{
-		backend:             be,
+		backend:        be,
 		workflowWorker: workflowWorker,
-		activityWorker:      activityWorker,
-		logger:              logger,
+		activityWorker: activityWorker,
+		logger:         logger,
 	}
 }
 

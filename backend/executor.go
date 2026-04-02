@@ -48,7 +48,7 @@ type grpcExecutor struct {
 	protos.UnimplementedTaskHubSidecarServiceServer
 
 	workItemQueue            chan *protos.WorkItem
-	pendingWorkflows     *sync.Map // map[api.InstanceID]*pendingWorkflow
+	pendingWorkflows         *sync.Map // map[api.InstanceID]*pendingWorkflow
 	pendingActivities        *sync.Map // map[string]*pendingActivity
 	backend                  Backend
 	logger                   Logger
@@ -106,11 +106,11 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 // NewGrpcExecutor returns the Executor object and a method to invoke to register the gRPC server in the executor.
 func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (executor Executor, registerServerFn func(grpcServer grpc.ServiceRegistrar)) {
 	grpcExecutor := &grpcExecutor{
-		workItemQueue:        make(chan *protos.WorkItem),
-		backend:              be,
-		logger:               logger,
-		pendingWorkflows: &sync.Map{},
-		pendingActivities:    &sync.Map{},
+		workItemQueue:     make(chan *protos.WorkItem),
+		backend:           be,
+		logger:            logger,
+		pendingWorkflows:  &sync.Map{},
+		pendingActivities: &sync.Map{},
 	}
 
 	for _, opt := range opts {
@@ -173,13 +173,13 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 	task := e.GetTaskScheduled()
 
 	req := &protos.ActivityRequest{
-		Name:                  task.Name,
-		Version:               task.Version,
-		Input:                 task.Input,
-		WorkflowInstance: &protos.WorkflowInstance{InstanceId: string(iid)},
-		TaskId:                e.EventId,
-		TaskExecutionId:       task.TaskExecutionId,
-		ParentTraceContext:    task.ParentTraceContext,
+		Name:               task.Name,
+		Version:            task.Version,
+		Input:              task.Input,
+		WorkflowInstance:   &protos.WorkflowInstance{InstanceId: string(iid)},
+		TaskId:             e.EventId,
+		TaskExecutionId:    task.TaskExecutionId,
+		ParentTraceContext: task.ParentTraceContext,
 	}
 	workItem := &protos.WorkItem{
 		Request: &protos.WorkItem_ActivityRequest{
@@ -672,7 +672,7 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Workflo
 	state := &protos.WorkflowState{
 		InstanceId:           req.InstanceId,
 		Name:                 metadata.Name,
-		WorkflowStatus:  metadata.RuntimeStatus,
+		WorkflowStatus:       metadata.RuntimeStatus,
 		CreatedTimestamp:     metadata.CreatedAt,
 		LastUpdatedTimestamp: metadata.LastUpdatedAt,
 	}
@@ -686,4 +686,3 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Workflo
 
 	return &protos.GetInstanceResponse{Exists: true, WorkflowState: state}
 }
-

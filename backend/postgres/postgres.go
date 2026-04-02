@@ -35,9 +35,9 @@ var emptyString string = ""
 var errNoWorkItems = errors.New("no work items were found")
 
 type PostgresOptions struct {
-	PgOptions                *pgxpool.Config
+	PgOptions           *pgxpool.Config
 	WorkflowLockTimeout time.Duration
-	ActivityLockTimeout      time.Duration
+	ActivityLockTimeout time.Duration
 }
 
 type postgresBackend struct {
@@ -60,9 +60,9 @@ func NewPostgresOptions(host string, port uint16, database string, user string, 
 	conf.MaxConns = 1
 
 	return &PostgresOptions{
-		PgOptions:                conf,
+		PgOptions:           conf,
 		WorkflowLockTimeout: 2 * time.Minute,
-		ActivityLockTimeout:      2 * time.Minute,
+		ActivityLockTimeout: 2 * time.Minute,
 	}
 }
 

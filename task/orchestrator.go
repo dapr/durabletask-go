@@ -865,8 +865,8 @@ func (ctx *WorkflowContext) setCompleteInternal(
 		WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
 			CompleteWorkflow: &protos.CompleteWorkflowAction{
 				WorkflowStatus: status,
-				Result:              rawResult,
-				FailureDetails:      failureDetails,
+				Result:         rawResult,
+				FailureDetails: failureDetails,
 			},
 		},
 	}

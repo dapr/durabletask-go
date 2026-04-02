@@ -375,7 +375,7 @@ func Test_PurgeWorkflowState(t *testing.T) {
 				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
 					CompleteWorkflow: &protos.CompleteWorkflowAction{
 						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
-						Result:              wrapperspb.String(expectedResult),
+						Result:         wrapperspb.String(expectedResult),
 					},
 				},
 			}}
@@ -486,9 +486,9 @@ func createWorkflowInstance(t assert.TestingT, be backend.Backend, instanceID st
 		Timestamp: timestamppb.New(time.Now()),
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
-				Name:                  defaultName,
+				Name:             defaultName,
 				WorkflowInstance: &protos.WorkflowInstance{InstanceId: instanceID},
-				Input:                 wrapperspb.String(defaultInput),
+				Input:            wrapperspb.String(defaultInput),
 			},
 		},
 	}
