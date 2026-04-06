@@ -295,7 +295,7 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 			g.logger.Warnf("error while disconnecting work item stream: %v", derr)
 		}
 
-		return status.Errorf(codes.Unavailable, message)
+		return status.Errorf(codes.Unavailable, "%s", message)
 	}
 
 	defer func() {
