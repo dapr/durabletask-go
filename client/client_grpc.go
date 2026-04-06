@@ -198,7 +198,7 @@ func (c *TaskHubGrpcClient) ResumeWorkflow(ctx context.Context, id api.InstanceI
 
 // PurgeWorkflowState deletes the state of the specified workflow instance.
 //
-// [api.api.ErrInstanceNotFound] is returned if the specified workflow instance doesn't exist.
+// [api.ErrInstanceNotFound] is returned if the specified workflow instance doesn't exist.
 func (c *TaskHubGrpcClient) PurgeWorkflowState(ctx context.Context, id api.InstanceID, opts ...api.PurgeOptions) error {
 	req := &protos.PurgeInstancesRequest{
 		Request: &protos.PurgeInstancesRequest_InstanceId{InstanceId: string(id)},

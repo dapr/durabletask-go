@@ -27,6 +27,11 @@ type Orchestrator = Workflow
 // Deprecated: Use ChildWorkflowOption instead.
 type SubOrchestratorOption = ChildWorkflowOption
 
+// Deprecated: Use AddWorkflow instead.
+func (r *TaskRegistry) AddOrchestrator(o Workflow) error {
+	return r.AddWorkflow(o)
+}
+
 // Deprecated: Use AddWorkflowN instead.
 func (r *TaskRegistry) AddOrchestratorN(name string, o Workflow) error {
 	return r.AddWorkflowN(name, o)

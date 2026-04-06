@@ -9,7 +9,7 @@ import (
 	"github.com/dapr/durabletask-go/task"
 )
 
-// HelloCities is an workflow function that generates a "hello" message for several cities.
+// HelloCities is a workflow function that generates a "hello" message for several cities.
 func HelloCities(ctx *task.WorkflowContext) (any, error) {
 	var helloTokyo string
 	if err := ctx.CallActivity(SayHello, task.WithActivityInput("Tokyo")).Await(&helloTokyo); err != nil {
