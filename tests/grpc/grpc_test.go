@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 	grpcServer := grpc.NewServer()
 	grpcExecutor, registerFn := backend.NewGrpcExecutor(be, logger)
 	registerFn(grpcServer)
-	orchestrationWorker := backend.NewOrchestrationWorker(backend.OrchestratorOptions{
+	workflowWorker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
 		Backend:  be,
 		Executor: grpcExecutor,
 		Logger:   logger,
@@ -50,7 +50,7 @@ func TestMain(m *testing.M) {
 	})
 
 	activityWorker := backend.NewActivityTaskWorker(be, grpcExecutor, logger)
-	taskHubWorker := backend.NewTaskHubWorker(be, orchestrationWorker, activityWorker, logger)
+	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 	if err := taskHubWorker.Start(ctx); err != nil {
 		log.Fatalf("failed to start worker: %v", err)
 	}
@@ -103,7 +103,7 @@ func startGrpcListener(t *testing.T, r *task.TaskRegistry) context.CancelFunc {
 
 func Test_Grpc_WaitForInstanceStart_Timeout(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("WaitForInstanceStartThrowsException", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("WaitForInstanceStartThrowsException", func(ctx *task.WorkflowContext) (any, error) {
 		// sleep 5 seconds
 		time.Sleep(5 * time.Second)
 		return 42, nil
@@ -112,10 +112,10 @@ func Test_Grpc_WaitForInstanceStart_Timeout(t *testing.T) {
 	cancelListener := startGrpcListener(t, r)
 	defer cancelListener()
 
-	go grpcClient.ScheduleNewOrchestration(ctx, "WaitForInstanceStartThrowsException", api.WithInput("世界"), api.WithInstanceID("helloworld"))
+	go grpcClient.ScheduleNewWorkflow(ctx, "WaitForInstanceStartThrowsException", api.WithInput("世界"), api.WithInstanceID("helloworld"))
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Second)
 	defer cancelTimeout()
-	_, err := grpcClient.WaitForOrchestrationStart(timeoutCtx, "helloworld", api.WithFetchPayloads(true))
+	_, err := grpcClient.WaitForWorkflowStart(timeoutCtx, "helloworld", api.WithFetchPayloads(true))
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), "context deadline exceeded")
 	}
@@ -124,7 +124,7 @@ func Test_Grpc_WaitForInstanceStart_Timeout(t *testing.T) {
 
 func Test_Grpc_WaitForInstanceStart_ConnectionResume(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("WaitForInstanceStartThrowsException", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("WaitForInstanceStartThrowsException", func(ctx *task.WorkflowContext) (any, error) {
 		// sleep 5 seconds
 		time.Sleep(5 * time.Second)
 		return 42, nil
@@ -132,10 +132,10 @@ func Test_Grpc_WaitForInstanceStart_ConnectionResume(t *testing.T) {
 
 	cancelListener := startGrpcListener(t, r)
 
-	go grpcClient.ScheduleNewOrchestration(ctx, "WaitForInstanceStartThrowsException", api.WithInput("世界"), api.WithInstanceID("worldhello"))
+	go grpcClient.ScheduleNewWorkflow(ctx, "WaitForInstanceStartThrowsException", api.WithInput("世界"), api.WithInstanceID("worldhello"))
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Second)
 	defer cancelTimeout()
-	_, err := grpcClient.WaitForOrchestrationStart(timeoutCtx, "worldhello", api.WithFetchPayloads(true))
+	_, err := grpcClient.WaitForWorkflowStart(timeoutCtx, "worldhello", api.WithFetchPayloads(true))
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), "context deadline exceeded")
 	}
@@ -149,16 +149,16 @@ func Test_Grpc_WaitForInstanceStart_ConnectionResume(t *testing.T) {
 	// workitem should be retried and completed.
 	timeoutCtx, cancelTimeout = context.WithTimeout(ctx, 30*time.Second)
 	defer cancelTimeout()
-	metadata, err := grpcClient.WaitForOrchestrationCompletion(timeoutCtx, "worldhello", api.WithFetchPayloads(true))
+	metadata, err := grpcClient.WaitForWorkflowCompletion(timeoutCtx, "worldhello", api.WithFetchPayloads(true))
 	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 	assert.Equal(t, "42", metadata.Output.Value)
 	time.Sleep(1 * time.Second)
 }
 
-func Test_Grpc_HelloOrchestration(t *testing.T) {
+func Test_Grpc_HelloWorkflow(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SingleActivity", func(ctx *task.WorkflowContext) (any, error) {
 		var input string
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
@@ -179,18 +179,18 @@ func Test_Grpc_HelloOrchestration(t *testing.T) {
 	cancelListener := startGrpcListener(t, r)
 	defer cancelListener()
 
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"))
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("世界"))
 	require.NoError(t, err)
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelTimeout()
-	metadata, err := grpcClient.WaitForOrchestrationCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
+	metadata, err := grpcClient.WaitForWorkflowCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
 	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 	assert.Equal(t, `"Hello, 世界!"`, metadata.Output.Value)
 	assert.Equal(t, "hello-test", metadata.CustomStatus.Value)
 	time.Sleep(1 * time.Second)
 
-	err = grpcClient.PurgeOrchestrationState(ctx, id)
+	err = grpcClient.PurgeWorkflowState(ctx, id)
 	assert.NoError(t, err)
 
 }
@@ -199,7 +199,7 @@ func Test_Grpc_SuspendResume(t *testing.T) {
 	const eventCount = 10
 
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SuspendResumeOrchestration", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SuspendResumeWorkflow", func(ctx *task.WorkflowContext) (any, error) {
 		for i := 0; i < eventCount; i++ {
 			var value int
 			ctx.WaitForSingleEvent("MyEvent", 5*time.Second).Await(&value)
@@ -213,36 +213,36 @@ func Test_Grpc_SuspendResume(t *testing.T) {
 	cancelListener := startGrpcListener(t, r)
 	defer cancelListener()
 
-	// Run the orchestration, which will block waiting for external events
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "SuspendResumeOrchestration", api.WithInput(0))
+	// Run the workflow, which will block waiting for external events
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "SuspendResumeWorkflow", api.WithInput(0))
 	require.NoError(t, err)
 
-	// Suspend the orchestration
-	require.NoError(t, grpcClient.SuspendOrchestration(ctx, id, ""))
+	// Suspend the workflow
+	require.NoError(t, grpcClient.SuspendWorkflow(ctx, id, ""))
 
-	// Raise a bunch of events to the orchestration (they should get buffered but not consumed)
+	// Raise a bunch of events to the workflow (they should get buffered but not consumed)
 	for i := 0; i < eventCount; i++ {
 		opts := api.WithEventPayload(i)
 		require.NoError(t, grpcClient.RaiseEvent(ctx, id, "MyEvent", opts))
 	}
 
-	// Make sure the orchestration *doesn't* complete
+	// Make sure the workflow *doesn't* complete
 	timeoutCtx, cancelWait := context.WithTimeout(ctx, 3*time.Second)
 	defer cancelWait()
-	_, err = grpcClient.WaitForOrchestrationCompletion(timeoutCtx, id)
+	_, err = grpcClient.WaitForWorkflowCompletion(timeoutCtx, id)
 	require.ErrorIs(t, err, timeoutCtx.Err())
 
-	var metadata *backend.OrchestrationMetadata
-	metadata, err = grpcClient.FetchOrchestrationMetadata(ctx, id)
+	var metadata *backend.WorkflowMetadata
+	metadata, err = grpcClient.FetchWorkflowMetadata(ctx, id)
 	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsRunning(metadata))
+	assert.True(t, api.WorkflowMetadataIsRunning(metadata))
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED, metadata.RuntimeStatus)
 
-	// Resume the orchestration and wait for it to complete
-	require.NoError(t, grpcClient.ResumeOrchestration(ctx, id, ""))
+	// Resume the workflow and wait for it to complete
+	require.NoError(t, grpcClient.ResumeWorkflow(ctx, id, ""))
 	timeoutCtx, cancelWait = context.WithTimeout(ctx, 3*time.Second)
 	defer cancelWait()
-	_, err = grpcClient.WaitForOrchestrationCompletion(timeoutCtx, id)
+	_, err = grpcClient.WaitForWorkflowCompletion(timeoutCtx, id)
 	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 }
@@ -251,10 +251,10 @@ func Test_Grpc_Terminate_Recursive(t *testing.T) {
 	delayTime := 4 * time.Second
 	executedActivity := false
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("Root", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("Root", func(ctx *task.WorkflowContext) (any, error) {
 		tasks := []task.Task{}
 		for i := 0; i < 5; i++ {
-			task := ctx.CallSubOrchestrator("L1")
+			task := ctx.CallChildWorkflow("L1")
 			tasks = append(tasks, task)
 		}
 		for _, task := range tasks {
@@ -262,11 +262,11 @@ func Test_Grpc_Terminate_Recursive(t *testing.T) {
 		}
 		return nil, nil
 	})
-	r.AddOrchestratorN("L1", func(ctx *task.OrchestrationContext) (any, error) {
-		ctx.CallSubOrchestrator("L2").Await(nil)
+	r.AddWorkflowN("L1", func(ctx *task.WorkflowContext) (any, error) {
+		ctx.CallChildWorkflow("L2").Await(nil)
 		return nil, nil
 	})
-	r.AddOrchestratorN("L2", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("L2", func(ctx *task.WorkflowContext) (any, error) {
 		ctx.CreateTimer(delayTime).Await(nil)
 		ctx.CallActivity("Fail").Await(nil)
 		return nil, nil
@@ -282,25 +282,25 @@ func Test_Grpc_Terminate_Recursive(t *testing.T) {
 	// Test terminating with and without recursion
 	for _, recurse := range []bool{true, false} {
 		t.Run(fmt.Sprintf("Recurse = %v", recurse), func(t *testing.T) {
-			// Run the orchestration, which will block waiting for external events
-			id, err := grpcClient.ScheduleNewOrchestration(ctx, "Root")
+			// Run the workflow, which will block waiting for external events
+			id, err := grpcClient.ScheduleNewWorkflow(ctx, "Root")
 			require.NoError(t, err)
 
-			// Wait long enough to ensure all orchestrations have started (but not longer than the timer delay)
+			// Wait long enough to ensure all workflows have started (but not longer than the timer delay)
 			time.Sleep(2 * time.Second)
 
-			// Terminate the root orchestration and mark whether a recursive termination
+			// Terminate the root workflow and mark whether a recursive termination
 			output := fmt.Sprintf("Recursive termination = %v", recurse)
 			opts := []api.TerminateOptions{api.WithOutput(output), api.WithRecursiveTerminate(recurse)}
-			require.NoError(t, grpcClient.TerminateOrchestration(ctx, id, opts...))
+			require.NoError(t, grpcClient.TerminateWorkflow(ctx, id, opts...))
 
-			// Wait for the root orchestration to complete and verify its terminated status
-			metadata, err := grpcClient.WaitForOrchestrationCompletion(ctx, id)
+			// Wait for the root workflow to complete and verify its terminated status
+			metadata, err := grpcClient.WaitForWorkflowCompletion(ctx, id)
 			require.NoError(t, err)
 			require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, metadata.RuntimeStatus)
 			require.Equal(t, fmt.Sprintf("\"%s\"", output), metadata.Output.Value)
 
-			// Wait longer to ensure that none of the sub-orchestrations continued to the next step
+			// Wait longer to ensure that none of the child workflows continued to the next step
 			// of executing the activity function.
 			time.Sleep(delayTime)
 			assert.NotEqual(t, recurse, executedActivity)
@@ -308,106 +308,10 @@ func Test_Grpc_Terminate_Recursive(t *testing.T) {
 	}
 }
 
-func Test_Grpc_ReuseInstanceIDIgnore(t *testing.T) {
-	delayTime := 2 * time.Second
-	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity", func(ctx *task.OrchestrationContext) (any, error) {
-		var input string
-		if err := ctx.GetInput(&input); err != nil {
-			return nil, err
-		}
-		var output string
-		ctx.CreateTimer(delayTime).Await(nil)
-		err := ctx.CallActivity("SayHello", task.WithActivityInput(input)).Await(&output)
-		return output, err
-	})
-	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
-		var name string
-		if err := ctx.GetInput(&name); err != nil {
-			return nil, err
-		}
-		return fmt.Sprintf("Hello, %s!", name), nil
-	})
-
-	cancelListener := startGrpcListener(t, r)
-	defer cancelListener()
-	instanceID := api.InstanceID("SKIP_IF_RUNNING_OR_COMPLETED")
-	reuseIdPolicy := &api.OrchestrationIdReusePolicy{
-		Action:          api.REUSE_ID_ACTION_IGNORE,
-		OperationStatus: []api.OrchestrationStatus{api.RUNTIME_STATUS_RUNNING, api.RUNTIME_STATUS_COMPLETED, api.RUNTIME_STATUS_PENDING},
-	}
-
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
-	require.NoError(t, err)
-	// wait orchestration to start
-	grpcClient.WaitForOrchestrationStart(ctx, id)
-	pivotTime := time.Now()
-	// schedule again, it should ignore creating the new orchestration
-	id, err = grpcClient.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id), api.WithOrchestrationIdReusePolicy(reuseIdPolicy))
-	require.NoError(t, err)
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelTimeout()
-	metadata, err := grpcClient.WaitForOrchestrationCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
-	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
-	// the first orchestration should complete as the second one is ignored
-	assert.Equal(t, `"Hello, 世界!"`, metadata.Output.Value)
-	// assert the orchestration created timestamp
-	assert.True(t, pivotTime.After(metadata.CreatedAt.AsTime()))
-}
-
-func Test_Grpc_ReuseInstanceIDTerminate(t *testing.T) {
-	delayTime := 2 * time.Second
-	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity", func(ctx *task.OrchestrationContext) (any, error) {
-		var input string
-		if err := ctx.GetInput(&input); err != nil {
-			return nil, err
-		}
-		var output string
-		ctx.CreateTimer(delayTime).Await(nil)
-		err := ctx.CallActivity("SayHello", task.WithActivityInput(input)).Await(&output)
-		return output, err
-	})
-	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
-		var name string
-		if err := ctx.GetInput(&name); err != nil {
-			return nil, err
-		}
-		return fmt.Sprintf("Hello, %s!", name), nil
-	})
-
-	cancelListener := startGrpcListener(t, r)
-	defer cancelListener()
-	instanceID := api.InstanceID("TERMINATE_IF_RUNNING_OR_COMPLETED")
-	reuseIdPolicy := &api.OrchestrationIdReusePolicy{
-		Action:          api.REUSE_ID_ACTION_TERMINATE,
-		OperationStatus: []api.OrchestrationStatus{api.RUNTIME_STATUS_RUNNING, api.RUNTIME_STATUS_COMPLETED, api.RUNTIME_STATUS_PENDING},
-	}
-
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
-	require.NoError(t, err)
-	// wait orchestration to start
-	grpcClient.WaitForOrchestrationStart(ctx, id)
-	pivotTime := time.Now()
-	// schedule again, it should terminate the first orchestration and start a new one
-	id, err = grpcClient.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id), api.WithOrchestrationIdReusePolicy(reuseIdPolicy))
-	require.NoError(t, err)
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelTimeout()
-	metadata, err := grpcClient.WaitForOrchestrationCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
-	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
-	// the second orchestration should complete.
-	assert.Equal(t, `"Hello, World!"`, metadata.Output.Value)
-	// assert the orchestration created timestamp
-	assert.True(t, pivotTime.Before(metadata.CreatedAt.AsTime()))
-}
-
 func Test_Grpc_ReuseInstanceIDError(t *testing.T) {
 	delayTime := 4 * time.Second
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SingleActivity", func(ctx *task.WorkflowContext) (any, error) {
 		var input string
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
@@ -429,9 +333,9 @@ func Test_Grpc_ReuseInstanceIDError(t *testing.T) {
 	defer cancelListener()
 	instanceID := api.InstanceID("THROW_IF_RUNNING_OR_COMPLETED")
 
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
 	require.NoError(t, err)
-	id, err = grpcClient.ScheduleNewOrchestration(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id))
+	id, err = grpcClient.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id))
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), "orchestration instance already exists")
 	}
@@ -439,7 +343,7 @@ func Test_Grpc_ReuseInstanceIDError(t *testing.T) {
 
 func Test_Grpc_ActivityRetries(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("ActivityRetries", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("ActivityRetries", func(ctx *task.WorkflowContext) (any, error) {
 		if err := ctx.CallActivity("FailActivity", task.WithActivityRetryPolicy(&task.RetryPolicy{
 			MaxAttempts:          3,
 			InitialRetryInterval: 10 * time.Millisecond,
@@ -456,46 +360,46 @@ func Test_Grpc_ActivityRetries(t *testing.T) {
 	defer cancelListener()
 	instanceID := api.InstanceID("activity_retries")
 
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "ActivityRetries", api.WithInstanceID(instanceID))
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "ActivityRetries", api.WithInstanceID(instanceID))
 	require.NoError(t, err)
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelTimeout()
-	metadata, err := grpcClient.WaitForOrchestrationCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
+	metadata, err := grpcClient.WaitForWorkflowCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
 	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, metadata.RuntimeStatus)
 	// With 3 max attempts there will be two retries with 10 millis delay before each
 	require.GreaterOrEqual(t, metadata.LastUpdatedAt.AsTime(), metadata.CreatedAt.AsTime().Add(2*10*time.Millisecond))
 }
 
-func Test_Grpc_SubOrchestratorRetries(t *testing.T) {
+func Test_Grpc_ChildWorkflowRetries(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("Parent", func(ctx *task.OrchestrationContext) (any, error) {
-		err := ctx.CallSubOrchestrator(
+	r.AddWorkflowN("Parent", func(ctx *task.WorkflowContext) (any, error) {
+		err := ctx.CallChildWorkflow(
 			"Child",
-			task.WithSubOrchestrationInstanceID(string(ctx.ID)+"_child"),
-			task.WithSubOrchestrationRetryPolicy(&task.RetryPolicy{
+			task.WithChildWorkflowInstanceID(string(ctx.ID)+"_child"),
+			task.WithChildWorkflowRetryPolicy(&task.RetryPolicy{
 				MaxAttempts:          3,
 				InitialRetryInterval: 10 * time.Millisecond,
 				BackoffCoefficient:   2,
 			})).Await(nil)
 		return nil, err
 	})
-	r.AddOrchestratorN("Child", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("Child", func(ctx *task.WorkflowContext) (any, error) {
 		return nil, errors.New("Child failed")
 	})
 
 	cancelListener := startGrpcListener(t, r)
 	defer cancelListener()
-	instanceID := api.InstanceID("orchestrator_retries")
+	instanceID := api.InstanceID("workflow_retries")
 
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "Parent", api.WithInstanceID(instanceID))
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "Parent", api.WithInstanceID(instanceID))
 	require.NoError(t, err)
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelTimeout()
-	metadata, err := grpcClient.WaitForOrchestrationCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
+	metadata, err := grpcClient.WaitForWorkflowCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
 	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, metadata.RuntimeStatus)
 	// With 3 max attempts there will be two retries with 10 millis delay before each
 	require.GreaterOrEqual(t, metadata.LastUpdatedAt.AsTime(), metadata.CreatedAt.AsTime().Add(2*10*time.Millisecond))
@@ -504,7 +408,7 @@ func Test_Grpc_SubOrchestratorRetries(t *testing.T) {
 func Test_SingleActivity_TaskSpan(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("SingleActivity_TestSpan", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("SingleActivity_TestSpan", func(ctx *task.WorkflowContext) (any, error) {
 		var input string
 		if err := ctx.GetInput(&input); err != nil {
 			return nil, err
@@ -527,10 +431,10 @@ func Test_SingleActivity_TaskSpan(t *testing.T) {
 	cancelListener := startGrpcListener(t, r)
 	defer cancelListener()
 
-	// Run the orchestration
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "SingleActivity_TestSpan", api.WithInput("世界"), api.WithStartTime(time.Now()))
+	// Run the workflow
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "SingleActivity_TestSpan", api.WithInput("世界"), api.WithStartTime(time.Now()))
 	if assert.NoError(t, err) {
-		metadata, err := grpcClient.WaitForOrchestrationCompletion(ctx, id)
+		metadata, err := grpcClient.WaitForWorkflowCompletion(ctx, id)
 		if assert.NoError(t, err) {
 			assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 			assert.Equal(t, `"Hello, 世界!"`, metadata.Output.Value)
@@ -540,10 +444,10 @@ func Test_SingleActivity_TaskSpan(t *testing.T) {
 	// Validate the exported OTel traces
 	spans := exporter.GetSpans().Snapshots()
 	utils.AssertSpanSequence(t, spans,
-		utils.AssertOrchestratorCreated("SingleActivity_TestSpan", id),
+		utils.AssertWorkflowCreated("SingleActivity_TestSpan", id),
 		utils.AssertSpan("activityChild_TestSpan"),
 		utils.AssertActivity("SayHello", id, 0),
-		utils.AssertOrchestratorExecuted("SingleActivity_TestSpan", id, "COMPLETED"),
+		utils.AssertWorkflowExecuted("SingleActivity_TestSpan", id, "COMPLETED"),
 	)
 	// assert child-parent relationship
 	assert.Equal(t, spans[1].Parent().SpanID(), spans[2].SpanContext().SpanID())
@@ -551,7 +455,7 @@ func Test_SingleActivity_TaskSpan(t *testing.T) {
 
 func Test_Grpc_ListInstanceIDs(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("foo", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("foo", func(ctx *task.WorkflowContext) (any, error) {
 		return 42, nil
 	})
 
@@ -559,7 +463,7 @@ func Test_Grpc_ListInstanceIDs(t *testing.T) {
 	defer cancelListener()
 
 	for i := range 5 {
-		_, err := grpcClient.ScheduleNewOrchestration(ctx, "foo", api.WithInstanceID(api.InstanceID(strconv.Itoa(i))))
+		_, err := grpcClient.ScheduleNewWorkflow(ctx, "foo", api.WithInstanceID(api.InstanceID(strconv.Itoa(i))))
 		require.NoError(t, err)
 	}
 
@@ -570,7 +474,7 @@ func Test_Grpc_ListInstanceIDs(t *testing.T) {
 
 func Test_Grpc_GetInstanceHistory(t *testing.T) {
 	r := task.NewTaskRegistry()
-	r.AddOrchestratorN("foo", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("foo", func(ctx *task.WorkflowContext) (any, error) {
 		if err := ctx.CallActivity("bar").Await(nil); err != nil {
 			return nil, err
 		}
@@ -589,7 +493,7 @@ func Test_Grpc_GetInstanceHistory(t *testing.T) {
 	cancelListener := startGrpcListener(t, r)
 	defer cancelListener()
 
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "foo")
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "foo")
 	require.NoError(t, err)
 
 	resp, err := grpcClient.GetInstanceHistory(ctx, id)
@@ -597,12 +501,12 @@ func Test_Grpc_GetInstanceHistory(t *testing.T) {
 	require.Len(t, resp.Events, 12)
 }
 
-func Test_Grpc_PatchedOrchestration(t *testing.T) {
+func Test_Grpc_PatchedWorkflow(t *testing.T) {
 	r := task.NewTaskRegistry()
 	patches1Found := []bool{}
 	patches2Found := []bool{}
 	runNumber := atomic.Uint32{}
-	r.AddOrchestratorN("Orchestrator", func(ctx *task.OrchestrationContext) (any, error) {
+	r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
 		currentRun := runNumber.Add(1)
 		if currentRun > 1 {
 			patches1Found = append(patches1Found, ctx.IsPatched("patch1"))
@@ -617,13 +521,13 @@ func Test_Grpc_PatchedOrchestration(t *testing.T) {
 
 	cancelListener := startGrpcListener(t, r)
 	defer cancelListener()
-	id, err := grpcClient.ScheduleNewOrchestration(ctx, "Orchestrator")
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "Workflow")
 	require.NoError(t, err)
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelTimeout()
-	metadata, err := grpcClient.WaitForOrchestrationCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
+	metadata, err := grpcClient.WaitForWorkflowCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
 	require.NoError(t, err)
-	assert.True(t, api.OrchestrationMetadataIsComplete(metadata))
+	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 	assert.Equal(t, []bool{false}, patches1Found)
 	assert.Equal(t, []bool{true}, patches2Found)
 }

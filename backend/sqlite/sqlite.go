@@ -35,9 +35,9 @@ var emptyString string = ""
 var errNoWorkItems = errors.New("no work items were found")
 
 type SqliteOptions struct {
-	OrchestrationLockTimeout time.Duration
-	ActivityLockTimeout      time.Duration
-	FilePath                 string
+	WorkflowLockTimeout time.Duration
+	ActivityLockTimeout time.Duration
+	FilePath            string
 }
 
 type sqliteBackend struct {
@@ -55,9 +55,9 @@ type sqliteBackend struct {
 func NewSqliteOptions(filePath string) *SqliteOptions {
 	// Default values are provided for required options
 	return &SqliteOptions{
-		FilePath:                 filePath,
-		OrchestrationLockTimeout: 2 * time.Minute,
-		ActivityLockTimeout:      2 * time.Minute,
+		FilePath:            filePath,
+		WorkflowLockTimeout: 2 * time.Minute,
+		ActivityLockTimeout: 2 * time.Minute,
 	}
 }
 
@@ -138,8 +138,8 @@ func (be *sqliteBackend) DeleteTaskHub(ctx context.Context) error {
 	}
 }
 
-// AbandonOrchestrationWorkItem implements backend.Backend
-func (be *sqliteBackend) AbandonOrchestrationWorkItem(ctx context.Context, wi *backend.OrchestrationWorkItem) error {
+// AbandonWorkflowWorkItem implements backend.Backend
+func (be *sqliteBackend) AbandonWorkflowWorkItem(ctx context.Context, wi *backend.WorkflowWorkItem) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
@@ -199,8 +199,8 @@ func (be *sqliteBackend) AbandonOrchestrationWorkItem(ctx context.Context, wi *b
 	return nil
 }
 
-// CompleteOrchestrationWorkItem implements backend.Backend
-func (be *sqliteBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi *backend.OrchestrationWorkItem) error {
+// CompleteWorkflowWorkItem implements backend.Backend
+func (be *sqliteBackend) CompleteWorkflowWorkItem(ctx context.Context, wi *backend.WorkflowWorkItem) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
@@ -327,7 +327,7 @@ func (be *sqliteBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi *
 		}
 	}
 
-	// Save outbound orchestrator events
+	// Save outbound workflow events
 	newEventCount := len(wi.State.PendingTimers) + len(wi.State.PendingMessages)
 	if newEventCount > 0 {
 		insertSql := "INSERT INTO NewEvents ([InstanceID], [EventPayload], [VisibleTime]) VALUES (?, ?, ?)" +
@@ -347,15 +347,20 @@ func (be *sqliteBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi *
 		for _, msg := range wi.State.PendingMessages {
 			if es := msg.HistoryEvent.GetExecutionStarted(); es != nil {
 				// Need to insert a new row into the DB
-				if _, err := be.createOrchestrationInstanceInternal(ctx, msg.HistoryEvent, tx, backend.WithOrchestrationIdReusePolicy(&protos.OrchestrationIdReusePolicy{
-					OperationStatus: []protos.OrchestrationStatus{protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED},
-					Action:          api.REUSE_ID_ACTION_TERMINATE,
-				})); err != nil {
-					if err == runtimestate.ErrDuplicateEvent {
-						be.logger.Warnf(
-							"%v: dropping sub-orchestration creation event because an instance with the target ID (%v) already exists.",
-							wi.InstanceID,
-							es.OrchestrationInstance.InstanceId)
+				if _, err := be.createWorkflowInstanceInternal(ctx, msg.HistoryEvent, tx); err != nil {
+					if err == runtimestate.ErrDuplicateEvent || errors.Is(err, api.ErrDuplicateInstance) {
+						// Clean up existing instance and retry
+						if cleanupErr := be.cleanupWorkflowStateInternal(ctx, tx, api.InstanceID(es.WorkflowInstance.InstanceId), true); cleanupErr != nil {
+							be.logger.Warnf(
+								"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
+								wi.InstanceID,
+								es.WorkflowInstance.InstanceId)
+						} else if _, retryErr := be.createWorkflowInstanceInternal(ctx, msg.HistoryEvent, tx); retryErr != nil {
+							be.logger.Warnf(
+								"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
+								wi.InstanceID,
+								es.WorkflowInstance.InstanceId)
+						}
 					} else {
 						return err
 					}
@@ -367,7 +372,7 @@ func (be *sqliteBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi *
 				return err
 			}
 
-			sqlInsertArgs = append(sqlInsertArgs, msg.TargetInstanceID, eventPayload, nil)
+			sqlInsertArgs = append(sqlInsertArgs, msg.TargetInstanceId, eventPayload, nil)
 		}
 
 		_, err = tx.ExecContext(ctx, insertSql, sqlInsertArgs...)
@@ -405,8 +410,8 @@ func (be *sqliteBackend) CompleteOrchestrationWorkItem(ctx context.Context, wi *
 	return nil
 }
 
-// CreateOrchestrationInstance implements backend.Backend
-func (be *sqliteBackend) CreateOrchestrationInstance(ctx context.Context, e *backend.HistoryEvent, opts ...backend.OrchestrationIdReusePolicyOptions) error {
+// CreateWorkflowInstance implements backend.Backend
+func (be *sqliteBackend) CreateWorkflowInstance(ctx context.Context, e *backend.HistoryEvent) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
@@ -418,7 +423,7 @@ func (be *sqliteBackend) CreateOrchestrationInstance(ctx context.Context, e *bac
 	defer tx.Rollback()
 
 	var instanceID string
-	if instanceID, err = be.createOrchestrationInstanceInternal(ctx, e, tx, opts...); errors.Is(err, api.ErrIgnoreInstance) {
+	if instanceID, err = be.createWorkflowInstanceInternal(ctx, e, tx); errors.Is(err, api.ErrIgnoreInstance) {
 		// choose to ignore, do nothing
 		return nil
 	} else if err != nil {
@@ -442,13 +447,13 @@ func (be *sqliteBackend) CreateOrchestrationInstance(ctx context.Context, e *bac
 	}
 
 	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("failed to create orchestration: %w", err)
+		return fmt.Errorf("failed to create workflow: %w", err)
 	}
 
 	return nil
 }
 
-func (be *sqliteBackend) createOrchestrationInstanceInternal(ctx context.Context, e *backend.HistoryEvent, tx *sql.Tx, opts ...backend.OrchestrationIdReusePolicyOptions) (string, error) {
+func (be *sqliteBackend) createWorkflowInstanceInternal(ctx context.Context, e *backend.HistoryEvent, tx *sql.Tx) (string, error) {
 	if e == nil {
 		return "", errors.New("HistoryEvent must be non-nil")
 	} else if e.Timestamp == nil {
@@ -459,13 +464,7 @@ func (be *sqliteBackend) createOrchestrationInstanceInternal(ctx context.Context
 	if startEvent == nil {
 		return "", errors.New("HistoryEvent must be an ExecutionStartedEvent")
 	}
-	instanceID := startEvent.OrchestrationInstance.InstanceId
-
-	policy := &protos.OrchestrationIdReusePolicy{}
-
-	for _, opt := range opts {
-		opt(policy)
-	}
+	instanceID := startEvent.WorkflowInstance.InstanceId
 
 	rows, err := insertOrIgnoreInstanceTableInternal(ctx, tx, e, startEvent)
 	if err != nil {
@@ -474,7 +473,7 @@ func (be *sqliteBackend) createOrchestrationInstanceInternal(ctx context.Context
 
 	// instance with same ID already exists
 	if rows <= 0 {
-		return instanceID, be.handleInstanceExists(ctx, tx, startEvent, policy, e)
+		return instanceID, api.ErrDuplicateInstance
 	}
 	return instanceID, nil
 }
@@ -493,8 +492,8 @@ func insertOrIgnoreInstanceTableInternal(ctx context.Context, tx *sql.Tx, e *bac
 		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		startEvent.Name,
 		startEvent.Version.GetValue(),
-		startEvent.OrchestrationInstance.InstanceId,
-		startEvent.OrchestrationInstance.ExecutionId.GetValue(),
+		startEvent.WorkflowInstance.InstanceId,
+		startEvent.WorkflowInstance.ExecutionId.GetValue(),
 		startEvent.Input.GetValue(),
 		"PENDING",
 		e.Timestamp.AsTime(),
@@ -510,53 +509,6 @@ func insertOrIgnoreInstanceTableInternal(ctx context.Context, tx *sql.Tx, e *bac
 	return rows, nil
 }
 
-func (be *sqliteBackend) handleInstanceExists(ctx context.Context, tx *sql.Tx, startEvent *protos.ExecutionStartedEvent, policy *protos.OrchestrationIdReusePolicy, e *backend.HistoryEvent) error {
-	// query RuntimeStatus for the existing instance
-	queryRow := tx.QueryRowContext(
-		ctx,
-		`SELECT [RuntimeStatus] FROM Instances WHERE [InstanceID] = ?`,
-		startEvent.OrchestrationInstance.InstanceId,
-	)
-	var runtimeStatus *string
-	err := queryRow.Scan(&runtimeStatus)
-	if errors.Is(err, sql.ErrNoRows) {
-		return api.ErrInstanceNotFound
-	} else if err != nil {
-		return fmt.Errorf("failed to scan the Instances table result: %w", err)
-	}
-
-	// status not match, return instance duplicate error
-	if !isStatusMatch(policy.OperationStatus, helpers.FromRuntimeStatusString(*runtimeStatus)) {
-		return api.ErrDuplicateInstance
-	}
-
-	// status match
-	switch policy.Action {
-	case protos.CreateOrchestrationAction_IGNORE:
-		// Log an warning message and ignore creating new instance
-		be.logger.Warnf("An instance with ID '%s' already exists; dropping duplicate create request", startEvent.OrchestrationInstance.InstanceId)
-		return api.ErrIgnoreInstance
-	case protos.CreateOrchestrationAction_TERMINATE:
-		// terminate existing instance
-		if err := be.cleanupOrchestrationStateInternal(ctx, tx, api.InstanceID(startEvent.OrchestrationInstance.InstanceId), false); err != nil {
-			return fmt.Errorf("failed to cleanup orchestration status: %w", err)
-		}
-		// create a new instance
-		var rows int64
-		if rows, err = insertOrIgnoreInstanceTableInternal(ctx, tx, e, startEvent); err != nil {
-			return err
-		}
-
-		// should never happen, because we clean up instance before create new one
-		if rows <= 0 {
-			return fmt.Errorf("failed to insert into [Instances] table because entry already exists.")
-		}
-		return nil
-	}
-	// default behavior
-	return api.ErrDuplicateInstance
-}
-
 func isStatusMatch(statuses []protos.OrchestrationStatus, runtimeStatus protos.OrchestrationStatus) bool {
 	for _, status := range statuses {
 		if status == runtimeStatus {
@@ -566,7 +518,7 @@ func isStatusMatch(statuses []protos.OrchestrationStatus, runtimeStatus protos.O
 	return false
 }
 
-func (be *sqliteBackend) cleanupOrchestrationStateInternal(ctx context.Context, tx *sql.Tx, id api.InstanceID, requireCompleted bool) error {
+func (be *sqliteBackend) cleanupWorkflowStateInternal(ctx context.Context, tx *sql.Tx, id api.InstanceID, requireCompleted bool) error {
 	row := tx.QueryRowContext(ctx, "SELECT 1 FROM Instances WHERE [InstanceID] = ?", string(id))
 	if err := row.Err(); err != nil {
 		return fmt.Errorf("failed to query for instance existence: %w", err)
@@ -580,7 +532,7 @@ func (be *sqliteBackend) cleanupOrchestrationStateInternal(ctx context.Context, 
 	}
 
 	if requireCompleted {
-		// purge orchestration in ['COMPLETED', 'FAILED', 'TERMINATED']
+		// purge workflow in ['COMPLETED', 'FAILED', 'TERMINATED']
 		dbResult, err := tx.ExecContext(ctx, "DELETE FROM Instances WHERE [InstanceID] = ? AND [RuntimeStatus] IN ('COMPLETED', 'FAILED', 'TERMINATED')", string(id))
 		if err != nil {
 			return fmt.Errorf("failed to delete from the Instances table: %w", err)
@@ -594,7 +546,7 @@ func (be *sqliteBackend) cleanupOrchestrationStateInternal(ctx context.Context, 
 			return api.ErrNotCompleted
 		}
 	} else {
-		// clean up orchestration in all [RuntimeStatus]
+		// clean up workflow in all [RuntimeStatus]
 		_, err := tx.ExecContext(ctx, "DELETE FROM Instances WHERE [InstanceID] = ?", string(id))
 		if err != nil {
 			return fmt.Errorf("failed to delete from the Instances table: %w", err)
@@ -618,7 +570,7 @@ func (be *sqliteBackend) cleanupOrchestrationStateInternal(ctx context.Context, 
 	return nil
 }
 
-func (be *sqliteBackend) AddNewOrchestrationEvent(ctx context.Context, iid api.InstanceID, e *backend.HistoryEvent) error {
+func (be *sqliteBackend) AddNewWorkflowEvent(ctx context.Context, iid api.InstanceID, e *backend.HistoryEvent) error {
 	if e == nil {
 		return errors.New("HistoryEvent must be non-nil")
 	} else if e.Timestamp == nil {
@@ -644,7 +596,7 @@ func (be *sqliteBackend) AddNewOrchestrationEvent(ctx context.Context, iid api.I
 	return nil
 }
 
-func (be *sqliteBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, fn func(*backend.OrchestrationMetadata) bool) error {
+func (be *sqliteBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, fn func(*backend.WorkflowMetadata) bool) error {
 	b := backoff.ExponentialBackOff{
 		InitialInterval:     100 * time.Millisecond,
 		MaxInterval:         10 * time.Second,
@@ -665,7 +617,7 @@ func (be *sqliteBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, id
 			}
 			return ctx.Err()
 		case <-t.C:
-			meta, err := be.GetOrchestrationMetadata(ctx, id)
+			meta, err := be.GetWorkflowMetadata(ctx, id)
 			if err != nil {
 				return err
 			}
@@ -679,8 +631,8 @@ func (be *sqliteBackend) WatchOrchestrationRuntimeStatus(ctx context.Context, id
 	return nil
 }
 
-// GetOrchestrationMetadata implements backend.Backend
-func (be *sqliteBackend) GetOrchestrationMetadata(ctx context.Context, iid api.InstanceID) (*backend.OrchestrationMetadata, error) {
+// GetWorkflowMetadata implements backend.Backend
+func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.InstanceID) (*backend.WorkflowMetadata, error) {
 	if err := be.ensureDB(); err != nil {
 		return nil, err
 	}
@@ -737,7 +689,7 @@ func (be *sqliteBackend) GetOrchestrationMetadata(ctx context.Context, iid api.I
 		}
 	}
 
-	return &backend.OrchestrationMetadata{
+	return &backend.WorkflowMetadata{
 		InstanceId:     string(iid),
 		Name:           *name,
 		RuntimeStatus:  helpers.FromRuntimeStatusString(*runtimeStatus),
@@ -750,8 +702,8 @@ func (be *sqliteBackend) GetOrchestrationMetadata(ctx context.Context, iid api.I
 	}, nil
 }
 
-// GetOrchestrationRuntimeState implements backend.Backend
-func (be *sqliteBackend) GetOrchestrationRuntimeState(ctx context.Context, wi *backend.OrchestrationWorkItem) (*backend.OrchestrationRuntimeState, error) {
+// GetWorkflowRuntimeState implements backend.Backend
+func (be *sqliteBackend) GetWorkflowRuntimeState(ctx context.Context, wi *backend.WorkflowWorkItem) (*backend.WorkflowRuntimeState, error) {
 	if err := be.ensureDB(); err != nil {
 		return nil, err
 	}
@@ -780,12 +732,12 @@ func (be *sqliteBackend) GetOrchestrationRuntimeState(ctx context.Context, wi *b
 		existingEvents = append(existingEvents, e)
 	}
 
-	state := runtimestate.NewOrchestrationRuntimeState(string(wi.InstanceID), nil, existingEvents)
+	state := runtimestate.NewWorkflowRuntimeState(string(wi.InstanceID), nil, existingEvents)
 	return state, nil
 }
 
-// getOrchestrationWorkItem implements backend.Backend
-func (be *sqliteBackend) getOrchestrationWorkItem(ctx context.Context) (*backend.OrchestrationWorkItem, error) {
+// getWorkflowWorkItem implements backend.Backend
+func (be *sqliteBackend) getWorkflowWorkItem(ctx context.Context) (*backend.WorkflowWorkItem, error) {
 	if err := be.ensureDB(); err != nil {
 		return nil, err
 	}
@@ -797,9 +749,9 @@ func (be *sqliteBackend) getOrchestrationWorkItem(ctx context.Context) (*backend
 	defer tx.Rollback()
 
 	now := time.Now().UTC()
-	newLockExpiration := now.Add(be.options.OrchestrationLockTimeout)
+	newLockExpiration := now.Add(be.options.WorkflowLockTimeout)
 
-	// Place a lock on an orchestration instance that has new events that are ready to be executed.
+	// Place a lock on a workflow instance that has new events that are ready to be executed.
 	row := tx.QueryRowContext(
 		ctx,
 		`UPDATE Instances SET [LockedBy] = ?, [LockExpiration] = ?
@@ -818,7 +770,7 @@ func (be *sqliteBackend) getOrchestrationWorkItem(ctx context.Context) (*backend
 	)
 
 	if err := row.Err(); err != nil {
-		return nil, fmt.Errorf("failed to query for orchestration work-items: %w", err)
+		return nil, fmt.Errorf("failed to query for workflow work-items: %w", err)
 	}
 
 	var instanceID string
@@ -828,7 +780,7 @@ func (be *sqliteBackend) getOrchestrationWorkItem(ctx context.Context) (*backend
 			return nil, errNoWorkItems
 		}
 
-		return nil, fmt.Errorf("failed to scan the orchestration work-item: %w", err)
+		return nil, fmt.Errorf("failed to scan the workflow work-item: %w", err)
 	}
 
 	// TODO: Get all the unprocessed events associated with the locked instance
@@ -845,7 +797,7 @@ func (be *sqliteBackend) getOrchestrationWorkItem(ctx context.Context) (*backend
 		now,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query for orchestration work-items: %w", err)
+		return nil, fmt.Errorf("failed to query for workflow work-items: %w", err)
 	}
 
 	maxDequeueCount := int32(0)
@@ -871,10 +823,10 @@ func (be *sqliteBackend) getOrchestrationWorkItem(ctx context.Context) (*backend
 	}
 
 	if err = tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to update orchestration work-item: %w", err)
+		return nil, fmt.Errorf("failed to update workflow work-item: %w", err)
 	}
 
-	wi := &backend.OrchestrationWorkItem{
+	wi := &backend.WorkflowWorkItem{
 		InstanceID: api.InstanceID(instanceID),
 		NewEvents:  newEvents,
 		LockedBy:   be.workerName,
@@ -884,7 +836,7 @@ func (be *sqliteBackend) getOrchestrationWorkItem(ctx context.Context) (*backend
 	return wi, nil
 }
 
-func (be *sqliteBackend) NextOrchestrationWorkItem(ctx context.Context) (*backend.OrchestrationWorkItem, error) {
+func (be *sqliteBackend) NextWorkflowWorkItem(ctx context.Context) (*backend.WorkflowWorkItem, error) {
 	b := backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     50 * time.Millisecond,
 		MaxInterval:         5 * time.Second,
@@ -895,7 +847,7 @@ func (be *sqliteBackend) NextOrchestrationWorkItem(ctx context.Context) (*backen
 	}, ctx)
 
 	for {
-		wi, err := be.getOrchestrationWorkItem(ctx)
+		wi, err := be.getWorkflowWorkItem(ctx)
 		if err == nil {
 			return wi, nil
 		}
@@ -956,7 +908,7 @@ func (be *sqliteBackend) getActivityWorkItem(ctx context.Context) (*backend.Acti
 	}
 
 	now := time.Now().UTC()
-	newLockExpiration := now.Add(be.options.OrchestrationLockTimeout)
+	newLockExpiration := now.Add(be.options.WorkflowLockTimeout)
 
 	row := be.db.QueryRowContext(
 		ctx,
@@ -1067,7 +1019,7 @@ func (be *sqliteBackend) AbandonActivityWorkItem(ctx context.Context, wi *backen
 	return nil
 }
 
-func (be *sqliteBackend) PurgeOrchestrationState(ctx context.Context, id api.InstanceID, force bool) error {
+func (be *sqliteBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, force bool) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
@@ -1078,7 +1030,7 @@ func (be *sqliteBackend) PurgeOrchestrationState(ctx context.Context, id api.Ins
 	}
 	defer tx.Rollback()
 
-	if err := be.cleanupOrchestrationStateInternal(ctx, tx, id, true); err != nil {
+	if err := be.cleanupWorkflowStateInternal(ctx, tx, id, true); err != nil {
 		return err
 	}
 

@@ -73,16 +73,16 @@ func (_c *Backend_AbandonActivityWorkItem_Call) RunAndReturn(run func(context.Co
 	return _c
 }
 
-// AbandonOrchestrationWorkItem provides a mock function with given fields: _a0, _a1
-func (_m *Backend) AbandonOrchestrationWorkItem(_a0 context.Context, _a1 *backend.OrchestrationWorkItem) error {
+// AbandonWorkflowWorkItem provides a mock function with given fields: _a0, _a1
+func (_m *Backend) AbandonWorkflowWorkItem(_a0 context.Context, _a1 *backend.WorkflowWorkItem) error {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
-		panic("no return value specified for AbandonOrchestrationWorkItem")
+		panic("no return value specified for AbandonWorkflowWorkItem")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *backend.OrchestrationWorkItem) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *backend.WorkflowWorkItem) error); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		r0 = ret.Error(0)
@@ -91,41 +91,41 @@ func (_m *Backend) AbandonOrchestrationWorkItem(_a0 context.Context, _a1 *backen
 	return r0
 }
 
-// Backend_AbandonOrchestrationWorkItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AbandonOrchestrationWorkItem'
-type Backend_AbandonOrchestrationWorkItem_Call struct {
+// Backend_AbandonWorkflowWorkItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AbandonWorkflowWorkItem'
+type Backend_AbandonWorkflowWorkItem_Call struct {
 	*mock.Call
 }
 
-// AbandonOrchestrationWorkItem is a helper method to define mock.On call
+// AbandonWorkflowWorkItem is a helper method to define mock.On call
 //   - _a0 context.Context
-//   - _a1 *backend.OrchestrationWorkItem
-func (_e *Backend_Expecter) AbandonOrchestrationWorkItem(_a0 interface{}, _a1 interface{}) *Backend_AbandonOrchestrationWorkItem_Call {
-	return &Backend_AbandonOrchestrationWorkItem_Call{Call: _e.mock.On("AbandonOrchestrationWorkItem", _a0, _a1)}
+//   - _a1 *backend.WorkflowWorkItem
+func (_e *Backend_Expecter) AbandonWorkflowWorkItem(_a0 interface{}, _a1 interface{}) *Backend_AbandonWorkflowWorkItem_Call {
+	return &Backend_AbandonWorkflowWorkItem_Call{Call: _e.mock.On("AbandonWorkflowWorkItem", _a0, _a1)}
 }
 
-func (_c *Backend_AbandonOrchestrationWorkItem_Call) Run(run func(_a0 context.Context, _a1 *backend.OrchestrationWorkItem)) *Backend_AbandonOrchestrationWorkItem_Call {
+func (_c *Backend_AbandonWorkflowWorkItem_Call) Run(run func(_a0 context.Context, _a1 *backend.WorkflowWorkItem)) *Backend_AbandonWorkflowWorkItem_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*backend.OrchestrationWorkItem))
+		run(args[0].(context.Context), args[1].(*backend.WorkflowWorkItem))
 	})
 	return _c
 }
 
-func (_c *Backend_AbandonOrchestrationWorkItem_Call) Return(_a0 error) *Backend_AbandonOrchestrationWorkItem_Call {
+func (_c *Backend_AbandonWorkflowWorkItem_Call) Return(_a0 error) *Backend_AbandonWorkflowWorkItem_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Backend_AbandonOrchestrationWorkItem_Call) RunAndReturn(run func(context.Context, *backend.OrchestrationWorkItem) error) *Backend_AbandonOrchestrationWorkItem_Call {
+func (_c *Backend_AbandonWorkflowWorkItem_Call) RunAndReturn(run func(context.Context, *backend.WorkflowWorkItem) error) *Backend_AbandonWorkflowWorkItem_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// AddNewOrchestrationEvent provides a mock function with given fields: _a0, _a1, _a2
-func (_m *Backend) AddNewOrchestrationEvent(_a0 context.Context, _a1 api.InstanceID, _a2 *protos.HistoryEvent) error {
+// AddNewWorkflowEvent provides a mock function with given fields: _a0, _a1, _a2
+func (_m *Backend) AddNewWorkflowEvent(_a0 context.Context, _a1 api.InstanceID, _a2 *protos.HistoryEvent) error {
 	ret := _m.Called(_a0, _a1, _a2)
 
 	if len(ret) == 0 {
-		panic("no return value specified for AddNewOrchestrationEvent")
+		panic("no return value specified for AddNewWorkflowEvent")
 	}
 
 	var r0 error
@@ -138,32 +138,32 @@ func (_m *Backend) AddNewOrchestrationEvent(_a0 context.Context, _a1 api.Instanc
 	return r0
 }
 
-// Backend_AddNewOrchestrationEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddNewOrchestrationEvent'
-type Backend_AddNewOrchestrationEvent_Call struct {
+// Backend_AddNewWorkflowEvent_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddNewWorkflowEvent'
+type Backend_AddNewWorkflowEvent_Call struct {
 	*mock.Call
 }
 
-// AddNewOrchestrationEvent is a helper method to define mock.On call
+// AddNewWorkflowEvent is a helper method to define mock.On call
 //   - _a0 context.Context
 //   - _a1 api.InstanceID
 //   - _a2 *protos.HistoryEvent
-func (_e *Backend_Expecter) AddNewOrchestrationEvent(_a0 interface{}, _a1 interface{}, _a2 interface{}) *Backend_AddNewOrchestrationEvent_Call {
-	return &Backend_AddNewOrchestrationEvent_Call{Call: _e.mock.On("AddNewOrchestrationEvent", _a0, _a1, _a2)}
+func (_e *Backend_Expecter) AddNewWorkflowEvent(_a0 interface{}, _a1 interface{}, _a2 interface{}) *Backend_AddNewWorkflowEvent_Call {
+	return &Backend_AddNewWorkflowEvent_Call{Call: _e.mock.On("AddNewWorkflowEvent", _a0, _a1, _a2)}
 }
 
-func (_c *Backend_AddNewOrchestrationEvent_Call) Run(run func(_a0 context.Context, _a1 api.InstanceID, _a2 *protos.HistoryEvent)) *Backend_AddNewOrchestrationEvent_Call {
+func (_c *Backend_AddNewWorkflowEvent_Call) Run(run func(_a0 context.Context, _a1 api.InstanceID, _a2 *protos.HistoryEvent)) *Backend_AddNewWorkflowEvent_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(*protos.HistoryEvent))
 	})
 	return _c
 }
 
-func (_c *Backend_AddNewOrchestrationEvent_Call) Return(_a0 error) *Backend_AddNewOrchestrationEvent_Call {
+func (_c *Backend_AddNewWorkflowEvent_Call) Return(_a0 error) *Backend_AddNewWorkflowEvent_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Backend_AddNewOrchestrationEvent_Call) RunAndReturn(run func(context.Context, api.InstanceID, *protos.HistoryEvent) error) *Backend_AddNewOrchestrationEvent_Call {
+func (_c *Backend_AddNewWorkflowEvent_Call) RunAndReturn(run func(context.Context, api.InstanceID, *protos.HistoryEvent) error) *Backend_AddNewWorkflowEvent_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -216,12 +216,12 @@ func (_c *Backend_CancelActivityTask_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// CancelOrchestratorTask provides a mock function with given fields: _a0, _a1
-func (_m *Backend) CancelOrchestratorTask(_a0 context.Context, _a1 api.InstanceID) error {
+// CancelWorkflowTask provides a mock function with given fields: _a0, _a1
+func (_m *Backend) CancelWorkflowTask(_a0 context.Context, _a1 api.InstanceID) error {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CancelOrchestratorTask")
+		panic("no return value specified for CancelWorkflowTask")
 	}
 
 	var r0 error
@@ -234,31 +234,31 @@ func (_m *Backend) CancelOrchestratorTask(_a0 context.Context, _a1 api.InstanceI
 	return r0
 }
 
-// Backend_CancelOrchestratorTask_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CancelOrchestratorTask'
-type Backend_CancelOrchestratorTask_Call struct {
+// Backend_CancelWorkflowTask_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CancelWorkflowTask'
+type Backend_CancelWorkflowTask_Call struct {
 	*mock.Call
 }
 
-// CancelOrchestratorTask is a helper method to define mock.On call
+// CancelWorkflowTask is a helper method to define mock.On call
 //   - _a0 context.Context
 //   - _a1 api.InstanceID
-func (_e *Backend_Expecter) CancelOrchestratorTask(_a0 interface{}, _a1 interface{}) *Backend_CancelOrchestratorTask_Call {
-	return &Backend_CancelOrchestratorTask_Call{Call: _e.mock.On("CancelOrchestratorTask", _a0, _a1)}
+func (_e *Backend_Expecter) CancelWorkflowTask(_a0 interface{}, _a1 interface{}) *Backend_CancelWorkflowTask_Call {
+	return &Backend_CancelWorkflowTask_Call{Call: _e.mock.On("CancelWorkflowTask", _a0, _a1)}
 }
 
-func (_c *Backend_CancelOrchestratorTask_Call) Run(run func(_a0 context.Context, _a1 api.InstanceID)) *Backend_CancelOrchestratorTask_Call {
+func (_c *Backend_CancelWorkflowTask_Call) Run(run func(_a0 context.Context, _a1 api.InstanceID)) *Backend_CancelWorkflowTask_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(api.InstanceID))
 	})
 	return _c
 }
 
-func (_c *Backend_CancelOrchestratorTask_Call) Return(_a0 error) *Backend_CancelOrchestratorTask_Call {
+func (_c *Backend_CancelWorkflowTask_Call) Return(_a0 error) *Backend_CancelWorkflowTask_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Backend_CancelOrchestratorTask_Call) RunAndReturn(run func(context.Context, api.InstanceID) error) *Backend_CancelOrchestratorTask_Call {
+func (_c *Backend_CancelWorkflowTask_Call) RunAndReturn(run func(context.Context, api.InstanceID) error) *Backend_CancelWorkflowTask_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -357,16 +357,16 @@ func (_c *Backend_CompleteActivityWorkItem_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// CompleteOrchestrationWorkItem provides a mock function with given fields: _a0, _a1
-func (_m *Backend) CompleteOrchestrationWorkItem(_a0 context.Context, _a1 *backend.OrchestrationWorkItem) error {
+// CompleteWorkflowWorkItem provides a mock function with given fields: _a0, _a1
+func (_m *Backend) CompleteWorkflowWorkItem(_a0 context.Context, _a1 *backend.WorkflowWorkItem) error {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CompleteOrchestrationWorkItem")
+		panic("no return value specified for CompleteWorkflowWorkItem")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *backend.OrchestrationWorkItem) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *backend.WorkflowWorkItem) error); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		r0 = ret.Error(0)
@@ -375,45 +375,45 @@ func (_m *Backend) CompleteOrchestrationWorkItem(_a0 context.Context, _a1 *backe
 	return r0
 }
 
-// Backend_CompleteOrchestrationWorkItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompleteOrchestrationWorkItem'
-type Backend_CompleteOrchestrationWorkItem_Call struct {
+// Backend_CompleteWorkflowWorkItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompleteWorkflowWorkItem'
+type Backend_CompleteWorkflowWorkItem_Call struct {
 	*mock.Call
 }
 
-// CompleteOrchestrationWorkItem is a helper method to define mock.On call
+// CompleteWorkflowWorkItem is a helper method to define mock.On call
 //   - _a0 context.Context
-//   - _a1 *backend.OrchestrationWorkItem
-func (_e *Backend_Expecter) CompleteOrchestrationWorkItem(_a0 interface{}, _a1 interface{}) *Backend_CompleteOrchestrationWorkItem_Call {
-	return &Backend_CompleteOrchestrationWorkItem_Call{Call: _e.mock.On("CompleteOrchestrationWorkItem", _a0, _a1)}
+//   - _a1 *backend.WorkflowWorkItem
+func (_e *Backend_Expecter) CompleteWorkflowWorkItem(_a0 interface{}, _a1 interface{}) *Backend_CompleteWorkflowWorkItem_Call {
+	return &Backend_CompleteWorkflowWorkItem_Call{Call: _e.mock.On("CompleteWorkflowWorkItem", _a0, _a1)}
 }
 
-func (_c *Backend_CompleteOrchestrationWorkItem_Call) Run(run func(_a0 context.Context, _a1 *backend.OrchestrationWorkItem)) *Backend_CompleteOrchestrationWorkItem_Call {
+func (_c *Backend_CompleteWorkflowWorkItem_Call) Run(run func(_a0 context.Context, _a1 *backend.WorkflowWorkItem)) *Backend_CompleteWorkflowWorkItem_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*backend.OrchestrationWorkItem))
+		run(args[0].(context.Context), args[1].(*backend.WorkflowWorkItem))
 	})
 	return _c
 }
 
-func (_c *Backend_CompleteOrchestrationWorkItem_Call) Return(_a0 error) *Backend_CompleteOrchestrationWorkItem_Call {
+func (_c *Backend_CompleteWorkflowWorkItem_Call) Return(_a0 error) *Backend_CompleteWorkflowWorkItem_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Backend_CompleteOrchestrationWorkItem_Call) RunAndReturn(run func(context.Context, *backend.OrchestrationWorkItem) error) *Backend_CompleteOrchestrationWorkItem_Call {
+func (_c *Backend_CompleteWorkflowWorkItem_Call) RunAndReturn(run func(context.Context, *backend.WorkflowWorkItem) error) *Backend_CompleteWorkflowWorkItem_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// CompleteOrchestratorTask provides a mock function with given fields: _a0, _a1
-func (_m *Backend) CompleteOrchestratorTask(_a0 context.Context, _a1 *protos.OrchestratorResponse) error {
+// CompleteWorkflowTask provides a mock function with given fields: _a0, _a1
+func (_m *Backend) CompleteWorkflowTask(_a0 context.Context, _a1 *protos.WorkflowResponse) error {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CompleteOrchestratorTask")
+		panic("no return value specified for CompleteWorkflowTask")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *protos.OrchestratorResponse) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *protos.WorkflowResponse) error); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		r0 = ret.Error(0)
@@ -422,53 +422,46 @@ func (_m *Backend) CompleteOrchestratorTask(_a0 context.Context, _a1 *protos.Orc
 	return r0
 }
 
-// Backend_CompleteOrchestratorTask_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompleteOrchestratorTask'
-type Backend_CompleteOrchestratorTask_Call struct {
+// Backend_CompleteWorkflowTask_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompleteWorkflowTask'
+type Backend_CompleteWorkflowTask_Call struct {
 	*mock.Call
 }
 
-// CompleteOrchestratorTask is a helper method to define mock.On call
+// CompleteWorkflowTask is a helper method to define mock.On call
 //   - _a0 context.Context
-//   - _a1 *protos.OrchestratorResponse
-func (_e *Backend_Expecter) CompleteOrchestratorTask(_a0 interface{}, _a1 interface{}) *Backend_CompleteOrchestratorTask_Call {
-	return &Backend_CompleteOrchestratorTask_Call{Call: _e.mock.On("CompleteOrchestratorTask", _a0, _a1)}
+//   - _a1 *protos.WorkflowResponse
+func (_e *Backend_Expecter) CompleteWorkflowTask(_a0 interface{}, _a1 interface{}) *Backend_CompleteWorkflowTask_Call {
+	return &Backend_CompleteWorkflowTask_Call{Call: _e.mock.On("CompleteWorkflowTask", _a0, _a1)}
 }
 
-func (_c *Backend_CompleteOrchestratorTask_Call) Run(run func(_a0 context.Context, _a1 *protos.OrchestratorResponse)) *Backend_CompleteOrchestratorTask_Call {
+func (_c *Backend_CompleteWorkflowTask_Call) Run(run func(_a0 context.Context, _a1 *protos.WorkflowResponse)) *Backend_CompleteWorkflowTask_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*protos.OrchestratorResponse))
+		run(args[0].(context.Context), args[1].(*protos.WorkflowResponse))
 	})
 	return _c
 }
 
-func (_c *Backend_CompleteOrchestratorTask_Call) Return(_a0 error) *Backend_CompleteOrchestratorTask_Call {
+func (_c *Backend_CompleteWorkflowTask_Call) Return(_a0 error) *Backend_CompleteWorkflowTask_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Backend_CompleteOrchestratorTask_Call) RunAndReturn(run func(context.Context, *protos.OrchestratorResponse) error) *Backend_CompleteOrchestratorTask_Call {
+func (_c *Backend_CompleteWorkflowTask_Call) RunAndReturn(run func(context.Context, *protos.WorkflowResponse) error) *Backend_CompleteWorkflowTask_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// CreateOrchestrationInstance provides a mock function with given fields: _a0, _a1, _a2
-func (_m *Backend) CreateOrchestrationInstance(_a0 context.Context, _a1 *protos.HistoryEvent, _a2 ...backend.OrchestrationIdReusePolicyOptions) error {
-	_va := make([]interface{}, len(_a2))
-	for _i := range _a2 {
-		_va[_i] = _a2[_i]
-	}
-	var _ca []interface{}
-	_ca = append(_ca, _a0, _a1)
-	_ca = append(_ca, _va...)
-	ret := _m.Called(_ca...)
+// CreateWorkflowInstance provides a mock function with given fields: _a0, _a1
+func (_m *Backend) CreateWorkflowInstance(_a0 context.Context, _a1 *protos.HistoryEvent) error {
+	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CreateOrchestrationInstance")
+		panic("no return value specified for CreateWorkflowInstance")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *protos.HistoryEvent, ...backend.OrchestrationIdReusePolicyOptions) error); ok {
-		r0 = rf(_a0, _a1, _a2...)
+	if rf, ok := ret.Get(0).(func(context.Context, *protos.HistoryEvent) error); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -476,39 +469,31 @@ func (_m *Backend) CreateOrchestrationInstance(_a0 context.Context, _a1 *protos.
 	return r0
 }
 
-// Backend_CreateOrchestrationInstance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateOrchestrationInstance'
-type Backend_CreateOrchestrationInstance_Call struct {
+// Backend_CreateWorkflowInstance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateWorkflowInstance'
+type Backend_CreateWorkflowInstance_Call struct {
 	*mock.Call
 }
 
-// CreateOrchestrationInstance is a helper method to define mock.On call
+// CreateWorkflowInstance is a helper method to define mock.On call
 //   - _a0 context.Context
 //   - _a1 *protos.HistoryEvent
-//   - _a2 ...backend.OrchestrationIdReusePolicyOptions
-func (_e *Backend_Expecter) CreateOrchestrationInstance(_a0 interface{}, _a1 interface{}, _a2 ...interface{}) *Backend_CreateOrchestrationInstance_Call {
-	return &Backend_CreateOrchestrationInstance_Call{Call: _e.mock.On("CreateOrchestrationInstance",
-		append([]interface{}{_a0, _a1}, _a2...)...)}
+func (_e *Backend_Expecter) CreateWorkflowInstance(_a0 interface{}, _a1 interface{}) *Backend_CreateWorkflowInstance_Call {
+	return &Backend_CreateWorkflowInstance_Call{Call: _e.mock.On("CreateWorkflowInstance", _a0, _a1)}
 }
 
-func (_c *Backend_CreateOrchestrationInstance_Call) Run(run func(_a0 context.Context, _a1 *protos.HistoryEvent, _a2 ...backend.OrchestrationIdReusePolicyOptions)) *Backend_CreateOrchestrationInstance_Call {
+func (_c *Backend_CreateWorkflowInstance_Call) Run(run func(_a0 context.Context, _a1 *protos.HistoryEvent)) *Backend_CreateWorkflowInstance_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]backend.OrchestrationIdReusePolicyOptions, len(args)-2)
-		for i, a := range args[2:] {
-			if a != nil {
-				variadicArgs[i] = a.(backend.OrchestrationIdReusePolicyOptions)
-			}
-		}
-		run(args[0].(context.Context), args[1].(*protos.HistoryEvent), variadicArgs...)
+		run(args[0].(context.Context), args[1].(*protos.HistoryEvent))
 	})
 	return _c
 }
 
-func (_c *Backend_CreateOrchestrationInstance_Call) Return(_a0 error) *Backend_CreateOrchestrationInstance_Call {
+func (_c *Backend_CreateWorkflowInstance_Call) Return(_a0 error) *Backend_CreateWorkflowInstance_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Backend_CreateOrchestrationInstance_Call) RunAndReturn(run func(context.Context, *protos.HistoryEvent, ...backend.OrchestrationIdReusePolicyOptions) error) *Backend_CreateOrchestrationInstance_Call {
+func (_c *Backend_CreateWorkflowInstance_Call) RunAndReturn(run func(context.Context, *protos.HistoryEvent) error) *Backend_CreateWorkflowInstance_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -664,24 +649,24 @@ func (_c *Backend_GetInstanceHistory_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// GetOrchestrationMetadata provides a mock function with given fields: _a0, _a1
-func (_m *Backend) GetOrchestrationMetadata(_a0 context.Context, _a1 api.InstanceID) (*protos.OrchestrationMetadata, error) {
+// GetWorkflowMetadata provides a mock function with given fields: _a0, _a1
+func (_m *Backend) GetWorkflowMetadata(_a0 context.Context, _a1 api.InstanceID) (*protos.WorkflowMetadata, error) {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetOrchestrationMetadata")
+		panic("no return value specified for GetWorkflowMetadata")
 	}
 
-	var r0 *protos.OrchestrationMetadata
+	var r0 *protos.WorkflowMetadata
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID) (*protos.OrchestrationMetadata, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID) (*protos.WorkflowMetadata, error)); ok {
 		return rf(_a0, _a1)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID) *protos.OrchestrationMetadata); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID) *protos.WorkflowMetadata); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*protos.OrchestrationMetadata)
+			r0 = ret.Get(0).(*protos.WorkflowMetadata)
 		}
 	}
 
@@ -694,57 +679,57 @@ func (_m *Backend) GetOrchestrationMetadata(_a0 context.Context, _a1 api.Instanc
 	return r0, r1
 }
 
-// Backend_GetOrchestrationMetadata_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOrchestrationMetadata'
-type Backend_GetOrchestrationMetadata_Call struct {
+// Backend_GetWorkflowMetadata_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetWorkflowMetadata'
+type Backend_GetWorkflowMetadata_Call struct {
 	*mock.Call
 }
 
-// GetOrchestrationMetadata is a helper method to define mock.On call
+// GetWorkflowMetadata is a helper method to define mock.On call
 //   - _a0 context.Context
 //   - _a1 api.InstanceID
-func (_e *Backend_Expecter) GetOrchestrationMetadata(_a0 interface{}, _a1 interface{}) *Backend_GetOrchestrationMetadata_Call {
-	return &Backend_GetOrchestrationMetadata_Call{Call: _e.mock.On("GetOrchestrationMetadata", _a0, _a1)}
+func (_e *Backend_Expecter) GetWorkflowMetadata(_a0 interface{}, _a1 interface{}) *Backend_GetWorkflowMetadata_Call {
+	return &Backend_GetWorkflowMetadata_Call{Call: _e.mock.On("GetWorkflowMetadata", _a0, _a1)}
 }
 
-func (_c *Backend_GetOrchestrationMetadata_Call) Run(run func(_a0 context.Context, _a1 api.InstanceID)) *Backend_GetOrchestrationMetadata_Call {
+func (_c *Backend_GetWorkflowMetadata_Call) Run(run func(_a0 context.Context, _a1 api.InstanceID)) *Backend_GetWorkflowMetadata_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(api.InstanceID))
 	})
 	return _c
 }
 
-func (_c *Backend_GetOrchestrationMetadata_Call) Return(_a0 *protos.OrchestrationMetadata, _a1 error) *Backend_GetOrchestrationMetadata_Call {
+func (_c *Backend_GetWorkflowMetadata_Call) Return(_a0 *protos.WorkflowMetadata, _a1 error) *Backend_GetWorkflowMetadata_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Backend_GetOrchestrationMetadata_Call) RunAndReturn(run func(context.Context, api.InstanceID) (*protos.OrchestrationMetadata, error)) *Backend_GetOrchestrationMetadata_Call {
+func (_c *Backend_GetWorkflowMetadata_Call) RunAndReturn(run func(context.Context, api.InstanceID) (*protos.WorkflowMetadata, error)) *Backend_GetWorkflowMetadata_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetOrchestrationRuntimeState provides a mock function with given fields: _a0, _a1
-func (_m *Backend) GetOrchestrationRuntimeState(_a0 context.Context, _a1 *backend.OrchestrationWorkItem) (*protos.OrchestrationRuntimeState, error) {
+// GetWorkflowRuntimeState provides a mock function with given fields: _a0, _a1
+func (_m *Backend) GetWorkflowRuntimeState(_a0 context.Context, _a1 *backend.WorkflowWorkItem) (*protos.WorkflowRuntimeState, error) {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetOrchestrationRuntimeState")
+		panic("no return value specified for GetWorkflowRuntimeState")
 	}
 
-	var r0 *protos.OrchestrationRuntimeState
+	var r0 *protos.WorkflowRuntimeState
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *backend.OrchestrationWorkItem) (*protos.OrchestrationRuntimeState, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *backend.WorkflowWorkItem) (*protos.WorkflowRuntimeState, error)); ok {
 		return rf(_a0, _a1)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *backend.OrchestrationWorkItem) *protos.OrchestrationRuntimeState); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *backend.WorkflowWorkItem) *protos.WorkflowRuntimeState); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*protos.OrchestrationRuntimeState)
+			r0 = ret.Get(0).(*protos.WorkflowRuntimeState)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *backend.OrchestrationWorkItem) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *backend.WorkflowWorkItem) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)
@@ -753,31 +738,31 @@ func (_m *Backend) GetOrchestrationRuntimeState(_a0 context.Context, _a1 *backen
 	return r0, r1
 }
 
-// Backend_GetOrchestrationRuntimeState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOrchestrationRuntimeState'
-type Backend_GetOrchestrationRuntimeState_Call struct {
+// Backend_GetWorkflowRuntimeState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetWorkflowRuntimeState'
+type Backend_GetWorkflowRuntimeState_Call struct {
 	*mock.Call
 }
 
-// GetOrchestrationRuntimeState is a helper method to define mock.On call
+// GetWorkflowRuntimeState is a helper method to define mock.On call
 //   - _a0 context.Context
-//   - _a1 *backend.OrchestrationWorkItem
-func (_e *Backend_Expecter) GetOrchestrationRuntimeState(_a0 interface{}, _a1 interface{}) *Backend_GetOrchestrationRuntimeState_Call {
-	return &Backend_GetOrchestrationRuntimeState_Call{Call: _e.mock.On("GetOrchestrationRuntimeState", _a0, _a1)}
+//   - _a1 *backend.WorkflowWorkItem
+func (_e *Backend_Expecter) GetWorkflowRuntimeState(_a0 interface{}, _a1 interface{}) *Backend_GetWorkflowRuntimeState_Call {
+	return &Backend_GetWorkflowRuntimeState_Call{Call: _e.mock.On("GetWorkflowRuntimeState", _a0, _a1)}
 }
 
-func (_c *Backend_GetOrchestrationRuntimeState_Call) Run(run func(_a0 context.Context, _a1 *backend.OrchestrationWorkItem)) *Backend_GetOrchestrationRuntimeState_Call {
+func (_c *Backend_GetWorkflowRuntimeState_Call) Run(run func(_a0 context.Context, _a1 *backend.WorkflowWorkItem)) *Backend_GetWorkflowRuntimeState_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*backend.OrchestrationWorkItem))
+		run(args[0].(context.Context), args[1].(*backend.WorkflowWorkItem))
 	})
 	return _c
 }
 
-func (_c *Backend_GetOrchestrationRuntimeState_Call) Return(_a0 *protos.OrchestrationRuntimeState, _a1 error) *Backend_GetOrchestrationRuntimeState_Call {
+func (_c *Backend_GetWorkflowRuntimeState_Call) Return(_a0 *protos.WorkflowRuntimeState, _a1 error) *Backend_GetWorkflowRuntimeState_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Backend_GetOrchestrationRuntimeState_Call) RunAndReturn(run func(context.Context, *backend.OrchestrationWorkItem) (*protos.OrchestrationRuntimeState, error)) *Backend_GetOrchestrationRuntimeState_Call {
+func (_c *Backend_GetWorkflowRuntimeState_Call) RunAndReturn(run func(context.Context, *backend.WorkflowWorkItem) (*protos.WorkflowRuntimeState, error)) *Backend_GetWorkflowRuntimeState_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -899,24 +884,24 @@ func (_c *Backend_NextActivityWorkItem_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// NextOrchestrationWorkItem provides a mock function with given fields: _a0
-func (_m *Backend) NextOrchestrationWorkItem(_a0 context.Context) (*backend.OrchestrationWorkItem, error) {
+// NextWorkflowWorkItem provides a mock function with given fields: _a0
+func (_m *Backend) NextWorkflowWorkItem(_a0 context.Context) (*backend.WorkflowWorkItem, error) {
 	ret := _m.Called(_a0)
 
 	if len(ret) == 0 {
-		panic("no return value specified for NextOrchestrationWorkItem")
+		panic("no return value specified for NextWorkflowWorkItem")
 	}
 
-	var r0 *backend.OrchestrationWorkItem
+	var r0 *backend.WorkflowWorkItem
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (*backend.OrchestrationWorkItem, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) (*backend.WorkflowWorkItem, error)); ok {
 		return rf(_a0)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) *backend.OrchestrationWorkItem); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) *backend.WorkflowWorkItem); ok {
 		r0 = rf(_a0)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*backend.OrchestrationWorkItem)
+			r0 = ret.Get(0).(*backend.WorkflowWorkItem)
 		}
 	}
 
@@ -929,40 +914,40 @@ func (_m *Backend) NextOrchestrationWorkItem(_a0 context.Context) (*backend.Orch
 	return r0, r1
 }
 
-// Backend_NextOrchestrationWorkItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NextOrchestrationWorkItem'
-type Backend_NextOrchestrationWorkItem_Call struct {
+// Backend_NextWorkflowWorkItem_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NextWorkflowWorkItem'
+type Backend_NextWorkflowWorkItem_Call struct {
 	*mock.Call
 }
 
-// NextOrchestrationWorkItem is a helper method to define mock.On call
+// NextWorkflowWorkItem is a helper method to define mock.On call
 //   - _a0 context.Context
-func (_e *Backend_Expecter) NextOrchestrationWorkItem(_a0 interface{}) *Backend_NextOrchestrationWorkItem_Call {
-	return &Backend_NextOrchestrationWorkItem_Call{Call: _e.mock.On("NextOrchestrationWorkItem", _a0)}
+func (_e *Backend_Expecter) NextWorkflowWorkItem(_a0 interface{}) *Backend_NextWorkflowWorkItem_Call {
+	return &Backend_NextWorkflowWorkItem_Call{Call: _e.mock.On("NextWorkflowWorkItem", _a0)}
 }
 
-func (_c *Backend_NextOrchestrationWorkItem_Call) Run(run func(_a0 context.Context)) *Backend_NextOrchestrationWorkItem_Call {
+func (_c *Backend_NextWorkflowWorkItem_Call) Run(run func(_a0 context.Context)) *Backend_NextWorkflowWorkItem_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *Backend_NextOrchestrationWorkItem_Call) Return(_a0 *backend.OrchestrationWorkItem, _a1 error) *Backend_NextOrchestrationWorkItem_Call {
+func (_c *Backend_NextWorkflowWorkItem_Call) Return(_a0 *backend.WorkflowWorkItem, _a1 error) *Backend_NextWorkflowWorkItem_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Backend_NextOrchestrationWorkItem_Call) RunAndReturn(run func(context.Context) (*backend.OrchestrationWorkItem, error)) *Backend_NextOrchestrationWorkItem_Call {
+func (_c *Backend_NextWorkflowWorkItem_Call) RunAndReturn(run func(context.Context) (*backend.WorkflowWorkItem, error)) *Backend_NextWorkflowWorkItem_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// PurgeOrchestrationState provides a mock function with given fields: ctx, id, force
-func (_m *Backend) PurgeOrchestrationState(ctx context.Context, id api.InstanceID, force bool) error {
+// PurgeWorkflowState provides a mock function with given fields: ctx, id, force
+func (_m *Backend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, force bool) error {
 	ret := _m.Called(ctx, id, force)
 
 	if len(ret) == 0 {
-		panic("no return value specified for PurgeOrchestrationState")
+		panic("no return value specified for PurgeWorkflowState")
 	}
 
 	var r0 error
@@ -975,32 +960,32 @@ func (_m *Backend) PurgeOrchestrationState(ctx context.Context, id api.InstanceI
 	return r0
 }
 
-// Backend_PurgeOrchestrationState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PurgeOrchestrationState'
-type Backend_PurgeOrchestrationState_Call struct {
+// Backend_PurgeWorkflowState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PurgeWorkflowState'
+type Backend_PurgeWorkflowState_Call struct {
 	*mock.Call
 }
 
-// PurgeOrchestrationState is a helper method to define mock.On call
+// PurgeWorkflowState is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id api.InstanceID
 //   - force bool
-func (_e *Backend_Expecter) PurgeOrchestrationState(ctx interface{}, id interface{}, force interface{}) *Backend_PurgeOrchestrationState_Call {
-	return &Backend_PurgeOrchestrationState_Call{Call: _e.mock.On("PurgeOrchestrationState", ctx, id, force)}
+func (_e *Backend_Expecter) PurgeWorkflowState(ctx interface{}, id interface{}, force interface{}) *Backend_PurgeWorkflowState_Call {
+	return &Backend_PurgeWorkflowState_Call{Call: _e.mock.On("PurgeWorkflowState", ctx, id, force)}
 }
 
-func (_c *Backend_PurgeOrchestrationState_Call) Run(run func(ctx context.Context, id api.InstanceID, force bool)) *Backend_PurgeOrchestrationState_Call {
+func (_c *Backend_PurgeWorkflowState_Call) Run(run func(ctx context.Context, id api.InstanceID, force bool)) *Backend_PurgeWorkflowState_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(bool))
 	})
 	return _c
 }
 
-func (_c *Backend_PurgeOrchestrationState_Call) Return(_a0 error) *Backend_PurgeOrchestrationState_Call {
+func (_c *Backend_PurgeWorkflowState_Call) Return(_a0 error) *Backend_PurgeWorkflowState_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Backend_PurgeOrchestrationState_Call) RunAndReturn(run func(context.Context, api.InstanceID, bool) error) *Backend_PurgeOrchestrationState_Call {
+func (_c *Backend_PurgeWorkflowState_Call) RunAndReturn(run func(context.Context, api.InstanceID, bool) error) *Backend_PurgeWorkflowState_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1202,64 +1187,64 @@ func (_c *Backend_WaitForActivityCompletion_Call) RunAndReturn(run func(*protos.
 	return _c
 }
 
-// WaitForOrchestratorCompletion provides a mock function with given fields: _a0
-func (_m *Backend) WaitForOrchestratorCompletion(_a0 *protos.OrchestratorRequest) func(context.Context) (*protos.OrchestratorResponse, error) {
+// WaitForWorkflowTaskCompletion provides a mock function with given fields: _a0
+func (_m *Backend) WaitForWorkflowTaskCompletion(_a0 *protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error) {
 	ret := _m.Called(_a0)
 
 	if len(ret) == 0 {
-		panic("no return value specified for WaitForOrchestratorCompletion")
+		panic("no return value specified for WaitForWorkflowTaskCompletion")
 	}
 
-	var r0 func(context.Context) (*protos.OrchestratorResponse, error)
-	if rf, ok := ret.Get(0).(func(*protos.OrchestratorRequest) func(context.Context) (*protos.OrchestratorResponse, error)); ok {
+	var r0 func(context.Context) (*protos.WorkflowResponse, error)
+	if rf, ok := ret.Get(0).(func(*protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error)); ok {
 		r0 = rf(_a0)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(func(context.Context) (*protos.OrchestratorResponse, error))
+			r0 = ret.Get(0).(func(context.Context) (*protos.WorkflowResponse, error))
 		}
 	}
 
 	return r0
 }
 
-// Backend_WaitForOrchestratorCompletion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitForOrchestratorCompletion'
-type Backend_WaitForOrchestratorCompletion_Call struct {
+// Backend_WaitForWorkflowTaskCompletion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitForWorkflowTaskCompletion'
+type Backend_WaitForWorkflowTaskCompletion_Call struct {
 	*mock.Call
 }
 
-// WaitForOrchestratorCompletion is a helper method to define mock.On call
-//   - _a0 *protos.OrchestratorRequest
-func (_e *Backend_Expecter) WaitForOrchestratorCompletion(_a0 interface{}) *Backend_WaitForOrchestratorCompletion_Call {
-	return &Backend_WaitForOrchestratorCompletion_Call{Call: _e.mock.On("WaitForOrchestratorCompletion", _a0)}
+// WaitForWorkflowTaskCompletion is a helper method to define mock.On call
+//   - _a0 *protos.WorkflowRequest
+func (_e *Backend_Expecter) WaitForWorkflowTaskCompletion(_a0 interface{}) *Backend_WaitForWorkflowTaskCompletion_Call {
+	return &Backend_WaitForWorkflowTaskCompletion_Call{Call: _e.mock.On("WaitForWorkflowTaskCompletion", _a0)}
 }
 
-func (_c *Backend_WaitForOrchestratorCompletion_Call) Run(run func(_a0 *protos.OrchestratorRequest)) *Backend_WaitForOrchestratorCompletion_Call {
+func (_c *Backend_WaitForWorkflowTaskCompletion_Call) Run(run func(_a0 *protos.WorkflowRequest)) *Backend_WaitForWorkflowTaskCompletion_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*protos.OrchestratorRequest))
+		run(args[0].(*protos.WorkflowRequest))
 	})
 	return _c
 }
 
-func (_c *Backend_WaitForOrchestratorCompletion_Call) Return(_a0 func(context.Context) (*protos.OrchestratorResponse, error)) *Backend_WaitForOrchestratorCompletion_Call {
+func (_c *Backend_WaitForWorkflowTaskCompletion_Call) Return(_a0 func(context.Context) (*protos.WorkflowResponse, error)) *Backend_WaitForWorkflowTaskCompletion_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Backend_WaitForOrchestratorCompletion_Call) RunAndReturn(run func(*protos.OrchestratorRequest) func(context.Context) (*protos.OrchestratorResponse, error)) *Backend_WaitForOrchestratorCompletion_Call {
+func (_c *Backend_WaitForWorkflowTaskCompletion_Call) RunAndReturn(run func(*protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error)) *Backend_WaitForWorkflowTaskCompletion_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// WatchOrchestrationRuntimeStatus provides a mock function with given fields: ctx, id, condition
-func (_m *Backend) WatchOrchestrationRuntimeStatus(ctx context.Context, id api.InstanceID, condition func(*protos.OrchestrationMetadata) bool) error {
+// WatchWorkflowRuntimeStatus provides a mock function with given fields: ctx, id, condition
+func (_m *Backend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, condition func(*protos.WorkflowMetadata) bool) error {
 	ret := _m.Called(ctx, id, condition)
 
 	if len(ret) == 0 {
-		panic("no return value specified for WatchOrchestrationRuntimeStatus")
+		panic("no return value specified for WatchWorkflowRuntimeStatus")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, func(*protos.OrchestrationMetadata) bool) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, func(*protos.WorkflowMetadata) bool) error); ok {
 		r0 = rf(ctx, id, condition)
 	} else {
 		r0 = ret.Error(0)
@@ -1268,32 +1253,32 @@ func (_m *Backend) WatchOrchestrationRuntimeStatus(ctx context.Context, id api.I
 	return r0
 }
 
-// Backend_WatchOrchestrationRuntimeStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WatchOrchestrationRuntimeStatus'
-type Backend_WatchOrchestrationRuntimeStatus_Call struct {
+// Backend_WatchWorkflowRuntimeStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WatchWorkflowRuntimeStatus'
+type Backend_WatchWorkflowRuntimeStatus_Call struct {
 	*mock.Call
 }
 
-// WatchOrchestrationRuntimeStatus is a helper method to define mock.On call
+// WatchWorkflowRuntimeStatus is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id api.InstanceID
-//   - condition func(*protos.OrchestrationMetadata) bool
-func (_e *Backend_Expecter) WatchOrchestrationRuntimeStatus(ctx interface{}, id interface{}, condition interface{}) *Backend_WatchOrchestrationRuntimeStatus_Call {
-	return &Backend_WatchOrchestrationRuntimeStatus_Call{Call: _e.mock.On("WatchOrchestrationRuntimeStatus", ctx, id, condition)}
+//   - condition func(*protos.WorkflowMetadata) bool
+func (_e *Backend_Expecter) WatchWorkflowRuntimeStatus(ctx interface{}, id interface{}, condition interface{}) *Backend_WatchWorkflowRuntimeStatus_Call {
+	return &Backend_WatchWorkflowRuntimeStatus_Call{Call: _e.mock.On("WatchWorkflowRuntimeStatus", ctx, id, condition)}
 }
 
-func (_c *Backend_WatchOrchestrationRuntimeStatus_Call) Run(run func(ctx context.Context, id api.InstanceID, condition func(*protos.OrchestrationMetadata) bool)) *Backend_WatchOrchestrationRuntimeStatus_Call {
+func (_c *Backend_WatchWorkflowRuntimeStatus_Call) Run(run func(ctx context.Context, id api.InstanceID, condition func(*protos.WorkflowMetadata) bool)) *Backend_WatchWorkflowRuntimeStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(func(*protos.OrchestrationMetadata) bool))
+		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(func(*protos.WorkflowMetadata) bool))
 	})
 	return _c
 }
 
-func (_c *Backend_WatchOrchestrationRuntimeStatus_Call) Return(_a0 error) *Backend_WatchOrchestrationRuntimeStatus_Call {
+func (_c *Backend_WatchWorkflowRuntimeStatus_Call) Return(_a0 error) *Backend_WatchWorkflowRuntimeStatus_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Backend_WatchOrchestrationRuntimeStatus_Call) RunAndReturn(run func(context.Context, api.InstanceID, func(*protos.OrchestrationMetadata) bool) error) *Backend_WatchOrchestrationRuntimeStatus_Call {
+func (_c *Backend_WatchWorkflowRuntimeStatus_Call) RunAndReturn(run func(context.Context, api.InstanceID, func(*protos.WorkflowMetadata) bool) error) *Backend_WatchWorkflowRuntimeStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -14,9 +14,9 @@ import (
 )
 
 // Verifies runtime state created from an ExecutionStarted event
-func Test_NewOrchestration(t *testing.T) {
+func Test_NewWorkflow(t *testing.T) {
 	const iid = "abc"
-	const expectedName = "myorchestration"
+	const expectedName = "myworkflow"
 	createdAt := time.Now().UTC()
 
 	e := &protos.HistoryEvent{
@@ -24,13 +24,13 @@ func Test_NewOrchestration(t *testing.T) {
 		Timestamp: timestamppb.New(createdAt),
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
-				OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: iid},
-				Name:                  expectedName,
+				WorkflowInstance: &protos.WorkflowInstance{InstanceId: iid},
+				Name:             expectedName,
 			},
 		},
 	}
 
-	s := runtimestate.NewOrchestrationRuntimeState(iid, nil, []*protos.HistoryEvent{e})
+	s := runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{e})
 	assert.Equal(t, api.InstanceID(iid), api.InstanceID(s.InstanceId))
 
 	actualName, err := runtimestate.Name(s)
@@ -58,9 +58,9 @@ func Test_NewOrchestration(t *testing.T) {
 	assert.Equal(t, 0, len(s.NewEvents))
 }
 
-func Test_CompletedOrchestration(t *testing.T) {
+func Test_CompletedWorkflow(t *testing.T) {
 	const iid = "abc"
-	const expectedName = "myorchestration"
+	const expectedName = "myworkflow"
 	createdAt := time.Now().UTC()
 	completedAt := createdAt.Add(10 * time.Second)
 
@@ -69,8 +69,8 @@ func Test_CompletedOrchestration(t *testing.T) {
 		Timestamp: timestamppb.New(createdAt),
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
-				OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: iid},
-				Name:                  expectedName,
+				WorkflowInstance: &protos.WorkflowInstance{InstanceId: iid},
+				Name:             expectedName,
 			},
 		},
 	}, {
@@ -78,12 +78,12 @@ func Test_CompletedOrchestration(t *testing.T) {
 		Timestamp: timestamppb.New(completedAt),
 		EventType: &protos.HistoryEvent_ExecutionCompleted{
 			ExecutionCompleted: &protos.ExecutionCompletedEvent{
-				OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+				WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
 			},
 		},
 	}}
 
-	s := runtimestate.NewOrchestrationRuntimeState(iid, nil, events)
+	s := runtimestate.NewWorkflowRuntimeState(iid, nil, events)
 	assert.Equal(t, api.InstanceID(iid), api.InstanceID(s.InstanceId))
 
 	actualName, err := runtimestate.Name(s)
@@ -107,42 +107,42 @@ func Test_CompletedOrchestration(t *testing.T) {
 	assert.Equal(t, 0, len(s.NewEvents))
 }
 
-func Test_CompletedSubOrchestration(t *testing.T) {
+func Test_CompletedChildWorkflow(t *testing.T) {
 	expectedOutput := "\"done!\""
 	expectedTaskID := int32(3)
 
 	// TODO: Loop through different completion status values
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
 
-	s := runtimestate.NewOrchestrationRuntimeState("abc", nil, []*protos.HistoryEvent{
+	s := runtimestate.NewWorkflowRuntimeState("abc", nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
 					Name: "Child",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  "child_id",
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
 					ParentInstance: &protos.ParentInstanceInfo{
-						TaskScheduledId:       expectedTaskID,
-						Name:                  wrapperspb.String("Parent"),
-						OrchestrationInstance: &protos.OrchestrationInstance{InstanceId: "parent_id"},
+						TaskScheduledId:  expectedTaskID,
+						Name:             wrapperspb.String("Parent"),
+						WorkflowInstance: &protos.WorkflowInstance{InstanceId: "parent_id"},
 					},
 				},
 			},
 		},
 	})
 
-	actions := []*protos.OrchestratorAction{
+	actions := []*protos.WorkflowAction{
 		{
 			Id: expectedTaskID,
-			OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-				CompleteOrchestration: &protos.CompleteOrchestrationAction{
-					OrchestrationStatus: status,
-					Result:              wrapperspb.String(expectedOutput),
-					CarryoverEvents:     []*protos.HistoryEvent{},
+			WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+				CompleteWorkflow: &protos.CompleteWorkflowAction{
+					WorkflowStatus:  status,
+					Result:          wrapperspb.String(expectedOutput),
+					CarryoverEvents: []*protos.HistoryEvent{},
 				},
 			},
 		},
@@ -156,7 +156,7 @@ func Test_CompletedSubOrchestration(t *testing.T) {
 			assert.NotNil(t, e.Timestamp)
 			if ec := e.GetExecutionCompleted(); assert.NotNil(t, ec) {
 				assert.Equal(t, expectedTaskID, e.EventId)
-				assert.Equal(t, status, ec.OrchestrationStatus)
+				assert.Equal(t, status, ec.WorkflowStatus)
 				assert.Equal(t, expectedOutput, ec.Result.GetValue())
 				assert.Nil(t, ec.FailureDetails)
 			}
@@ -164,7 +164,7 @@ func Test_CompletedSubOrchestration(t *testing.T) {
 		if assert.Len(t, s.PendingMessages, 1) {
 			e := s.PendingMessages[0]
 			assert.NotNil(t, e.HistoryEvent.Timestamp)
-			if soc := e.HistoryEvent.GetSubOrchestrationInstanceCompleted(); assert.NotNil(t, soc) {
+			if soc := e.HistoryEvent.GetChildWorkflowInstanceCompleted(); assert.NotNil(t, soc) {
 				assert.Equal(t, expectedTaskID, soc.TaskScheduledId)
 				assert.Equal(t, expectedOutput, soc.Result.GetValue())
 			}
@@ -174,20 +174,20 @@ func Test_CompletedSubOrchestration(t *testing.T) {
 
 func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 	iid := "abc"
-	expectedName := "MyOrchestration"
+	expectedName := "MyWorkflow"
 	continueAsNewInput := "\"done!\""
 	expectedTaskID := int32(3)
 	eventName := "MyRaisedEvent"
 	eventPayload := "MyEventPayload"
 
-	state := runtimestate.NewOrchestrationRuntimeState(iid, nil, []*protos.HistoryEvent{
+	state := runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
 					Name: expectedName,
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  iid,
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -205,14 +205,14 @@ func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 			},
 		},
 	}
-	actions := []*protos.OrchestratorAction{
+	actions := []*protos.WorkflowAction{
 		{
 			Id: expectedTaskID,
-			OrchestratorActionType: &protos.OrchestratorAction_CompleteOrchestration{
-				CompleteOrchestration: &protos.CompleteOrchestrationAction{
-					OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW,
-					Result:              wrapperspb.String(continueAsNewInput),
-					CarryoverEvents:     carryoverEvents,
+			WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+				CompleteWorkflow: &protos.CompleteWorkflowAction{
+					WorkflowStatus:  protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW,
+					Result:          wrapperspb.String(continueAsNewInput),
+					CarryoverEvents: carryoverEvents,
 				},
 			},
 		},
@@ -223,11 +223,11 @@ func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 	if assert.NoError(t, err) && assert.True(t, continuedAsNew) {
 		if assert.Len(t, state.NewEvents, 3) {
 			assert.NotNil(t, state.NewEvents[0].Timestamp)
-			assert.NotNil(t, state.NewEvents[0].GetOrchestratorStarted())
+			assert.NotNil(t, state.NewEvents[0].GetWorkflowStarted())
 			assert.NotNil(t, state.NewEvents[1].Timestamp)
 			if ec := state.NewEvents[1].GetExecutionStarted(); assert.NotNil(t, ec) {
 				assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING, runtimestate.RuntimeStatus(state))
-				assert.Equal(t, state.InstanceId, ec.OrchestrationInstance.InstanceId)
+				assert.Equal(t, state.InstanceId, ec.WorkflowInstance.InstanceId)
 				if name, err := runtimestate.Name(state); assert.NoError(t, err) {
 					assert.Equal(t, expectedName, name)
 					assert.Equal(t, expectedName, ec.Name)
@@ -253,14 +253,14 @@ func Test_CreateTimer(t *testing.T) {
 	timerName := "foo"
 	expectedFireAt := time.Now().UTC().Add(72 * time.Hour)
 
-	s := runtimestate.NewOrchestrationRuntimeState(iid, nil, []*protos.HistoryEvent{
+	s := runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					Name: "MyWorkflow",
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  iid,
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -269,12 +269,12 @@ func Test_CreateTimer(t *testing.T) {
 		},
 	})
 
-	var actions []*protos.OrchestratorAction
+	var actions []*protos.WorkflowAction
 	timerCount := 3
 	for i := 1; i <= timerCount; i++ {
-		actions = append(actions, &protos.OrchestratorAction{
+		actions = append(actions, &protos.WorkflowAction{
 			Id: int32(i),
-			OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+			WorkflowActionType: &protos.WorkflowAction_CreateTimer{
 				CreateTimer: &protos.CreateTimerAction{
 					FireAt: timestamppb.New(expectedFireAt),
 					Name:   &timerName,
@@ -318,14 +318,14 @@ func Test_CreateTimer_ExternalEventOrigin(t *testing.T) {
 	eventName := "myEvent"
 	expectedFireAt := time.Now().UTC().Add(30 * time.Minute)
 
-	s := runtimestate.NewOrchestrationRuntimeState(iid, nil, []*protos.HistoryEvent{
+	s := runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
 					Name: "MyOrchestration",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  iid,
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -334,10 +334,10 @@ func Test_CreateTimer_ExternalEventOrigin(t *testing.T) {
 		},
 	})
 
-	actions := []*protos.OrchestratorAction{
+	actions := []*protos.WorkflowAction{
 		{
 			Id: 1,
-			OrchestratorActionType: &protos.OrchestratorAction_CreateTimer{
+			WorkflowActionType: &protos.WorkflowAction_CreateTimer{
 				CreateTimer: &protos.CreateTimerAction{
 					FireAt: timestamppb.New(expectedFireAt),
 					Name:   &eventName,
@@ -374,14 +374,14 @@ func Test_ScheduleTask(t *testing.T) {
 	expectedName := "MyActivity"
 	expectedInput := "{\"Foo\":5}"
 
-	state := runtimestate.NewOrchestrationRuntimeState(iid, nil, []*protos.HistoryEvent{
+	state := runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					Name: "MyWorkflow",
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  iid,
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -391,10 +391,10 @@ func Test_ScheduleTask(t *testing.T) {
 		},
 	})
 
-	actions := []*protos.OrchestratorAction{
+	actions := []*protos.WorkflowAction{
 		{
 			Id: expectedTaskID,
-			OrchestratorActionType: &protos.OrchestratorAction_ScheduleTask{
+			WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
 				ScheduleTask: &protos.ScheduleTaskAction{Name: expectedName, Input: wrapperspb.String(expectedInput)},
 			},
 		},
@@ -431,23 +431,23 @@ func Test_ScheduleTask(t *testing.T) {
 	}
 }
 
-func Test_CreateSubOrchestration(t *testing.T) {
+func Test_CreateChildWorkflow(t *testing.T) {
 	iid := "abc"
 	expectedTaskID := int32(4)
 	expectedInstanceID := "xyz"
-	expectedName := "MySubOrchestration"
+	expectedName := "MyChildWorkflow"
 	expectedInput := wrapperspb.String("{\"Foo\":5}")
 	expectedTraceParent := "trace"
 	expectedTraceState := "trace_state"
 
-	state := runtimestate.NewOrchestrationRuntimeState(iid, nil, []*protos.HistoryEvent{
+	state := runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
 					Name: "Parent",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  iid,
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -456,11 +456,11 @@ func Test_CreateSubOrchestration(t *testing.T) {
 		},
 	})
 
-	actions := []*protos.OrchestratorAction{
+	actions := []*protos.WorkflowAction{
 		{
 			Id: expectedTaskID,
-			OrchestratorActionType: &protos.OrchestratorAction_CreateSubOrchestration{
-				CreateSubOrchestration: &protos.CreateSubOrchestrationAction{
+			WorkflowActionType: &protos.WorkflowAction_CreateChildWorkflow{
+				CreateChildWorkflow: &protos.CreateChildWorkflowAction{
 					Name:       expectedName,
 					Input:      expectedInput,
 					InstanceId: expectedInstanceID,
@@ -478,7 +478,7 @@ func Test_CreateSubOrchestration(t *testing.T) {
 	if assert.NoError(t, err) && assert.False(t, continuedAsNew) {
 		if assert.Len(t, state.NewEvents, 1) {
 			e := state.NewEvents[0]
-			if orchCreated := e.GetSubOrchestrationInstanceCreated(); assert.NotNil(t, orchCreated) {
+			if orchCreated := e.GetChildWorkflowInstanceCreated(); assert.NotNil(t, orchCreated) {
 				assert.Equal(t, expectedTaskID, e.EventId)
 				assert.Equal(t, expectedInstanceID, orchCreated.InstanceId)
 				assert.Equal(t, expectedName, orchCreated.Name)
@@ -493,15 +493,15 @@ func Test_CreateSubOrchestration(t *testing.T) {
 			msg := state.PendingMessages[0]
 			if executionStarted := msg.HistoryEvent.GetExecutionStarted(); assert.NotNil(t, executionStarted) {
 				assert.Equal(t, int32(-1), msg.HistoryEvent.EventId)
-				assert.Equal(t, expectedInstanceID, executionStarted.OrchestrationInstance.InstanceId)
-				assert.NotEmpty(t, executionStarted.OrchestrationInstance.ExecutionId)
+				assert.Equal(t, expectedInstanceID, executionStarted.WorkflowInstance.InstanceId)
+				assert.NotEmpty(t, executionStarted.WorkflowInstance.ExecutionId)
 				assert.Equal(t, expectedName, executionStarted.Name)
 				assert.Equal(t, expectedInput.GetValue(), executionStarted.Input.GetValue())
 				if assert.NotNil(t, executionStarted.ParentInstance) {
 					assert.Equal(t, "Parent", executionStarted.ParentInstance.Name.GetValue())
 					assert.Equal(t, expectedTaskID, executionStarted.ParentInstance.TaskScheduledId)
-					if assert.NotNil(t, executionStarted.ParentInstance.OrchestrationInstance) {
-						assert.Equal(t, iid, executionStarted.ParentInstance.OrchestrationInstance.InstanceId)
+					if assert.NotNil(t, executionStarted.ParentInstance.WorkflowInstance) {
+						assert.Equal(t, iid, executionStarted.ParentInstance.WorkflowInstance.InstanceId)
 					}
 				}
 				if assert.NotNil(t, executionStarted.ParentTraceContext) {
@@ -518,14 +518,14 @@ func Test_SendEvent(t *testing.T) {
 	expectedEventName := "MyEvent"
 	expectedInput := "foo"
 
-	s := runtimestate.NewOrchestrationRuntimeState("abc", nil, []*protos.HistoryEvent{
+	s := runtimestate.NewWorkflowRuntimeState("abc", nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					Name: "MyWorkflow",
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  "abc",
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -535,12 +535,12 @@ func Test_SendEvent(t *testing.T) {
 		},
 	})
 
-	actions := []*protos.OrchestratorAction{
+	actions := []*protos.WorkflowAction{
 		{
 			Id: -1,
-			OrchestratorActionType: &protos.OrchestratorAction_SendEvent{
+			WorkflowActionType: &protos.WorkflowAction_SendEvent{
 				SendEvent: &protos.SendEventAction{
-					Instance: &protos.OrchestrationInstance{InstanceId: expectedInstanceID},
+					Instance: &protos.WorkflowInstance{InstanceId: expectedInstanceID},
 					Name:     expectedEventName,
 					Data:     wrapperspb.String(expectedInput),
 				},
@@ -571,16 +571,16 @@ func Test_SendEvent(t *testing.T) {
 }
 
 func Test_StateIsValid(t *testing.T) {
-	s := runtimestate.NewOrchestrationRuntimeState("abc", nil, []*protos.HistoryEvent{})
+	s := runtimestate.NewWorkflowRuntimeState("abc", nil, []*protos.HistoryEvent{})
 	assert.True(t, runtimestate.IsValid(s))
-	s = runtimestate.NewOrchestrationRuntimeState("abc", nil, []*protos.HistoryEvent{
+	s = runtimestate.NewWorkflowRuntimeState("abc", nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					Name: "MyWorkflow",
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  "abc",
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -589,7 +589,7 @@ func Test_StateIsValid(t *testing.T) {
 		},
 	})
 	assert.True(t, runtimestate.IsValid(s))
-	s = runtimestate.NewOrchestrationRuntimeState("abc", nil, []*protos.HistoryEvent{
+	s = runtimestate.NewWorkflowRuntimeState("abc", nil, []*protos.HistoryEvent{
 		{
 			EventId:   -1,
 			Timestamp: timestamppb.New(time.Now()),
@@ -604,14 +604,14 @@ func Test_StateIsValid(t *testing.T) {
 }
 
 func Test_DuplicateEvents(t *testing.T) {
-	s := runtimestate.NewOrchestrationRuntimeState("abc", nil, []*protos.HistoryEvent{})
+	s := runtimestate.NewWorkflowRuntimeState("abc", nil, []*protos.HistoryEvent{})
 	err := runtimestate.AddEvent(s, &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.New(time.Now()),
 		EventType: &protos.HistoryEvent_ExecutionStarted{
 			ExecutionStarted: &protos.ExecutionStartedEvent{
-				Name: "MyOrchestration",
-				OrchestrationInstance: &protos.OrchestrationInstance{
+				Name: "MyWorkflow",
+				WorkflowInstance: &protos.WorkflowInstance{
 					InstanceId:  "abc",
 					ExecutionId: wrapperspb.String(uuid.New().String()),
 				},
@@ -624,8 +624,8 @@ func Test_DuplicateEvents(t *testing.T) {
 			Timestamp: timestamppb.New(time.Now()),
 			EventType: &protos.HistoryEvent_ExecutionStarted{
 				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "MyOrchestration",
-					OrchestrationInstance: &protos.OrchestrationInstance{
+					Name: "MyWorkflow",
+					WorkflowInstance: &protos.WorkflowInstance{
 						InstanceId:  "abc",
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
@@ -637,13 +637,13 @@ func Test_DuplicateEvents(t *testing.T) {
 		return
 	}
 
-	// TODO: Add other types of duplicate events (task completion, external events, sub-orchestration, etc.)
+	// TODO: Add other types of duplicate events (task completion, external events, child workflow, etc.)
 	err = runtimestate.AddEvent(s, &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
 		EventType: &protos.HistoryEvent_ExecutionCompleted{
 			ExecutionCompleted: &protos.ExecutionCompletedEvent{
-				OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+				WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
 			},
 		},
 	})
@@ -653,7 +653,7 @@ func Test_DuplicateEvents(t *testing.T) {
 			Timestamp: timestamppb.Now(),
 			EventType: &protos.HistoryEvent_ExecutionCompleted{
 				ExecutionCompleted: &protos.ExecutionCompletedEvent{
-					OrchestrationStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+					WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
 				},
 			},
 		})

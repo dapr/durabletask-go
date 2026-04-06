@@ -14,18 +14,18 @@ type TaskHubWorker interface {
 }
 
 type taskHubWorker struct {
-	backend             Backend
-	orchestrationWorker TaskWorker[*OrchestrationWorkItem]
-	activityWorker      TaskWorker[*ActivityWorkItem]
-	logger              Logger
+	backend        Backend
+	workflowWorker TaskWorker[*WorkflowWorkItem]
+	activityWorker TaskWorker[*ActivityWorkItem]
+	logger         Logger
 }
 
-func NewTaskHubWorker(be Backend, orchestrationWorker TaskWorker[*OrchestrationWorkItem], activityWorker TaskWorker[*ActivityWorkItem], logger Logger) TaskHubWorker {
+func NewTaskHubWorker(be Backend, workflowWorker TaskWorker[*WorkflowWorkItem], activityWorker TaskWorker[*ActivityWorkItem], logger Logger) TaskHubWorker {
 	return &taskHubWorker{
-		backend:             be,
-		orchestrationWorker: orchestrationWorker,
-		activityWorker:      activityWorker,
-		logger:              logger,
+		backend:        be,
+		workflowWorker: workflowWorker,
+		activityWorker: activityWorker,
+		logger:         logger,
 	}
 }
 
@@ -40,7 +40,7 @@ func (w *taskHubWorker) Start(ctx context.Context) error {
 
 	w.logger.Infof("worker started with backend %v", w.backend)
 
-	w.orchestrationWorker.Start(ctx)
+	w.workflowWorker.Start(ctx)
 	w.activityWorker.Start(ctx)
 	return nil
 }
@@ -58,7 +58,7 @@ func (w *taskHubWorker) Shutdown(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		w.orchestrationWorker.StopAndDrain()
+		w.workflowWorker.StopAndDrain()
 	}()
 
 	wg.Add(1)

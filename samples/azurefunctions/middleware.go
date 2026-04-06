@@ -29,10 +29,10 @@ type InvokeResponse struct {
 	ReturnValue json.RawMessage
 }
 
-func MapOrchestrator(o task.Orchestrator) func(http.ResponseWriter, *http.Request) {
+func MapWorkflow(o task.Workflow) func(http.ResponseWriter, *http.Request) {
 	r := task.NewTaskRegistry()
-	if err := r.AddOrchestratorN("*", o); err != nil {
-		panic(fmt.Errorf("ERROR: Failed to register the orchestrator function: %w", err))
+	if err := r.AddWorkflowN("*", o); err != nil {
+		panic(fmt.Errorf("ERROR: Failed to register the workflow function: %w", err))
 	}
 	executor := task.NewTaskExecutor(r)
 
@@ -41,7 +41,7 @@ func MapOrchestrator(o task.Orchestrator) func(http.ResponseWriter, *http.Reques
 		d := json.NewDecoder(httpReq.Body)
 		d.Decode(&invokeRequest)
 
-		// TODO: Give the schema, construct the context object and invoke the orchestrator
+		// TODO: Give the schema, construct the context object and invoke the workflow
 		contextParam := invokeRequest.Data["context"]
 		base64encodedPayload := contextParam.(string)
 
@@ -56,23 +56,23 @@ func MapOrchestrator(o task.Orchestrator) func(http.ResponseWriter, *http.Reques
 			return
 		}
 
-		var request protos.OrchestratorRequest
+		var request protos.WorkflowRequest
 		if err := proto.Unmarshal(protoBytes, &request); err != nil {
 			fmt.Printf("ERROR: Failed to deserialize request protobuf: %v\n", err)
 			return
 		}
-		fmt.Printf("Orchestrator request for instance ID '%s': %v\n", request.InstanceId, &request)
+		fmt.Printf("Workflow request for instance ID '%s': %v\n", request.InstanceId, &request)
 
-		results, err := executor.ExecuteOrchestrator(context.TODO(), api.InstanceID(request.InstanceId), request.PastEvents, request.NewEvents)
+		results, err := executor.ExecuteWorkflow(context.TODO(), api.InstanceID(request.InstanceId), request.PastEvents, request.NewEvents)
 		if err != nil {
-			fmt.Printf("ERROR: Unexpected failure executing the orchestrator function: %v\n", err)
+			fmt.Printf("ERROR: Unexpected failure executing the workflow function: %v\n", err)
 			return
 		}
-		fmt.Printf("Orchestrator returned a response: %v\n", results)
+		fmt.Printf("Workflow returned a response: %v\n", results)
 
 		respBytes, err := proto.Marshal(results)
 		if err != nil {
-			fmt.Printf("ERROR: Failed to marshal orchestrator results to protobuf: %v\n", err)
+			fmt.Printf("ERROR: Failed to marshal workflow results to protobuf: %v\n", err)
 			return
 		}
 

@@ -10,14 +10,6 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-type CreateOrchestrationAction = protos.CreateOrchestrationAction
-
-const (
-	REUSE_ID_ACTION_ERROR     CreateOrchestrationAction = protos.CreateOrchestrationAction_ERROR
-	REUSE_ID_ACTION_IGNORE    CreateOrchestrationAction = protos.CreateOrchestrationAction_IGNORE
-	REUSE_ID_ACTION_TERMINATE CreateOrchestrationAction = protos.CreateOrchestrationAction_TERMINATE
-)
-
 type OrchestrationStatus = protos.OrchestrationStatus
 
 const (
@@ -32,28 +24,26 @@ const (
 	RUNTIME_STATUS_STALLED          OrchestrationStatus = protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED
 )
 
-type OrchestrationIdReusePolicy = protos.OrchestrationIdReusePolicy
-
-// InstanceID is a unique identifier for an orchestration instance.
+// InstanceID is a unique identifier for a workflow instance.
 type InstanceID string
 
 func (i InstanceID) String() string {
 	return string(i)
 }
 
-// NewOrchestrationOptions configures options for starting a new orchestration.
-type NewOrchestrationOptions func(*protos.CreateInstanceRequest) error
+// NewWorkflowOptions configures options for starting a new workflow.
+type NewWorkflowOptions func(*protos.CreateInstanceRequest) error
 
-// GetOrchestrationMetadataOptions is a set of options for fetching orchestration metadata.
-type FetchOrchestrationMetadataOptions func(*protos.GetInstanceRequest)
+// GetWorkflowMetadataOptions is a set of options for fetching workflow metadata.
+type FetchWorkflowMetadataOptions func(*protos.GetInstanceRequest)
 
-// RaiseEventOptions is a set of options for raising an orchestration event.
+// RaiseEventOptions is a set of options for raising a workflow event.
 type RaiseEventOptions func(*protos.RaiseEventRequest) error
 
-// TerminateOptions is a set of options for terminating an orchestration.
+// TerminateOptions is a set of options for terminating a workflow.
 type TerminateOptions func(*protos.TerminateRequest) error
 
-// PurgeOptions is a set of options for purging an orchestration.
+// PurgeOptions is a set of options for purging a workflow.
 type PurgeOptions func(*protos.PurgeInstancesRequest) error
 
 type RerunOptions func(*protos.RerunWorkflowFromEventRequest) error
@@ -62,30 +52,17 @@ type ListInstanceIDsOptions func(*protos.ListInstanceIDsRequest) error
 
 type GetInstanceHistoryOptions func(*protos.GetInstanceHistoryRequest) error
 
-// WithInstanceID configures an explicit orchestration instance ID. If not specified,
-// a random UUID value will be used for the orchestration instance ID.
-func WithInstanceID(id InstanceID) NewOrchestrationOptions {
+// WithInstanceID configures an explicit workflow instance ID. If not specified,
+// a random UUID value will be used for the workflow instance ID.
+func WithInstanceID(id InstanceID) NewWorkflowOptions {
 	return func(req *protos.CreateInstanceRequest) error {
 		req.InstanceId = string(id)
 		return nil
 	}
 }
 
-// WithOrchestrationIdReusePolicy configures Orchestration ID reuse policy.
-// Deprecated.
-func WithOrchestrationIdReusePolicy(policy *protos.OrchestrationIdReusePolicy) NewOrchestrationOptions {
-	return func(req *protos.CreateInstanceRequest) error {
-		// initialize CreateInstanceOption
-		req.OrchestrationIdReusePolicy = &protos.OrchestrationIdReusePolicy{
-			OperationStatus: policy.OperationStatus,
-			Action:          policy.Action,
-		}
-		return nil
-	}
-}
-
-// WithInput configures an input for the orchestration. The specified input must be serializable.
-func WithInput(input any) NewOrchestrationOptions {
+// WithInput configures an input for the workflow. The specified input must be serializable.
+func WithInput(input any) NewWorkflowOptions {
 	return func(req *protos.CreateInstanceRequest) error {
 		bytes, err := json.Marshal(input)
 		if err != nil {
@@ -96,26 +73,26 @@ func WithInput(input any) NewOrchestrationOptions {
 	}
 }
 
-// WithRawInput configures an input for the orchestration. The specified input must be a string.
-func WithRawInput(rawInput *wrapperspb.StringValue) NewOrchestrationOptions {
+// WithRawInput configures an input for the workflow. The specified input must be a string.
+func WithRawInput(rawInput *wrapperspb.StringValue) NewWorkflowOptions {
 	return func(req *protos.CreateInstanceRequest) error {
 		req.Input = rawInput
 		return nil
 	}
 }
 
-// WithStartTime configures a start time at which the orchestration should start running.
+// WithStartTime configures a start time at which the workflow should start running.
 // Note that the actual start time could be later than the specified start time if the
 // task hub is under load or if the app is not running at the specified start time.
-func WithStartTime(startTime time.Time) NewOrchestrationOptions {
+func WithStartTime(startTime time.Time) NewWorkflowOptions {
 	return func(req *protos.CreateInstanceRequest) error {
 		req.ScheduledStartTimestamp = timestamppb.New(startTime)
 		return nil
 	}
 }
 
-// WithFetchPayloads configures whether to load orchestration inputs, outputs, and custom status values, which could be large.
-func WithFetchPayloads(fetchPayloads bool) FetchOrchestrationMetadataOptions {
+// WithFetchPayloads configures whether to load workflow inputs, outputs, and custom status values, which could be large.
+func WithFetchPayloads(fetchPayloads bool) FetchWorkflowMetadataOptions {
 	return func(req *protos.GetInstanceRequest) {
 		req.GetInputsAndOutputs = fetchPayloads
 	}
@@ -141,7 +118,7 @@ func WithRawEventData(data *wrapperspb.StringValue) RaiseEventOptions {
 	}
 }
 
-// WithOutput configures an output for the terminated orchestration. The specified output must be serializable.
+// WithOutput configures an output for the terminated workflow. The specified output must be serializable.
 func WithOutput(data any) TerminateOptions {
 	return func(req *protos.TerminateRequest) error {
 		bytes, err := json.Marshal(data)
@@ -153,7 +130,7 @@ func WithOutput(data any) TerminateOptions {
 	}
 }
 
-// WithRawOutput configures a raw, unprocessed output (i.e. pre-serialized) for the terminated orchestration.
+// WithRawOutput configures a raw, unprocessed output (i.e. pre-serialized) for the terminated workflow.
 func WithRawOutput(data *wrapperspb.StringValue) TerminateOptions {
 	return func(req *protos.TerminateRequest) error {
 		req.Output = data
@@ -161,7 +138,7 @@ func WithRawOutput(data *wrapperspb.StringValue) TerminateOptions {
 	}
 }
 
-// WithRecursiveTerminate configures whether to terminate all sub-orchestrations created by the target orchestration.
+// WithRecursiveTerminate configures whether to terminate all child workflows created by the target workflow.
 func WithRecursiveTerminate(recursive bool) TerminateOptions {
 	return func(req *protos.TerminateRequest) error {
 		req.Recursive = recursive
@@ -169,7 +146,7 @@ func WithRecursiveTerminate(recursive bool) TerminateOptions {
 	}
 }
 
-// WithRecursivePurge configures whether to purge all sub-orchestrations created by the target orchestration.
+// WithRecursivePurge configures whether to purge all child workflows created by the target workflow.
 func WithRecursivePurge(recursive bool) PurgeOptions {
 	return func(req *protos.PurgeInstancesRequest) error {
 		req.Recursive = recursive
@@ -187,11 +164,11 @@ func WithForcePurge(force bool) PurgeOptions {
 	}
 }
 
-func OrchestrationMetadataIsRunning(o *protos.OrchestrationMetadata) bool {
-	return !OrchestrationMetadataIsComplete(o)
+func WorkflowMetadataIsRunning(o *protos.WorkflowMetadata) bool {
+	return !WorkflowMetadataIsComplete(o)
 }
 
-func OrchestrationMetadataIsComplete(o *protos.OrchestrationMetadata) bool {
+func WorkflowMetadataIsComplete(o *protos.WorkflowMetadata) bool {
 	return o.GetRuntimeStatus() == protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED ||
 		o.GetRuntimeStatus() == protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED ||
 		o.GetRuntimeStatus() == protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED ||
