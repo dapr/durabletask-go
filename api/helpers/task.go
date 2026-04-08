@@ -1,10 +1,17 @@
 package helpers
 
 import (
+	"fmt"
 	"reflect"
 	"runtime"
 	"strings"
 )
+
+// GenerateChildWorkflowInstanceID generates a deterministic instance ID for a
+// child workflow based on the parent instance ID and the action's sequence number.
+func GenerateChildWorkflowInstanceID(parentInstanceID string, actionID int32) string {
+	return fmt.Sprintf("%s:%04x", parentInstanceID, actionID)
+}
 
 func GetTaskFunctionName(f any) string {
 	if name, ok := f.(string); ok {

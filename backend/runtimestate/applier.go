@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/kit/ptr"
 )
@@ -158,6 +159,14 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				timerCreated.Origin = &protos.TimerCreatedEvent_CreateTimer{
 					CreateTimer: ct,
 				}
+			} else if ar := timerAction.GetActivityRetry(); ar != nil {
+				timerCreated.Origin = &protos.TimerCreatedEvent_ActivityRetry{
+					ActivityRetry: ar,
+				}
+			} else if cwr := timerAction.GetChildWorkflowRetry(); cwr != nil {
+				timerCreated.Origin = &protos.TimerCreatedEvent_ChildWorkflowRetry{
+					ChildWorkflowRetry: cwr,
+				}
 			}
 			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,
@@ -199,7 +208,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 			// Autogenerate an instance ID for the child workflow if none is provided, using a
 			// deterministic algorithm based on the parent instance ID to help enable de-duplication.
 			if createSO.InstanceId == "" {
-				createSO.InstanceId = fmt.Sprintf("%s:%04x", s.InstanceId, action.Id)
+				createSO.InstanceId = helpers.GenerateChildWorkflowInstanceID(s.InstanceId, action.Id)
 			}
 			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,

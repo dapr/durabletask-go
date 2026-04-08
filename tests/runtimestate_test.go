@@ -1,16 +1,21 @@
 package tests
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend/runtimestate"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/types/known/timestamppb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
+	"github.com/dapr/durabletask-go/task"
 )
 
 // Verifies runtime state created from an ExecutionStarted event
@@ -365,6 +370,259 @@ func Test_CreateTimer_ExternalEventOrigin(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func Test_CreateTimer_ActivityRetryOrigin(t *testing.T) {
+	const iid = "abc"
+	timerName := "myActivity-retry"
+	taskExecutionId := "task-exec-123"
+	expectedFireAt := time.Now().UTC().Add(10 * time.Second)
+
+	s := runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "MyOrchestration",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  iid,
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	actions := []*protos.WorkflowAction{
+		{
+			Id: 1,
+			WorkflowActionType: &protos.WorkflowAction_CreateTimer{
+				CreateTimer: &protos.CreateTimerAction{
+					FireAt: timestamppb.New(expectedFireAt),
+					Name:   &timerName,
+					Origin: &protos.CreateTimerAction_ActivityRetry{
+						ActivityRetry: &protos.TimerOriginActivityRetry{
+							TaskExecutionId: taskExecutionId,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("example")
+	continuedAsNew, err := applier.Actions(s, nil, actions, nil)
+	if assert.NoError(t, err) && assert.False(t, continuedAsNew) {
+		if assert.Len(t, s.NewEvents, 1) {
+			timerCreated := s.NewEvents[0].GetTimerCreated()
+			if assert.NotNil(t, timerCreated) {
+				assert.WithinDuration(t, expectedFireAt, timerCreated.FireAt.AsTime(), 0)
+				assert.Equal(t, timerName, timerCreated.GetName())
+				activityRetry := timerCreated.GetActivityRetry()
+				if assert.NotNil(t, activityRetry, "expected TimerCreatedEvent to carry ActivityRetry origin") {
+					assert.Equal(t, taskExecutionId, activityRetry.TaskExecutionId)
+				}
+			}
+		}
+	}
+}
+
+func Test_CreateTimer_ChildWorkflowRetryOrigin(t *testing.T) {
+	const iid = "abc"
+	timerName := "myWorkflow-retry"
+	childInstanceId := "child-instance-456"
+	expectedFireAt := time.Now().UTC().Add(30 * time.Second)
+
+	s := runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "MyOrchestration",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  iid,
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	actions := []*protos.WorkflowAction{
+		{
+			Id: 1,
+			WorkflowActionType: &protos.WorkflowAction_CreateTimer{
+				CreateTimer: &protos.CreateTimerAction{
+					FireAt: timestamppb.New(expectedFireAt),
+					Name:   &timerName,
+					Origin: &protos.CreateTimerAction_ChildWorkflowRetry{
+						ChildWorkflowRetry: &protos.TimerOriginChildWorkflowRetry{
+							InstanceId: childInstanceId,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("example")
+	continuedAsNew, err := applier.Actions(s, nil, actions, nil)
+	if assert.NoError(t, err) && assert.False(t, continuedAsNew) {
+		if assert.Len(t, s.NewEvents, 1) {
+			timerCreated := s.NewEvents[0].GetTimerCreated()
+			if assert.NotNil(t, timerCreated) {
+				assert.WithinDuration(t, expectedFireAt, timerCreated.FireAt.AsTime(), 0)
+				assert.Equal(t, timerName, timerCreated.GetName())
+				childWorkflowRetry := timerCreated.GetChildWorkflowRetry()
+				if assert.NotNil(t, childWorkflowRetry, "expected TimerCreatedEvent to carry ChildWorkflowRetry origin") {
+					assert.Equal(t, childInstanceId, childWorkflowRetry.InstanceId)
+				}
+			}
+		}
+	}
+}
+
+func Test_ChildWorkflowRetry_TimerOriginPointsToFirstChild(t *testing.T) {
+	const parentID = "parent-instance"
+
+	// Register a parent workflow that calls a child with retry policy (no explicit instance ID).
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Parent", func(ctx *task.WorkflowContext) (any, error) {
+		err := ctx.CallChildWorkflow("Child", task.WithChildWorkflowRetryPolicy(&task.RetryPolicy{
+			MaxAttempts:          4,
+			InitialRetryInterval: 1 * time.Second,
+		})).Await(nil)
+		return nil, err
+	})
+	r.AddWorkflowN("Child", func(ctx *task.WorkflowContext) (any, error) {
+		return nil, errors.New("child failed")
+	})
+
+	executor := task.NewTaskExecutor(r)
+	applier := runtimestate.NewApplier("test")
+
+	startEvent := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ExecutionStarted{
+			ExecutionStarted: &protos.ExecutionStartedEvent{
+				Name: "Parent",
+				WorkflowInstance: &protos.WorkflowInstance{
+					InstanceId:  parentID,
+					ExecutionId: wrapperspb.String(uuid.New().String()),
+				},
+			},
+		},
+	}
+
+	// Round 1: Parent starts, produces CreateChildWorkflow action.
+	resp, err := executor.ExecuteWorkflow(context.Background(), parentID, nil, []*protos.HistoryEvent{startEvent})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+	childAction := resp.Actions[0].GetCreateChildWorkflow()
+	require.NotNil(t, childAction)
+
+	// Apply round 1 to get the ChildWorkflowInstanceCreated event.
+	state := runtimestate.NewWorkflowRuntimeState(parentID, nil, []*protos.HistoryEvent{startEvent})
+	_, err = applier.Actions(state, nil, resp.Actions, nil)
+	require.NoError(t, err)
+
+	// The first child's instance ID (auto-generated by the applier).
+	firstChildInstanceID := childAction.InstanceId
+
+	// Simulate child failure (TaskScheduledId must match the CreateChildWorkflow action ID).
+	childFailedEvent := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ChildWorkflowInstanceFailed{
+			ChildWorkflowInstanceFailed: &protos.ChildWorkflowInstanceFailedEvent{
+				TaskScheduledId: 0,
+				FailureDetails: &protos.TaskFailureDetails{
+					ErrorMessage: "child failed",
+				},
+			},
+		},
+	}
+
+	// Round 2: Parent replays, sees child failure, produces CreateTimer#1.
+	oldEvents := append([]*protos.HistoryEvent{startEvent}, state.NewEvents...)
+	resp, err = executor.ExecuteWorkflow(context.Background(), parentID, oldEvents, []*protos.HistoryEvent{childFailedEvent})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+
+	// Verify first retry timer has ChildWorkflowRetry origin pointing to the first child.
+	timer1 := resp.Actions[0].GetCreateTimer()
+	require.NotNil(t, timer1)
+	retry1 := timer1.GetChildWorkflowRetry()
+	if assert.NotNil(t, retry1, "first retry timer should have ChildWorkflowRetry origin") {
+		assert.Equal(t, firstChildInstanceID, retry1.InstanceId,
+			"first retry timer origin should point to the first child instance ID")
+	}
+
+	// Apply round 2 to get TimerCreated event.
+	state2 := runtimestate.NewWorkflowRuntimeState(parentID, nil, oldEvents)
+	_, err = applier.Actions(state2, nil, resp.Actions, nil)
+	require.NoError(t, err)
+
+	// Round 3: Timer fires, produces CreateChildWorkflow#2.
+	timerFiredEvent := &protos.HistoryEvent{
+		EventId:   1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_TimerFired{
+			TimerFired: &protos.TimerFiredEvent{
+				FireAt:  timer1.FireAt,
+				TimerId: 1,
+			},
+		},
+	}
+	oldEvents2 := make([]*protos.HistoryEvent, 0)
+	oldEvents2 = append(oldEvents2, oldEvents...)
+	oldEvents2 = append(oldEvents2, childFailedEvent)
+	oldEvents2 = append(oldEvents2, state2.NewEvents...)
+	resp, err = executor.ExecuteWorkflow(context.Background(), parentID, oldEvents2, []*protos.HistoryEvent{timerFiredEvent})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+	childAction2 := resp.Actions[0].GetCreateChildWorkflow()
+	require.NotNil(t, childAction2)
+	assert.NotEqual(t, firstChildInstanceID, childAction2.InstanceId,
+		"each retry should get a different auto-generated instance ID")
+
+	// Apply round 3 to get ChildWorkflowInstanceCreated event.
+	state3 := runtimestate.NewWorkflowRuntimeState(parentID, nil, oldEvents2)
+	_, err = applier.Actions(state3, nil, resp.Actions, nil)
+	require.NoError(t, err)
+
+	// Round 4: Second child fails, produces CreateTimer#3.
+	childFailedEvent2 := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ChildWorkflowInstanceFailed{
+			ChildWorkflowInstanceFailed: &protos.ChildWorkflowInstanceFailedEvent{
+				TaskScheduledId: 2,
+				FailureDetails: &protos.TaskFailureDetails{
+					ErrorMessage: "child failed",
+				},
+			},
+		},
+	}
+	oldEvents3 := make([]*protos.HistoryEvent, 0)
+	oldEvents3 = append(oldEvents3, oldEvents2...)
+	oldEvents3 = append(oldEvents3, timerFiredEvent)
+	oldEvents3 = append(oldEvents3, state3.NewEvents...)
+	resp, err = executor.ExecuteWorkflow(context.Background(), parentID, oldEvents3, []*protos.HistoryEvent{childFailedEvent2})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+
+	// Verify second retry timer also points to the FIRST child's instance ID.
+	timer2 := resp.Actions[0].GetCreateTimer()
+	require.NotNil(t, timer2)
+	retry2 := timer2.GetChildWorkflowRetry()
+	if assert.NotNil(t, retry2, "second retry timer should have ChildWorkflowRetry origin") {
+		assert.Equal(t, firstChildInstanceID, retry2.InstanceId,
+			"second retry timer origin should also point to the first child instance ID")
 	}
 }
 
