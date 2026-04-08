@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/kit/ptr"
 )
@@ -150,14 +151,17 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				FireAt: timerAction.FireAt,
 				Name:   timerAction.Name,
 			}
-			if externalEvent := timerAction.GetExternalEvent(); externalEvent != nil {
-				timerCreated.Origin = &protos.TimerCreatedEvent_ExternalEvent{
-					ExternalEvent: externalEvent,
-				}
-			} else if ct := timerAction.GetCreateTimer(); ct != nil {
-				timerCreated.Origin = &protos.TimerCreatedEvent_CreateTimer{
-					CreateTimer: ct,
-				}
+			switch o := timerAction.GetOrigin().(type) {
+			case *protos.CreateTimerAction_CreateTimer:
+				timerCreated.Origin = &protos.TimerCreatedEvent_CreateTimer{CreateTimer: o.CreateTimer}
+			case *protos.CreateTimerAction_ExternalEvent:
+				timerCreated.Origin = &protos.TimerCreatedEvent_ExternalEvent{ExternalEvent: o.ExternalEvent}
+			case *protos.CreateTimerAction_ActivityRetry:
+				timerCreated.Origin = &protos.TimerCreatedEvent_ActivityRetry{ActivityRetry: o.ActivityRetry}
+			case *protos.CreateTimerAction_ChildWorkflowRetry:
+				timerCreated.Origin = &protos.TimerCreatedEvent_ChildWorkflowRetry{ChildWorkflowRetry: o.ChildWorkflowRetry}
+			default:
+				// Origin is nil or an unrecognized type; timerCreated.Origin stays nil.
 			}
 			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,
@@ -199,7 +203,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 			// Autogenerate an instance ID for the child workflow if none is provided, using a
 			// deterministic algorithm based on the parent instance ID to help enable de-duplication.
 			if createSO.InstanceId == "" {
-				createSO.InstanceId = fmt.Sprintf("%s:%04x", s.InstanceId, action.Id)
+				createSO.InstanceId = helpers.GenerateChildWorkflowInstanceID(s.InstanceId, action.Id)
 			}
 			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,

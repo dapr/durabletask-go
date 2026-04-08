@@ -534,6 +534,55 @@ func Test_SingleChildWorkflow_Failed_Retries(t *testing.T) {
 	)
 }
 
+func Test_SingleChildWorkflow_Failed_Retries_AutoInstanceID(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Parent", func(ctx *task.WorkflowContext) (any, error) {
+		// No explicit instance ID — each retry gets a different auto-generated
+		// instance ID from the applier, but the timer origin always points to
+		// the first child's instance ID.
+		err := ctx.CallChildWorkflow(
+			"Child",
+			task.WithChildWorkflowRetryPolicy(&task.RetryPolicy{
+				MaxAttempts:          3,
+				InitialRetryInterval: 10 * time.Millisecond,
+				BackoffCoefficient:   2,
+			})).Await(nil)
+		return nil, err
+	})
+	r.AddWorkflowN("Child", func(ctx *task.WorkflowContext) (any, error) {
+		return nil, errors.New("Child failed")
+	})
+
+	ctx := context.Background()
+	exporter := utils.InitTracing()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewWorkflow(ctx, "Parent")
+	require.NoError(t, err)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, metadata.RuntimeStatus)
+	if assert.NotNil(t, metadata.FailureDetails) {
+		assert.Contains(t, metadata.FailureDetails.ErrorMessage, "Child failed")
+	}
+
+	// Each retry gets a different auto-generated instance ID (action IDs: 0, 2, 4).
+	childID := func(actionID int) api.InstanceID {
+		return api.InstanceID(fmt.Sprintf("%s:%04x", id, actionID))
+	}
+	spans := exporter.GetSpans().Snapshots()
+	utils.AssertSpanSequence(t, spans,
+		utils.AssertWorkflowCreated("Parent", id),
+		utils.AssertWorkflowExecuted("Child", childID(0), "FAILED"),
+		utils.AssertTimer(id, utils.AssertTaskID(1)),
+		utils.AssertWorkflowExecuted("Child", childID(2), "FAILED"),
+		utils.AssertTimer(id, utils.AssertTaskID(3)),
+		utils.AssertWorkflowExecuted("Child", childID(4), "FAILED"),
+		utils.AssertWorkflowExecuted("Parent", id, "FAILED"),
+	)
+}
+
 func Test_ContinueAsNew(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
