@@ -161,7 +161,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 			case *protos.CreateTimerAction_ChildWorkflowRetry:
 				timerCreated.Origin = &protos.TimerCreatedEvent_ChildWorkflowRetry{ChildWorkflowRetry: o.ChildWorkflowRetry}
 			default:
-				return false, fmt.Errorf("unknown timer origin type: %T", timerAction.GetOrigin())
+				// Origin is nil or an unrecognized type; timerCreated.Origin stays nil.
 			}
 			_ = AddEvent(s, &protos.HistoryEvent{
 				EventId:   action.Id,
