@@ -289,7 +289,6 @@ func Test_CreateTimer(t *testing.T) {
 				},
 			},
 		})
-
 	}
 
 	applier := runtimestate.NewApplier("example")
@@ -569,12 +568,12 @@ func Test_ChildWorkflowRetry_TimerOriginPointsToFirstChild(t *testing.T) {
 
 	// Round 3: Timer fires, produces CreateChildWorkflow#2.
 	timerFiredEvent := &protos.HistoryEvent{
-		EventId:   1,
+		EventId:   -1,
 		Timestamp: timestamppb.New(time.Now()),
 		EventType: &protos.HistoryEvent_TimerFired{
 			TimerFired: &protos.TimerFiredEvent{
 				FireAt:  timer1.FireAt,
-				TimerId: 1,
+				TimerId: resp.Actions[0].Id,
 			},
 		},
 	}
