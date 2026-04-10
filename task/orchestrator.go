@@ -292,13 +292,12 @@ func (ctx *WorkflowContext) CallActivity(activity interface{}, opts ...CallActiv
 	activityName := helpers.GetTaskFunctionName(activity)
 
 	if options.retryPolicy != nil {
-		taskExecutionId := uuid.NewString()
 		return ctx.internalScheduleTaskWithRetries(activityName+"-retry", ctx.CurrentTimeUtc, func(taskExecutionId string) Task {
 			return ctx.internalScheduleActivity(activityName, taskExecutionId, options)
-		}, *options.retryPolicy, 0, taskExecutionId, func(a *protos.CreateTimerAction) {
+		}, *options.retryPolicy, 0, uuid.NewString(), func(a *protos.CreateTimerAction, execID string) {
 			a.Origin = &protos.CreateTimerAction_ActivityRetry{
 				ActivityRetry: &protos.TimerOriginActivityRetry{
-					TaskExecutionId: taskExecutionId,
+					TaskExecutionId: execID,
 				},
 			}
 		})
@@ -352,7 +351,7 @@ func (ctx *WorkflowContext) CallChildWorkflow(workflow interface{}, opts ...Chil
 		}
 		return ctx.internalScheduleTaskWithRetries(workflowName+"-retry", ctx.CurrentTimeUtc, func(_ string) Task {
 			return ctx.internalCallChildWorkflow(workflowName, options)
-		}, *options.retryPolicy, 0, uuid.NewString(), func(a *protos.CreateTimerAction) {
+		}, *options.retryPolicy, 0, uuid.NewString(), func(a *protos.CreateTimerAction, _ string) {
 			a.Origin = &protos.CreateTimerAction_ChildWorkflowRetry{
 				ChildWorkflowRetry: &protos.TimerOriginChildWorkflowRetry{
 					InstanceId: firstInstanceID,
@@ -389,7 +388,7 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 	return task
 }
 
-func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initialAttempt time.Time, schedule func(taskExecutionId string) Task, policy RetryPolicy, retryCount int, taskExecutionId string, setTimerOrigin func(*protos.CreateTimerAction)) Task {
+func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initialAttempt time.Time, schedule func(taskExecutionId string) Task, policy RetryPolicy, retryCount int, taskExecutionId string, setTimerOrigin func(*protos.CreateTimerAction, string)) Task {
 	return &taskWrapper{
 		delegate: schedule(taskExecutionId),
 		onAwaitResult: func(v any, taskExecutionId string, err error) error {
@@ -407,7 +406,7 @@ func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initial
 				return err
 			}
 			task, action := ctx.createTimerInternal(&name, nextDelay)
-			setTimerOrigin(action)
+			setTimerOrigin(action, taskExecutionId)
 			timerErr := task.Await(nil)
 			if timerErr != nil {
 				// TODO use errors.Join when updating golang

@@ -625,6 +625,170 @@ func Test_ChildWorkflowRetry_TimerOriginPointsToFirstChild(t *testing.T) {
 	}
 }
 
+func Test_ActivityRetry_TimerOriginMatchesTaskExecutionId(t *testing.T) {
+	const parentID = "parent-instance"
+	const taskExecID = "the-real-exec-id"
+
+	// Register a workflow that calls an activity with a retry policy.
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Orchestration", func(ctx *task.WorkflowContext) (any, error) {
+		err := ctx.CallActivity("FailActivity", task.WithActivityRetryPolicy(&task.RetryPolicy{
+			MaxAttempts:          4,
+			InitialRetryInterval: 1 * time.Second,
+		})).Await(nil)
+		return nil, err
+	})
+	r.AddActivityN("FailActivity", func(ctx task.ActivityContext) (any, error) {
+		return nil, errors.New("activity failed")
+	})
+
+	executor := task.NewTaskExecutor(r)
+
+	startEvent := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ExecutionStarted{
+			ExecutionStarted: &protos.ExecutionStartedEvent{
+				Name: "Orchestration",
+				WorkflowInstance: &protos.WorkflowInstance{
+					InstanceId:  parentID,
+					ExecutionId: wrapperspb.String(uuid.New().String()),
+				},
+			},
+		},
+	}
+
+	// Round 1: Workflow starts, produces ScheduleTask action.
+	resp, err := executor.ExecuteWorkflow(context.Background(), parentID, nil, []*protos.HistoryEvent{startEvent})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+	scheduleAction := resp.Actions[0].GetScheduleTask()
+	require.NotNil(t, scheduleAction)
+
+	// Record the task execution ID that was assigned to the scheduled task.
+	scheduledTaskExecID := scheduleAction.TaskExecutionId
+	require.NotEmpty(t, scheduledTaskExecID)
+
+	// Build the TaskScheduled event (from the action).
+	taskScheduledEvent := &protos.HistoryEvent{
+		EventId:   resp.Actions[0].Id,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_TaskScheduled{
+			TaskScheduled: &protos.TaskScheduledEvent{
+				Name:            scheduleAction.Name,
+				TaskExecutionId: scheduledTaskExecID,
+			},
+		},
+	}
+
+	// Simulate task failure, carrying the same TaskExecutionId.
+	taskFailedEvent := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_TaskFailed{
+			TaskFailed: &protos.TaskFailedEvent{
+				TaskScheduledId: resp.Actions[0].Id,
+				FailureDetails: &protos.TaskFailureDetails{
+					ErrorMessage: "activity failed",
+				},
+				TaskExecutionId: scheduledTaskExecID,
+			},
+		},
+	}
+
+	// Round 2: Replay with task failure, should produce a retry timer.
+	oldEvents := []*protos.HistoryEvent{startEvent, taskScheduledEvent}
+	resp, err = executor.ExecuteWorkflow(context.Background(), parentID, oldEvents, []*protos.HistoryEvent{taskFailedEvent})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+
+	// Verify the first retry timer has ActivityRetry origin with the correct TaskExecutionId.
+	timer1 := resp.Actions[0].GetCreateTimer()
+	require.NotNil(t, timer1)
+	retry1 := timer1.GetActivityRetry()
+	if assert.NotNil(t, retry1, "first retry timer should have ActivityRetry origin") {
+		assert.Equal(t, scheduledTaskExecID, retry1.TaskExecutionId,
+			"first retry timer origin should carry the task execution ID from the scheduled task")
+	}
+
+	// Build the TimerCreated event.
+	timerCreatedEvent := &protos.HistoryEvent{
+		EventId:   resp.Actions[0].Id,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_TimerCreated{
+			TimerCreated: &protos.TimerCreatedEvent{
+				FireAt: timer1.FireAt,
+				Name:   timer1.Name,
+			},
+		},
+	}
+
+	// Timer fires.
+	timerFiredEvent := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_TimerFired{
+			TimerFired: &protos.TimerFiredEvent{
+				FireAt:  timer1.FireAt,
+				TimerId: resp.Actions[0].Id,
+			},
+		},
+	}
+
+	// Round 3: Timer fires, produces second ScheduleTask.
+	oldEvents2 := append([]*protos.HistoryEvent{}, oldEvents...)
+	oldEvents2 = append(oldEvents2, taskFailedEvent, timerCreatedEvent)
+	resp, err = executor.ExecuteWorkflow(context.Background(), parentID, oldEvents2, []*protos.HistoryEvent{timerFiredEvent})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+	scheduleAction2 := resp.Actions[0].GetScheduleTask()
+	require.NotNil(t, scheduleAction2)
+	// The retry should reuse the same task execution ID.
+	assert.Equal(t, scheduledTaskExecID, scheduleAction2.TaskExecutionId,
+		"retried activity should keep the same task execution ID")
+
+	// Build second TaskScheduled + TaskFailed events.
+	taskScheduledEvent2 := &protos.HistoryEvent{
+		EventId:   resp.Actions[0].Id,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_TaskScheduled{
+			TaskScheduled: &protos.TaskScheduledEvent{
+				Name:            scheduleAction2.Name,
+				TaskExecutionId: scheduledTaskExecID,
+			},
+		},
+	}
+	taskFailedEvent2 := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_TaskFailed{
+			TaskFailed: &protos.TaskFailedEvent{
+				TaskScheduledId: resp.Actions[0].Id,
+				FailureDetails: &protos.TaskFailureDetails{
+					ErrorMessage: "activity failed",
+				},
+				TaskExecutionId: scheduledTaskExecID,
+			},
+		},
+	}
+
+	// Round 4: Second failure, should produce another retry timer.
+	oldEvents3 := append([]*protos.HistoryEvent{}, oldEvents2...)
+	oldEvents3 = append(oldEvents3, timerFiredEvent, taskScheduledEvent2)
+	resp, err = executor.ExecuteWorkflow(context.Background(), parentID, oldEvents3, []*protos.HistoryEvent{taskFailedEvent2})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+
+	// Verify the second retry timer also has the correct TaskExecutionId.
+	timer2 := resp.Actions[0].GetCreateTimer()
+	require.NotNil(t, timer2)
+	retry2 := timer2.GetActivityRetry()
+	if assert.NotNil(t, retry2, "second retry timer should have ActivityRetry origin") {
+		assert.Equal(t, scheduledTaskExecID, retry2.TaskExecutionId,
+			"second retry timer origin should also carry the original task execution ID")
+	}
+}
+
 func Test_ScheduleTask(t *testing.T) {
 	const iid = "abc"
 	expectedTaskID := int32(1)
