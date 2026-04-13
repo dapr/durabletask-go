@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +20,14 @@ import (
 	"github.com/dapr/durabletask-go/backend"
 	"github.com/dapr/kit/ptr"
 )
+
+// externalEventIndefiniteFireAt is the sentinel fire-at value used for the
+// synthetic timer backing WaitForExternalEvent calls with a negative
+// timeout. It is chosen far enough in the future that it effectively never
+// fires, and is used on replay to recognize optional pending timers that
+// may be absent from histories produced by prior releases (see
+// dropOptionalExternalEventTimerAt).
+var externalEventIndefiniteFireAt = time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC)
 
 // Workflow is the functional interface for workflow functions.
 type Workflow func(ctx *WorkflowContext) (any, error)
@@ -545,7 +554,7 @@ func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Du
 		if timeout > 0 {
 			fireAt = ctx.CurrentTimeUtc.Add(timeout)
 		} else {
-			fireAt = time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC)
+			fireAt = externalEventIndefiniteFireAt
 		}
 		ctx.createExternalEventTimerInternal(eventName, fireAt).onCompleted(func() {
 			task.cancel()
@@ -660,7 +669,15 @@ func (ctx *WorkflowContext) onExecutionStarted(es *protos.ExecutionStartedEvent)
 }
 
 func (ctx *WorkflowContext) onTaskScheduled(taskID int32, ts *protos.TaskScheduledEvent) error {
-	if a, ok := ctx.pendingActions[taskID]; !ok || a.GetScheduleTask() == nil {
+	a, ok := ctx.pendingActions[taskID]
+	if !ok || a.GetScheduleTask() == nil {
+		// Tolerate histories from before WaitForExternalEvent started emitting
+		// a synthetic timer for negative timeouts.
+		if ctx.dropOptionalExternalEventTimerAt(taskID) {
+			a, ok = ctx.pendingActions[taskID]
+		}
+	}
+	if !ok || a.GetScheduleTask() == nil {
 		return fmt.Errorf(
 			"a previous execution called CallActivity for '%s' and sequence number %d at this point in the workflow logic, but the current execution doesn't have this action with this sequence number",
 			ts.Name,
@@ -708,7 +725,13 @@ func (ctx *WorkflowContext) onTaskFailed(tf *protos.TaskFailedEvent) error {
 }
 
 func (ctx *WorkflowContext) onChildWorkflowScheduled(taskID int32, ts *protos.ChildWorkflowInstanceCreatedEvent) error {
-	if a, ok := ctx.pendingActions[taskID]; !ok || a.GetCreateChildWorkflow() == nil {
+	a, ok := ctx.pendingActions[taskID]
+	if !ok || a.GetCreateChildWorkflow() == nil {
+		if ctx.dropOptionalExternalEventTimerAt(taskID) {
+			a, ok = ctx.pendingActions[taskID]
+		}
+	}
+	if !ok || a.GetCreateChildWorkflow() == nil {
 		return fmt.Errorf(
 			"a previous execution called CallChildWorkflow for '%s' and sequence number %d at this point in the workflow logic, but the current execution doesn't have this action with this sequence number",
 			ts.Name,
@@ -756,6 +779,16 @@ func (ctx *WorkflowContext) onChildWorkflowFailed(sof *protos.ChildWorkflowInsta
 }
 
 func (ctx *WorkflowContext) onTimerCreated(e *protos.HistoryEvent) error {
+	tc := e.GetTimerCreated()
+	// If the pending action at this position is an optional external-event
+	// timer but the incoming TimerCreated event is something else (e.g. a
+	// real CreateTimer-origin timer emitted by pre-patch code), drop the
+	// optional timer and shift later pending ids down so we match correctly.
+	if a, ok := ctx.pendingActions[e.EventId]; ok &&
+		isOptionalExternalEventTimerAction(a) &&
+		!isOptionalExternalEventTimerCreatedEvent(tc) {
+		ctx.dropOptionalExternalEventTimerAt(e.EventId)
+	}
 	if a, ok := ctx.pendingActions[e.EventId]; !ok || a.GetCreateTimer() == nil {
 		return fmt.Errorf(
 			"a previous execution called CreateTimer with sequence number %d, but the current execution doesn't have this action with this sequence number",
@@ -912,6 +945,89 @@ func (ctx *WorkflowContext) getNextSequenceNumber() int32 {
 	current := ctx.sequenceNumber
 	ctx.sequenceNumber++
 	return current
+}
+
+// isOptionalExternalEventTimerAction reports whether the given pending workflow
+// action is a synthetic timer emitted by WaitForExternalEvent with a
+// negative timeout. Such timers were not created by earlier releases and
+// must be dropped when replaying a history produced by one of those releases
+// so sequence-number determinism is preserved.
+func isOptionalExternalEventTimerAction(a *protos.WorkflowAction) bool {
+	if a == nil {
+		return false
+	}
+	ct := a.GetCreateTimer()
+	if ct == nil || ct.GetExternalEvent() == nil {
+		return false
+	}
+	fa := ct.GetFireAt()
+	if fa == nil {
+		return false
+	}
+	return fa.AsTime().Equal(externalEventIndefiniteFireAt)
+}
+
+// isOptionalExternalEventTimerCreatedEvent reports whether a TimerCreated
+// history event was emitted for a synthetic external-event timer. When a
+// TimerCreated event matches both sides (pending action and history event),
+// the replay is of a history already produced by the current release and the
+// optional timer should be matched normally rather than shifted out.
+func isOptionalExternalEventTimerCreatedEvent(tc *protos.TimerCreatedEvent) bool {
+	if tc == nil || tc.GetExternalEvent() == nil {
+		return false
+	}
+	fa := tc.GetFireAt()
+	if fa == nil {
+		return false
+	}
+	return fa.AsTime().Equal(externalEventIndefiniteFireAt)
+}
+
+// dropOptionalExternalEventTimerAt removes the optional pending CreateTimer
+// action/task (if any) at ID atID and shifts every later pending action and
+// pending task id down by one. This lets the SDK tolerate replaying a
+// history that was produced before WaitForExternalEvent started emitting a
+// synthetic CreateTimer action for negative timeouts. Returns true if an
+// optional timer was removed.
+func (ctx *WorkflowContext) dropOptionalExternalEventTimerAt(atID int32) bool {
+	a, ok := ctx.pendingActions[atID]
+	if !ok || !isOptionalExternalEventTimerAction(a) {
+		return false
+	}
+
+	delete(ctx.pendingActions, atID)
+	delete(ctx.pendingTasks, atID)
+
+	// Collect later ids and shift them down, ascending so reinsertion is stable.
+	actionIDs := make([]int32, 0, len(ctx.pendingActions))
+	for id := range ctx.pendingActions {
+		if id > atID {
+			actionIDs = append(actionIDs, id)
+		}
+	}
+	sort.Slice(actionIDs, func(i, j int) bool { return actionIDs[i] < actionIDs[j] })
+	for _, id := range actionIDs {
+		act := ctx.pendingActions[id]
+		delete(ctx.pendingActions, id)
+		act.Id = id - 1
+		ctx.pendingActions[id-1] = act
+	}
+
+	taskIDs := make([]int32, 0, len(ctx.pendingTasks))
+	for id := range ctx.pendingTasks {
+		if id > atID {
+			taskIDs = append(taskIDs, id)
+		}
+	}
+	sort.Slice(taskIDs, func(i, j int) bool { return taskIDs[i] < taskIDs[j] })
+	for _, id := range taskIDs {
+		t := ctx.pendingTasks[id]
+		delete(ctx.pendingTasks, id)
+		ctx.pendingTasks[id-1] = t
+	}
+
+	ctx.sequenceNumber--
+	return true
 }
 
 func (ctx *WorkflowContext) actions() []*protos.WorkflowAction {
