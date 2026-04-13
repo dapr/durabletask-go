@@ -22,7 +22,7 @@ import (
 )
 
 // externalEventIndefiniteFireAt is the sentinel fire-at value used for the
-// synthetic timer backing WaitForExternalEvent calls with a non-positive
+// synthetic timer backing WaitForExternalEvent calls with a negative
 // timeout. It is chosen far enough in the future that it effectively never
 // fires, and is used on replay to recognize optional pending timers that
 // may be absent from histories produced by prior releases (see
@@ -672,7 +672,7 @@ func (ctx *WorkflowContext) onTaskScheduled(taskID int32, ts *protos.TaskSchedul
 	a, ok := ctx.pendingActions[taskID]
 	if !ok || a.GetScheduleTask() == nil {
 		// Tolerate histories from before WaitForExternalEvent started emitting
-		// a synthetic timer for non-positive timeouts.
+		// a synthetic timer for negative timeouts.
 		if ctx.dropOptionalExternalEventTimerAt(taskID) {
 			a, ok = ctx.pendingActions[taskID]
 		}
@@ -949,7 +949,7 @@ func (ctx *WorkflowContext) getNextSequenceNumber() int32 {
 
 // isOptionalExternalEventTimerAction reports whether the given pending workflow
 // action is a synthetic timer emitted by WaitForExternalEvent with a
-// non-positive timeout. Such timers were not created by earlier releases and
+// negative timeout. Such timers were not created by earlier releases and
 // must be dropped when replaying a history produced by one of those releases
 // so sequence-number determinism is preserved.
 func isOptionalExternalEventTimerAction(a *protos.WorkflowAction) bool {
@@ -984,10 +984,10 @@ func isOptionalExternalEventTimerCreatedEvent(tc *protos.TimerCreatedEvent) bool
 }
 
 // dropOptionalExternalEventTimerAt removes the optional pending CreateTimer
-// action/task (if any) at atID and shifts every later pending action and
+// action/task (if any) at ID atID and shifts every later pending action and
 // pending task id down by one. This lets the SDK tolerate replaying a
 // history that was produced before WaitForExternalEvent started emitting a
-// synthetic CreateTimer action for non-positive timeouts. Returns true if an
+// synthetic CreateTimer action for negative timeouts. Returns true if an
 // optional timer was removed.
 func (ctx *WorkflowContext) dropOptionalExternalEventTimerAt(atID int32) bool {
 	a, ok := ctx.pendingActions[atID]

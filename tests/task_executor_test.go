@@ -285,7 +285,7 @@ func Test_Executor_SuspendStopsAllActions(t *testing.T) {
 }
 
 // Regression test: replaying a history produced before WaitForSingleEvent
-// started emitting a synthetic CreateTimer action for non-positive timeouts
+// started emitting a synthetic CreateTimer action for negative timeouts
 // must still be deterministic. In pre-patch histories, an indefinite
 // WaitForSingleEvent left no TimerCreated event behind, so subsequent actions
 // (e.g. CallActivity) carry the lower sequence numbers. The SDK must drop the
