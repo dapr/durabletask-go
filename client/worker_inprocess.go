@@ -140,6 +140,15 @@ func (c *InProcessClient) processLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			// Treat context cancellation as an implicit close so
+			// DeliverWorkItem rejects further items instead of
+			// enqueueing work that will never be drained.
+			c.mu.Lock()
+			if !c.closed {
+				c.closed = true
+				close(c.done)
+			}
+			c.mu.Unlock()
 			return
 		case <-c.done:
 			return

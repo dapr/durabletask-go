@@ -194,6 +194,11 @@ func sinkRegistrationKey(opts SinkOptions) string {
 }
 
 // RegisterSink implements SinkRegistrar.
+//
+// Both WorkflowNamePrefix and ActivityNamePrefix are checked for uniqueness
+// independently. This prevents non-deterministic activity routing when two
+// sinks share the same ActivityNamePrefix but differ in WorkflowNamePrefix
+// (or vice-versa).
 func (g *grpcExecutor) RegisterSink(opts SinkOptions, sink WorkItemSink) error {
 	if opts.WorkflowNamePrefix == "" && opts.ActivityNamePrefix == "" {
 		return errors.New("RegisterSink: at least one of WorkflowNamePrefix or ActivityNamePrefix must be non-empty")
@@ -201,6 +206,28 @@ func (g *grpcExecutor) RegisterSink(opts SinkOptions, sink WorkItemSink) error {
 	if sink == nil {
 		return errors.New("RegisterSink: sink must not be nil")
 	}
+
+	// Check for conflicts against every existing registration.
+	var conflict string
+	g.sinks.Range(func(_, value any) bool {
+		entry, ok := value.(*sinkEntry)
+		if !ok {
+			return true
+		}
+		if opts.WorkflowNamePrefix != "" && entry.opts.WorkflowNamePrefix == opts.WorkflowNamePrefix {
+			conflict = fmt.Sprintf("WorkflowNamePrefix %q", opts.WorkflowNamePrefix)
+			return false
+		}
+		if opts.ActivityNamePrefix != "" && entry.opts.ActivityNamePrefix == opts.ActivityNamePrefix {
+			conflict = fmt.Sprintf("ActivityNamePrefix %q", opts.ActivityNamePrefix)
+			return false
+		}
+		return true
+	})
+	if conflict != "" {
+		return fmt.Errorf("RegisterSink: %s is already registered by another sink", conflict)
+	}
+
 	key := sinkRegistrationKey(opts)
 	entry := &sinkEntry{opts: opts, sink: sink}
 	if _, loaded := g.sinks.LoadOrStore(key, entry); loaded {
@@ -301,6 +328,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 		// This will block if the worker isn't listening for work items.
 		select {
 		case <-ctx.Done():
+			executor.pendingWorkflows.Delete(iid)
 			executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
 			return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", ctx.Err())
 		case executor.workItemQueue <- workItem:
@@ -378,6 +406,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		// This will block if the worker isn't listening for work items.
 		select {
 		case <-ctx.Done():
+			executor.pendingActivities.Delete(key)
 			executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
 			return nil, fmt.Errorf("context canceled before dispatching activity work item: %w", ctx.Err())
 		case executor.workItemQueue <- workItem:
