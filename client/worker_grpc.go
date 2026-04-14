@@ -11,11 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"github.com/dapr/durabletask-go/api"
-	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
 	"github.com/dapr/durabletask-go/task"
@@ -164,34 +160,8 @@ func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 	executor backend.Executor,
 	workItem *protos.WorkflowRequest,
 ) {
-	results, err := executor.ExecuteWorkflow(ctx, api.InstanceID(workItem.InstanceId), workItem.PastEvents, workItem.NewEvents)
-
-	resp := protos.WorkflowResponse{InstanceId: workItem.InstanceId}
-	if err != nil {
-		// NOTE: At the time of writing, there's no known case where this error is returned.
-		//       We add error handling here anyways, just in case.
-		resp.Actions = []*protos.WorkflowAction{
-			{
-				Id: -1,
-				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
-					CompleteWorkflow: &protos.CompleteWorkflowAction{
-						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED,
-						Result:         wrapperspb.String("An internal error occurred while executing the orchestration."),
-						FailureDetails: &protos.TaskFailureDetails{
-							ErrorType:    fmt.Sprintf("%T", err),
-							ErrorMessage: err.Error(),
-						},
-					},
-				},
-			},
-		}
-	} else {
-		resp.Actions = results.Actions
-		resp.CustomStatus = results.GetCustomStatus()
-		resp.Version = results.GetVersion()
-	}
-
-	if _, err = c.client.CompleteWorkflowTask(ctx, &resp); err != nil {
+	resp := dispatchWorkflow(ctx, executor, workItem)
+	if _, err := c.client.CompleteWorkflowTask(ctx, resp); err != nil {
 		if ctx.Err() != nil {
 			c.logger.Warn("failed to complete workflow task: context canceled")
 		} else {
@@ -205,47 +175,8 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 	executor backend.Executor,
 	req *protos.ActivityRequest,
 ) {
-	var ptc *protos.TraceContext = req.ParentTraceContext
-	ctx, err := helpers.ContextFromTraceContext(ctx, ptc)
-	if err != nil {
-		c.logger.Warn("%v: failed to parse trace context: %v", req.Name, err)
-	}
-
-	event := &protos.HistoryEvent{
-		EventId:   req.TaskId,
-		Timestamp: timestamppb.New(time.Now()),
-		EventType: &protos.HistoryEvent_TaskScheduled{
-			TaskScheduled: &protos.TaskScheduledEvent{
-				Name:               req.Name,
-				Version:            req.Version,
-				Input:              req.Input,
-				TaskExecutionId:    req.TaskExecutionId,
-				ParentTraceContext: ptc,
-			},
-		},
-	}
-	result, err := executor.ExecuteActivity(ctx, api.InstanceID(req.WorkflowInstance.InstanceId), event)
-
-	resp := protos.ActivityResponse{InstanceId: req.WorkflowInstance.InstanceId, TaskId: req.TaskId}
-	if err != nil {
-		// NOTE: At the time of writing, there's no known case where this error is returned.
-		//       We add error handling here anyways, just in case.
-		resp.FailureDetails = &protos.TaskFailureDetails{
-			ErrorType:    fmt.Sprintf("%T", err),
-			ErrorMessage: err.Error(),
-		}
-	} else if tc := result.GetTaskCompleted(); tc != nil {
-		resp.Result = tc.Result
-	} else if tf := result.GetTaskFailed(); tf != nil {
-		resp.FailureDetails = tf.FailureDetails
-	} else {
-		resp.FailureDetails = &protos.TaskFailureDetails{
-			ErrorType:    "UnknownTaskResult",
-			ErrorMessage: "Unknown task result",
-		}
-	}
-
-	if _, err = c.client.CompleteActivityTask(ctx, &resp); err != nil {
+	resp := dispatchActivity(ctx, executor, c.logger, req)
+	if _, err := c.client.CompleteActivityTask(ctx, resp); err != nil {
 		if ctx.Err() != nil {
 			c.logger.Warn("failed to complete activity task: context canceled")
 		} else {

@@ -44,12 +44,68 @@ type Executor interface {
 	Shutdown(ctx context.Context) error
 }
 
+// WorkItemSink receives work items routed by an Executor instead of the
+// default gRPC work-item stream. Implementations are responsible for running
+// the work item to completion via backend.CompleteWorkflowTask /
+// backend.CompleteActivityTask — i.e. they behave like a normal SDK worker
+// except they receive work items in-process rather than over gRPC.
+type WorkItemSink interface {
+	// DeliverWorkItem should not block for longer than the provided context
+	// allows; the Executor holds no locks while calling it, but callers of
+	// ExecuteWorkflow / ExecuteActivity may be waiting on the dispatch to return.
+	DeliverWorkItem(ctx context.Context, wi *protos.WorkItem) error
+
+	// Close is invoked by the Executor during Shutdown before any other
+	// shutdown work. It should drain in-flight work items and stop accepting
+	// new ones.
+	Close(ctx context.Context) error
+}
+
+// SinkOptions configures how a registered WorkItemSink is matched against work items.
+// At least one of WorkflowNamePrefix or ActivityNamePrefix must be non-empty.
+// A work item is routed to the sink when either field matches
+// (workflows are matched by the Name in their ExecutionStartedEvent, and
+// activities by the Name in their TaskScheduledEvent).
+type SinkOptions struct {
+	// WorkflowNamePrefix matches ExecutionStarted events whose workflow Name begins with this prefix.
+	// Leave empty to disable workflow routing for this sink.
+	WorkflowNamePrefix string
+	// ActivityNamePrefix matches TaskScheduled events whose Name begins with this prefix.
+	// Leave empty to disable activity routing for this sink.
+	ActivityNamePrefix string
+}
+
+// SinkRegistrar exposes in-process work-item sink registration on Executor implementations that support it.
+// Callers obtain it by type-asserting the Executor value returned from NewGrpcExecutor to SinkRegistrar.
+// Registration is typically done once at startup for internal subsystems (e.g. Dapr's MCP worker pool).
+// Sinks registered via this API receive work items whose workflow or activity names match the configured prefixes,
+// bypassing the default gRPC work-item stream entirely.
+type SinkRegistrar interface {
+	// RegisterSink installs sink to receive work items whose names match the prefixes in opts.
+	// Returns an error when opts specifies neither prefix,
+	// or when opts.WorkflowNamePrefix duplicates an existing registration.
+	RegisterSink(opts SinkOptions, sink WorkItemSink) error
+	// UnregisterSink removes a sink registration.
+	// The key is the WorkflowNamePrefix used at registration time
+	// (or the ActivityNamePrefix when WorkflowNamePrefix was empty).
+	UnregisterSink(key string) error
+}
+
+// sinkEntry is the internal record stored in grpcExecutor.sinks.
+// The map key is the registration key
+// (workflow-name prefix, or activity-name prefix when workflow-name prefix is empty).
+type sinkEntry struct {
+	opts SinkOptions
+	sink WorkItemSink
+}
+
 type grpcExecutor struct {
 	protos.UnimplementedTaskHubSidecarServiceServer
 
 	workItemQueue            chan *protos.WorkItem
 	pendingWorkflows         *sync.Map // map[api.InstanceID]*pendingWorkflow
 	pendingActivities        *sync.Map // map[string]*pendingActivity
+	sinks                    *sync.Map // map[string]*sinkEntry, keyed by registration key
 	backend                  Backend
 	logger                   Logger
 	onWorkItemConnection     func(context.Context) error
@@ -67,9 +123,9 @@ func IsDurableTaskGrpcRequest(fullMethodName string) bool {
 	return strings.HasPrefix(fullMethodName, "/TaskHubSidecarService/")
 }
 
-// WithOnGetWorkItemsConnectionCallback allows the caller to get a notification when an external process
-// connects over gRPC and invokes the GetWorkItems operation. This can be useful for doing things like
-// lazily auto-starting the task hub worker only when necessary.
+// WithOnGetWorkItemsConnectionCallback allows the caller to get a notification when an external process connects over gRPC,
+// and invokes the GetWorkItems operation.
+// This can be useful for doing things like lazily auto-starting the task hub worker only when necessary.
 func WithOnGetWorkItemsConnectionCallback(callback func(context.Context) error) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.onWorkItemConnection = callback
@@ -77,8 +133,8 @@ func WithOnGetWorkItemsConnectionCallback(callback func(context.Context) error) 
 }
 
 // WithOnGetWorkItemsDisconnectCallback allows the caller to get a notification when an external process
-// disconnects from the GetWorkItems operation. This can be useful for doing things like shutting down
-// the task hub worker when the client disconnects.
+// disconnects from the GetWorkItems operation.
+// This can be useful for doing things like shutting down the task hub worker when the client disconnects.
 func WithOnGetWorkItemsDisconnectCallback(callback func(context.Context) error) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.onWorkItemDisconnect = callback
@@ -104,6 +160,9 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 }
 
 // NewGrpcExecutor returns the Executor object and a method to invoke to register the gRPC server in the executor.
+// The returned Executor also implements SinkRegistrar; callers that need to
+// install in-process work-item sinks (e.g. for dapr-internal MCP workflows)
+// may type-assert the returned value to SinkRegistrar.
 func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (executor Executor, registerServerFn func(grpcServer grpc.ServiceRegistrar)) {
 	grpcExecutor := &grpcExecutor{
 		workItemQueue:     make(chan *protos.WorkItem),
@@ -111,6 +170,7 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 		logger:            logger,
 		pendingWorkflows:  &sync.Map{},
 		pendingActivities: &sync.Map{},
+		sinks:             &sync.Map{},
 	}
 
 	for _, opt := range opts {
@@ -120,6 +180,93 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 	return grpcExecutor, func(grpcServer grpc.ServiceRegistrar) {
 		protos.RegisterTaskHubSidecarServiceServer(grpcServer, grpcExecutor)
 	}
+}
+
+// sinkRegistrationKey returns the map key used for a given SinkOptions.
+// Workflow-name prefix takes precedence;
+// activity-name prefix is used only when the workflow prefix is empty.
+// Callers register sinks with at least one prefix set.
+func sinkRegistrationKey(opts SinkOptions) string {
+	if opts.WorkflowNamePrefix != "" {
+		return opts.WorkflowNamePrefix
+	}
+	return opts.ActivityNamePrefix
+}
+
+// RegisterSink implements SinkRegistrar.
+func (g *grpcExecutor) RegisterSink(opts SinkOptions, sink WorkItemSink) error {
+	if opts.WorkflowNamePrefix == "" && opts.ActivityNamePrefix == "" {
+		return errors.New("RegisterSink: at least one of WorkflowNamePrefix or ActivityNamePrefix must be non-empty")
+	}
+	if sink == nil {
+		return errors.New("RegisterSink: sink must not be nil")
+	}
+	key := sinkRegistrationKey(opts)
+	entry := &sinkEntry{opts: opts, sink: sink}
+	if _, loaded := g.sinks.LoadOrStore(key, entry); loaded {
+		return fmt.Errorf("RegisterSink: sink with key %q is already registered", key)
+	}
+	return nil
+}
+
+// UnregisterSink implements SinkRegistrar.
+func (g *grpcExecutor) UnregisterSink(key string) error {
+	if _, loaded := g.sinks.LoadAndDelete(key); !loaded {
+		return fmt.Errorf("UnregisterSink: no sink registered with key %q", key)
+	}
+	return nil
+}
+
+// matchWorkflowSink returns the sink registered for the given workflow name,
+// using longest-prefix match. Returns nil when no sink matches.
+func (g *grpcExecutor) matchWorkflowSink(name string) WorkItemSink {
+	if name == "" {
+		return nil
+	}
+	var best *sinkEntry
+	g.sinks.Range(func(_, value any) bool {
+		entry, ok := value.(*sinkEntry)
+		if !ok {
+			return true
+		}
+		if entry.opts.WorkflowNamePrefix == "" || !strings.HasPrefix(name, entry.opts.WorkflowNamePrefix) {
+			return true
+		}
+		if best == nil || len(entry.opts.WorkflowNamePrefix) > len(best.opts.WorkflowNamePrefix) {
+			best = entry
+		}
+		return true
+	})
+	if best == nil {
+		return nil
+	}
+	return best.sink
+}
+
+// matchActivitySink returns the sink registered for the given activity name,
+// using longest-prefix match. Returns nil when no sink matches.
+func (g *grpcExecutor) matchActivitySink(name string) WorkItemSink {
+	if name == "" {
+		return nil
+	}
+	var best *sinkEntry
+	g.sinks.Range(func(_, value any) bool {
+		entry, ok := value.(*sinkEntry)
+		if !ok {
+			return true
+		}
+		if entry.opts.ActivityNamePrefix == "" || !strings.HasPrefix(name, entry.opts.ActivityNamePrefix) {
+			return true
+		}
+		if best == nil || len(entry.opts.ActivityNamePrefix) > len(best.opts.ActivityNamePrefix) {
+			best = entry
+		}
+		return true
+	})
+	if best == nil {
+		return nil
+	}
+	return best.sink
 }
 
 // ExecuteWorkflow implements Executor
@@ -141,13 +288,23 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 
 	wait := executor.backend.WaitForWorkflowTaskCompletion(req)
 
-	// Send the workflow execution work-item to the connected worker.
-	// This will block if the worker isn't listening for work items.
-	select {
-	case <-ctx.Done():
-		executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
-		return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", ctx.Err())
-	case executor.workItemQueue <- workItem:
+	// Route to a registered in-process sink when the workflow name matches one.
+	// Otherwise, enqueue for the default gRPC work-item stream.
+	if sink := executor.matchWorkflowSink(workflowNameFromHistory(oldEvents, newEvents)); sink != nil {
+		if err := sink.DeliverWorkItem(ctx, workItem); err != nil {
+			executor.pendingWorkflows.Delete(iid)
+			executor.logger.Warnf("%s: sink rejected workflow work item: %v", iid, err)
+			return nil, fmt.Errorf("sink rejected workflow work item: %w", err)
+		}
+	} else {
+		// Send the workflow execution work-item to the connected worker.
+		// This will block if the worker isn't listening for work items.
+		select {
+		case <-ctx.Done():
+			executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
+			return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", ctx.Err())
+		case executor.workItemQueue <- workItem:
+		}
 	}
 
 	resp, err := wait(ctx)
@@ -163,6 +320,25 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 	}
 
 	return resp, nil
+}
+
+// workflowNameFromHistory extracts the workflow name from an ExecutionStarted
+// event in either history slice. Returns "" when no such event is present
+// (which happens when a workflow is replayed from a backend that strips
+// ExecutionStarted from oldEvents — in that case the executor falls through
+// to the default gRPC stream, which is correct for non-internal workflows).
+func workflowNameFromHistory(oldEvents, newEvents []*protos.HistoryEvent) string {
+	for _, e := range oldEvents {
+		if es := e.GetExecutionStarted(); es != nil {
+			return es.GetName()
+		}
+	}
+	for _, e := range newEvents {
+		if es := e.GetExecutionStarted(); es != nil {
+			return es.GetName()
+		}
+	}
+	return ""
 }
 
 // ExecuteActivity implements Executor
@@ -189,13 +365,23 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 
 	wait := executor.backend.WaitForActivityCompletion(req)
 
-	// Send the activity execution work-item to the connected worker.
-	// This will block if the worker isn't listening for work items.
-	select {
-	case <-ctx.Done():
-		executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
-		return nil, fmt.Errorf("context canceled before dispatching activity work item: %w", ctx.Err())
-	case executor.workItemQueue <- workItem:
+	// Route to a registered in-process sink when the activity name matches
+	// one; otherwise enqueue for the default gRPC work-item stream.
+	if sink := executor.matchActivitySink(task.Name); sink != nil {
+		if err := sink.DeliverWorkItem(ctx, workItem); err != nil {
+			executor.pendingActivities.Delete(key)
+			executor.logger.Warnf("%s/%s#%d: sink rejected activity work item: %v", iid, task.Name, e.EventId, err)
+			return nil, fmt.Errorf("sink rejected activity work item: %w", err)
+		}
+	} else {
+		// Send the activity execution work-item to the connected worker.
+		// This will block if the worker isn't listening for work items.
+		select {
+		case <-ctx.Done():
+			executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
+			return nil, fmt.Errorf("context canceled before dispatching activity work item: %w", ctx.Err())
+		case executor.workItemQueue <- workItem:
+		}
 	}
 
 	resp, err := wait(ctx)
@@ -244,6 +430,23 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 
 // Shutdown implements Executor
 func (g *grpcExecutor) Shutdown(ctx context.Context) error {
+	// Close registered in-process sinks first so they can drain in-flight
+	// work against the still-live backend before the executor itself begins
+	// tearing down. Errors from individual sinks are logged but don't block
+	// shutdown — the same behavior applies to the backend cancellation loops
+	// below.
+	g.sinks.Range(func(key, value any) bool {
+		entry, ok := value.(*sinkEntry)
+		if !ok {
+			return true
+		}
+		if err := entry.sink.Close(ctx); err != nil {
+			g.logger.Warnf("failed to close work-item sink %q: %v", key, err)
+		}
+		g.sinks.Delete(key)
+		return true
+	})
+
 	// closing the work item queue is a signal for shutdown
 	close(g.workItemQueue)
 
