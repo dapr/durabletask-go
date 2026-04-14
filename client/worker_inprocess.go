@@ -29,13 +29,16 @@ type InProcessClient struct {
 	// unbuffered gRPC workItemQueue's back-pressure semantics).
 	workItems chan *protos.WorkItem
 
-	mu      sync.Mutex
-	started bool
-	closed  bool
-
-	// closed on Close; signals processors to stop
+	mu       sync.Mutex
+	started  bool
+	closed   bool
 	done     chan struct{}
 	executor backend.Executor
+
+	// cancelProcessors cancels the context used by all in-flight processor
+	// goroutines. Set by StartWorkItemListener, called by Close so that
+	// processor goroutines are bounded by the Close deadline.
+	cancelProcessors context.CancelFunc
 
 	// tracks in-flight work-item processors
 	wg sync.WaitGroup
@@ -74,9 +77,9 @@ func (c *InProcessClient) DeliverWorkItem(ctx context.Context, wi *protos.WorkIt
 	}
 }
 
-// Close implements backend.WorkItemSink. It stops accepting new work items
-// and waits for in-flight processing to finish, bounded by ctx. Safe to
-// call multiple times.
+// Close implements backend.WorkItemSink. It stops accepting new work items,
+// cancels in-flight processor goroutines, and waits for them to finish,
+// bounded by ctx. Safe to call multiple times.
 func (c *InProcessClient) Close(ctx context.Context) error {
 	c.mu.Lock()
 	if c.closed {
@@ -85,8 +88,14 @@ func (c *InProcessClient) Close(ctx context.Context) error {
 	}
 	c.closed = true
 	close(c.done)
+	cancel := c.cancelProcessors
 	executor := c.executor
 	c.mu.Unlock()
+
+	// Cancel the processor context so in-flight goroutines stop promptly.
+	if cancel != nil {
+		cancel()
+	}
 
 	// Wait for in-flight processors, bounded by ctx.
 	doneCh := make(chan struct{})
@@ -124,15 +133,22 @@ func (c *InProcessClient) StartWorkItemListener(ctx context.Context, r *task.Tas
 	}
 	c.started = true
 	c.executor = task.NewTaskExecutor(r)
+
+	// Derive a context for processor goroutines that is canceled by both the
+	// parent (listener) context and by Close. This lets Close bound in-flight
+	// work even when the original listener context has a longer lifetime.
+	procCtx, procCancel := context.WithCancel(ctx)
+	c.cancelProcessors = procCancel
 	c.mu.Unlock()
 
-	go c.processLoop(ctx)
+	go c.processLoop(procCtx)
 	return nil
 }
 
 // processLoop drains the work-item channel and dispatches each item to an
-// appropriate handler goroutine. Exits when ctx is canceled or Close is
-// invoked.
+// appropriate handler goroutine. On exit (ctx canceled or Close called), any
+// already-buffered work items are drained so that items accepted by
+// DeliverWorkItem are not silently dropped.
 func (c *InProcessClient) processLoop(ctx context.Context) {
 	c.logger.Info("in-process client: starting background processor")
 	defer c.logger.Info("in-process client: stopping background processor")
@@ -140,39 +156,62 @@ func (c *InProcessClient) processLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Treat context cancellation as an implicit close so
-			// DeliverWorkItem rejects further items instead of
-			// enqueueing work that will never be drained.
+			// Mark closed so DeliverWorkItem rejects further items.
 			c.mu.Lock()
 			if !c.closed {
 				c.closed = true
 				close(c.done)
 			}
 			c.mu.Unlock()
+			// Drain any items already buffered in the channel.
+			c.drainWorkItems(context.WithoutCancel(ctx))
 			return
 		case <-c.done:
+			c.drainWorkItems(context.WithoutCancel(ctx))
 			return
 		case wi, ok := <-c.workItems:
 			if !ok {
 				return
 			}
-			switch {
-			case wi.GetWorkflowRequest() != nil:
-				c.wg.Add(1)
-				go func(req *protos.WorkflowRequest) {
-					defer c.wg.Done()
-					c.processWorkflowWorkItem(ctx, req)
-				}(wi.GetWorkflowRequest())
-			case wi.GetActivityRequest() != nil:
-				c.wg.Add(1)
-				go func(req *protos.ActivityRequest) {
-					defer c.wg.Done()
-					c.processActivityWorkItem(ctx, req)
-				}(wi.GetActivityRequest())
-			default:
-				c.logger.Warnf("in-process client: received unsupported work item type: %T", wi.Request)
-			}
+			c.dispatchWorkItem(ctx, wi)
 		}
+	}
+}
+
+// drainWorkItems dispatches all buffered work items remaining in the channel.
+// Uses a non-canceled context so completions can reach the backend.
+func (c *InProcessClient) drainWorkItems(ctx context.Context) {
+	for {
+		select {
+		case wi, ok := <-c.workItems:
+			if !ok {
+				return
+			}
+			c.dispatchWorkItem(ctx, wi)
+		default:
+			return
+		}
+	}
+}
+
+// dispatchWorkItem routes a single work item to the appropriate processor
+// goroutine.
+func (c *InProcessClient) dispatchWorkItem(ctx context.Context, wi *protos.WorkItem) {
+	switch {
+	case wi.GetWorkflowRequest() != nil:
+		c.wg.Add(1)
+		go func(req *protos.WorkflowRequest) {
+			defer c.wg.Done()
+			c.processWorkflowWorkItem(ctx, req)
+		}(wi.GetWorkflowRequest())
+	case wi.GetActivityRequest() != nil:
+		c.wg.Add(1)
+		go func(req *protos.ActivityRequest) {
+			defer c.wg.Done()
+			c.processActivityWorkItem(ctx, req)
+		}(wi.GetActivityRequest())
+	default:
+		c.logger.Warnf("in-process client: received unsupported work item type: %T", wi.Request)
 	}
 }
 

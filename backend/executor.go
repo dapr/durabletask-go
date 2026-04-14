@@ -81,9 +81,10 @@ type SinkOptions struct {
 // Sinks registered via this API receive work items whose workflow or activity names match the configured prefixes,
 // bypassing the default gRPC work-item stream entirely.
 type SinkRegistrar interface {
-	// RegisterSink installs sink to receive work items whose names match the prefixes in opts.
-	// Returns an error when opts specifies neither prefix,
-	// or when opts.WorkflowNamePrefix duplicates an existing registration.
+	// RegisterSink installs sink to receive work items whose names match the
+	// prefixes in opts. Returns an error when opts specifies neither prefix,
+	// or when either opts.WorkflowNamePrefix or opts.ActivityNamePrefix
+	// duplicates an existing registration.
 	RegisterSink(opts SinkOptions, sink WorkItemSink) error
 	// UnregisterSink removes a sink registration.
 	// The key is the WorkflowNamePrefix used at registration time
@@ -320,6 +321,9 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 	if sink := executor.matchWorkflowSink(workflowNameFromHistory(oldEvents, newEvents)); sink != nil {
 		if err := sink.DeliverWorkItem(ctx, workItem); err != nil {
 			executor.pendingWorkflows.Delete(iid)
+			// Best-effort cancel so the backend doesn't hold wait state for a
+			// task that was never dispatched.
+			_ = executor.backend.CancelWorkflowTask(ctx, iid)
 			executor.logger.Warnf("%s: sink rejected workflow work item: %v", iid, err)
 			return nil, fmt.Errorf("sink rejected workflow work item: %w", err)
 		}
@@ -329,6 +333,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 		select {
 		case <-ctx.Done():
 			executor.pendingWorkflows.Delete(iid)
+			_ = executor.backend.CancelWorkflowTask(ctx, iid)
 			executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
 			return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", ctx.Err())
 		case executor.workItemQueue <- workItem:
@@ -398,6 +403,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 	if sink := executor.matchActivitySink(task.Name); sink != nil {
 		if err := sink.DeliverWorkItem(ctx, workItem); err != nil {
 			executor.pendingActivities.Delete(key)
+			_ = executor.backend.CancelActivityTask(ctx, iid, e.EventId)
 			executor.logger.Warnf("%s/%s#%d: sink rejected activity work item: %v", iid, task.Name, e.EventId, err)
 			return nil, fmt.Errorf("sink rejected activity work item: %w", err)
 		}
@@ -407,6 +413,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		select {
 		case <-ctx.Done():
 			executor.pendingActivities.Delete(key)
+			_ = executor.backend.CancelActivityTask(ctx, iid, e.EventId)
 			executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
 			return nil, fmt.Errorf("context canceled before dispatching activity work item: %w", ctx.Err())
 		case executor.workItemQueue <- workItem:

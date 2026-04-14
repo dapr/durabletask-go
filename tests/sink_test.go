@@ -254,9 +254,9 @@ func TestSinkRouting_NonMatchingGoesToQueue(t *testing.T) {
 	assert.Empty(t, sink.Items(), "sink should not receive non-matching work items")
 }
 
-// TestShutdown_ClosesSinksFirst verifies that Shutdown calls sink.Close
-// before closing the work-item queue.
-func TestShutdown_ClosesSinksFirst(t *testing.T) {
+// TestShutdown_ClosesSinks verifies that Shutdown calls sink.Close on all
+// registered sinks.
+func TestShutdown_ClosesSinks(t *testing.T) {
 	exec, _ := newTestExecutorWithSQLite(t)
 	reg := exec.(backend.SinkRegistrar)
 
