@@ -27,6 +27,7 @@ type callActivityOptions struct {
 	rawInput         *wrapperspb.StringValue
 	retryPolicy      *RetryPolicy
 	targetAppID      *string
+	targetNamespace  *string
 	propagationScope *protos.HistoryPropagationScope
 }
 
@@ -73,6 +74,20 @@ func (policy *RetryPolicy) Validate() error {
 func WithActivityAppID(targetAppID string) CallActivityOptionFunc {
 	return func(opt *callActivityOptions) error {
 		opt.targetAppID = &targetAppID
+		return nil
+	}
+}
+
+// WithActivityNamespace specifies the Dapr namespace that hosts the target
+// activity. When set, the routing envelope carries a targetNamespace so
+// the caller sidecar performs a durable cross-namespace dispatch (service
+// invocation with per-hop reminders) rather than a direct actor call via
+// placement. Must be combined with WithActivityAppID. Cross-namespace
+// calls are gated by the WorkflowAccessPolicy feature: a policy on the
+// target side must explicitly permit the caller's (namespace, appID).
+func WithActivityNamespace(namespace string) CallActivityOption {
+	return func(opt *callActivityOptions) error {
+		opt.targetNamespace = &namespace
 		return nil
 	}
 }
