@@ -64,10 +64,11 @@ type WorkflowContext struct {
 
 // callChildWorkflowOptions is a struct that holds the options for the CallChildWorkflow workflow method.
 type callChildWorkflowOptions struct {
-	instanceID  string
-	rawInput    *wrapperspb.StringValue
-	targetAppID *string
-	retryPolicy *RetryPolicy
+	instanceID     string
+	rawInput       *wrapperspb.StringValue
+	targetAppID    *string
+	targetNamespace *string
+	retryPolicy    *RetryPolicy
 }
 
 // ChildWorkflowOption is a functional option type for the CallChildWorkflow workflow method.
@@ -80,6 +81,21 @@ type ContinueAsNewOption func(*WorkflowContext)
 func WithChildWorkflowAppID(appID string) ChildWorkflowOption {
 	return func(opts *callChildWorkflowOptions) error {
 		opts.targetAppID = &appID
+		return nil
+	}
+}
+
+// WithChildWorkflowNamespace specifies the Dapr namespace that hosts the
+// target child workflow. When set, the routing envelope carries a
+// targetNamespace so that the caller sidecar performs a durable
+// cross-namespace dispatch (service invocation with per-hop reminders)
+// instead of a direct actor call via placement. Must be combined with
+// WithChildWorkflowAppID. Cross-namespace calls are gated by the
+// WorkflowAccessPolicy feature: a policy on the target side must
+// explicitly permit the caller's (namespace, appID).
+func WithChildWorkflowNamespace(namespace string) ChildWorkflowOption {
+	return func(opts *callChildWorkflowOptions) error {
+		opts.targetNamespace = &namespace
 		return nil
 	}
 }
@@ -323,9 +339,13 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 		},
 	}
 
-	if options.targetAppID != nil {
-		scheduleTaskAction.Router = &protos.TaskRouter{
-			TargetAppID: ptr.Of(*options.targetAppID),
+	if options.targetAppID != nil || options.targetNamespace != nil {
+		scheduleTaskAction.Router = &protos.TaskRouter{}
+		if options.targetAppID != nil {
+			scheduleTaskAction.Router.TargetAppID = ptr.Of(*options.targetAppID)
+		}
+		if options.targetNamespace != nil {
+			scheduleTaskAction.Router.TargetNamespace = ptr.Of(*options.targetNamespace)
 		}
 	}
 
@@ -384,9 +404,13 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 		},
 	}
 
-	if options.targetAppID != nil {
-		createChildWorkflowAction.Router = &protos.TaskRouter{
-			TargetAppID: ptr.Of(*options.targetAppID),
+	if options.targetAppID != nil || options.targetNamespace != nil {
+		createChildWorkflowAction.Router = &protos.TaskRouter{}
+		if options.targetAppID != nil {
+			createChildWorkflowAction.Router.TargetAppID = ptr.Of(*options.targetAppID)
+		}
+		if options.targetNamespace != nil {
+			createChildWorkflowAction.Router.TargetNamespace = ptr.Of(*options.targetNamespace)
 		}
 	}
 
