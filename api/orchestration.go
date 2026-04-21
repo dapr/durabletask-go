@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/dapr/durabletask-go/api/protos"
-	"github.com/dapr/kit/ptr"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/kit/ptr"
 )
 
 type OrchestrationStatus = protos.OrchestrationStatus
@@ -62,9 +65,10 @@ func WithInstanceID(id InstanceID) NewWorkflowOptions {
 }
 
 // WithInput configures an input for the workflow. The specified input must be serializable.
+// Proto message types are serialized with protojson; all other types use encoding/json.
 func WithInput(input any) NewWorkflowOptions {
 	return func(req *protos.CreateInstanceRequest) error {
-		bytes, err := json.Marshal(input)
+		bytes, err := marshalData(input)
 		if err != nil {
 			return err
 		}
@@ -101,7 +105,7 @@ func WithFetchPayloads(fetchPayloads bool) FetchWorkflowMetadataOptions {
 // WithEventPayload configures an event payload. The specified payload must be serializable.
 func WithEventPayload(data any) RaiseEventOptions {
 	return func(req *protos.RaiseEventRequest) error {
-		bytes, err := json.Marshal(data)
+		bytes, err := marshalData(data)
 		if err != nil {
 			return err
 		}
@@ -121,7 +125,7 @@ func WithRawEventData(data *wrapperspb.StringValue) RaiseEventOptions {
 // WithOutput configures an output for the terminated workflow. The specified output must be serializable.
 func WithOutput(data any) TerminateOptions {
 	return func(req *protos.TerminateRequest) error {
-		bytes, err := json.Marshal(data)
+		bytes, err := marshalData(data)
 		if err != nil {
 			return err
 		}
@@ -183,7 +187,7 @@ func WithRerunInput(input any) RerunOptions {
 			return nil
 		}
 
-		bytes, err := json.Marshal(input)
+		bytes, err := marshalData(input)
 		if err != nil {
 			return err
 		}
@@ -192,6 +196,22 @@ func WithRerunInput(input any) RerunOptions {
 
 		return nil
 	}
+}
+
+// protoMarshaler uses UseProtoNames so JSON output uses snake_case field names.
+var protoMarshaler = protojson.MarshalOptions{UseProtoNames: true}
+
+// marshalData serializes v to JSON. Proto message types use protojson for
+// correct handling of well-known types (e.g. google.protobuf.Struct);
+// all other types use encoding/json.
+func marshalData(v any) ([]byte, error) {
+	if v == nil {
+		return nil, nil
+	}
+	if msg, ok := v.(proto.Message); ok {
+		return protoMarshaler.Marshal(msg)
+	}
+	return json.Marshal(v)
 }
 
 func WithRerunNewInstanceID(id InstanceID) RerunOptions {

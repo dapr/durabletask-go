@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -159,20 +161,29 @@ func (te taskExecutor) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// protoMarshaler uses UseProtoNames so JSON output uses snake_case field names
+// (matching the proto field names), which is the convention for workflow payloads.
+var protoMarshaler = protojson.MarshalOptions{UseProtoNames: true}
+
 func unmarshalData(data []byte, v any) error {
 	if v == nil {
 		return nil
 	} else if len(data) == 0 {
 		v = nil
 		return nil
-	} else {
-		return json.Unmarshal(data, v)
 	}
+	if msg, ok := v.(proto.Message); ok {
+		return protojson.Unmarshal(data, msg)
+	}
+	return json.Unmarshal(data, v)
 }
 
 func marshalData(v any) ([]byte, error) {
 	if v == nil {
 		return nil, nil
+	}
+	if msg, ok := v.(proto.Message); ok {
+		return protoMarshaler.Marshal(msg)
 	}
 	return json.Marshal(v)
 }

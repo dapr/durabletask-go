@@ -2,7 +2,6 @@ package task
 
 import (
 	"container/list"
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -869,7 +868,7 @@ func (ctx *WorkflowContext) setComplete(output any) error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
 	var rawOutput *wrapperspb.StringValue
 	if output != nil {
-		bytes, err := json.Marshal(output)
+		bytes, err := marshalData(output)
 		if err != nil {
 			return fmt.Errorf("failed to marshal output to JSON: %w", err)
 		}
@@ -897,7 +896,7 @@ func (ctx *WorkflowContext) setContinuedAsNew() error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW
 	var newRawInput *wrapperspb.StringValue
 	if ctx.continuedAsNewInput != nil {
-		bytes, err := json.Marshal(ctx.continuedAsNewInput)
+		bytes, err := marshalData(ctx.continuedAsNewInput)
 		if err != nil {
 			return fmt.Errorf("failed to marshal continue-as-new payload to JSON: %w", err)
 		}
