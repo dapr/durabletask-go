@@ -20,8 +20,6 @@ type WorkflowWorkItem struct {
 	RetryCount int32
 	State      *protos.WorkflowRuntimeState
 	Properties map[string]interface{}
-	// Internal indicates if a worker can route to an internal executor for internal workflow execution.
-	Internal bool
 }
 
 // String implements core.WorkItem and fmt.Stringer
@@ -52,8 +50,6 @@ type ActivityWorkItem struct {
 	Result         *HistoryEvent
 	LockedBy       string
 	Properties     map[string]interface{}
-	// Internal indicates if a worker can route to an internal executor for internal workflow execution.
-	Internal bool
 }
 
 // String implements core.WorkItem and fmt.Stringer

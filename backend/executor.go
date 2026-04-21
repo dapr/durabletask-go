@@ -57,7 +57,7 @@ type grpcExecutor struct {
 	streamShutdownChan       <-chan any
 	streamSendTimeout        *time.Duration
 	skipWaitForInstanceStart bool
-	internalNamePrefix       string
+	internalNamePrefix       *string
 }
 
 type grpcExecutorOptions func(g *grpcExecutor)
@@ -104,20 +104,21 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 	}
 }
 
-// WithInternalNamePrefix configures the prefix the executor uses to name workflows as internal at creation time.
-// Workflows created whose name begins with this prefix have their persisted ExecutionStartedEvent/CreateChildWorkflowAction.Internal set.
-// Backends surface the flag on WorkflowWorkItem.Internal so the task-hub worker can route to an internal executor.
+// WithInternalNamePrefix configures the prefix the executor uses to mark workflows as in-process at creation time.
+// Top-level workflows whose name begins with this prefix have their persisted ExecutionStartedEvent.InProcess set.
+// Child workflows and activities inherit the flag from the parent. The task-hub worker reads the flag to route
+// to an in-process executor.
 func WithInternalNamePrefix(prefix string) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
-		g.internalNamePrefix = prefix
+		g.internalNamePrefix = &prefix
 	}
 }
 
 func (g *grpcExecutor) shouldStampInternal(name string) bool {
-	if g.internalNamePrefix == "" || name == "" {
+	if g.internalNamePrefix == nil || name == "" {
 		return false
 	}
-	return strings.HasPrefix(name, g.internalNamePrefix)
+	return strings.HasPrefix(name, *g.internalNamePrefix)
 }
 
 func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (executor Executor, registerServerFn func(grpcServer grpc.ServiceRegistrar)) {
@@ -160,7 +161,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 	// Send the workflow execution work-item to the connected worker.
 	// This will block if the worker isn't listening for work items.
 	// Worker-level routing (gRPC stream vs in-process internal executor)
-	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.Internal.
+	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.InProcess.
 	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
@@ -211,7 +212,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 	// Send the activity execution work-item to the connected worker.
 	// This will block if the worker isn't listening for work items.
 	// Worker-level routing (gRPC stream vs in-process internal executor)
-	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.Internal.
+	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.InProcess.
 	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
@@ -445,11 +446,6 @@ func (g *grpcExecutor) executeOnWorkItemDisconnect(ctx context.Context) error {
 
 // CompleteWorkflowTask implements protos.TaskHubSidecarServiceServer.
 func (g *grpcExecutor) CompleteWorkflowTask(ctx context.Context, res *protos.WorkflowResponse) (*protos.CompleteTaskResponse, error) {
-	for _, action := range res.GetActions() {
-		if childAction := action.GetCreateChildWorkflow(); childAction != nil {
-			childAction.Internal = g.shouldStampInternal(childAction.GetName())
-		}
-	}
 	return emptyCompleteTaskResponse, g.backend.CompleteWorkflowTask(ctx, res)
 }
 
@@ -542,7 +538,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				},
 				ParentTraceContext:      helpers.TraceContextFromSpan(span),
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
-				Internal:                g.shouldStampInternal(req.Name),
+				InProcess:               g.shouldStampInternal(req.Name),
 			},
 		},
 	}

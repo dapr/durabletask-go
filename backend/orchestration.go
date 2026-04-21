@@ -30,7 +30,7 @@ type WorkflowWorkerOptions struct {
 	Executor WorkflowExecutor
 	Logger   Logger
 	AppID    string
-	// InternalExecutor is forwork items whose WorkflowWorkItem.Internal flag is true.
+	// InternalExecutor is forwork items whose WorkflowWorkItem.InProcess flag is true.
 	// This is how internal dapr-side workflows (e.g. dapr.internal.mcp.*) run, inside the sidecar
 	// instead of being shipped to an external SDK via the gRPC work-item stream.
 	InternalExecutor WorkflowExecutor
@@ -105,7 +105,7 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 
 			// Run the user workflow code, providing the old history and new events together.
 			executor := w.executor
-			if wi.State.GetStartEvent().GetInternal() && w.internalExecutor != nil {
+			if wi.State.GetStartEvent().GetInProcess() && w.internalExecutor != nil {
 				executor = w.internalExecutor
 			}
 			results, err := executor.ExecuteWorkflow(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents)

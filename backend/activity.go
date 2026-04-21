@@ -80,7 +80,7 @@ func (p *activityProcessor) ProcessWorkItem(ctx context.Context, awi *ActivityWo
 
 	// Execute the activity and get its result.
 	executor := p.executor
-	if ts.GetInternal() && p.internalExecutor != nil {
+	if ts.GetInProcess() && p.internalExecutor != nil {
 		executor = p.internalExecutor
 	}
 	result, err := executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent)
