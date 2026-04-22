@@ -233,6 +233,75 @@ func TestGetActivitiesByName_WorkflowNotFound(t *testing.T) {
 	assert.Nil(t, acts)
 }
 
+// TestGetWorkflowByName_EqualsPluralLast verifies the contract that
+// GetWorkflowByName(name) returns the same result as
+// GetWorkflowsByName(name)[len-1] when multiple matches exist.
+func TestGetWorkflowByName_EqualsPluralLast(t *testing.T) {
+	ph := &PropagatedHistory{
+		events: []*protos.HistoryEvent{
+			{EventId: 0, EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{Name: "Worker"},
+			}},
+			{EventId: 0, EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{Name: "Worker"},
+			}},
+			{EventId: 0, EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{Name: "Worker"},
+			}},
+		},
+		chunks: []historyChunk{
+			{appID: "app1", startEventIndex: 0, eventCount: 1, instanceID: "w-1", workflowName: "Worker"},
+			{appID: "app2", startEventIndex: 1, eventCount: 1, instanceID: "w-2", workflowName: "Worker"},
+			{appID: "app3", startEventIndex: 2, eventCount: 1, instanceID: "w-3", workflowName: "Worker"},
+		},
+	}
+
+	singular := ph.GetWorkflowByName("Worker")
+	plural := ph.GetWorkflowsByName("Worker")
+
+	require.Len(t, plural, 3)
+	last := plural[len(plural)-1]
+
+	// Singular must match the last entry of plural on all observable fields.
+	assert.Equal(t, last.Found, singular.Found)
+	assert.Equal(t, last.InstanceID, singular.InstanceID)
+	assert.Equal(t, last.AppID, singular.AppID)
+	assert.Equal(t, last.Name, singular.Name)
+
+	// last differs from first
+	assert.NotEqual(t, plural[0].InstanceID, singular.InstanceID,
+		"singular must differ from plural[0]")
+}
+
+// TestGetActivityByName_EqualsPluralLast verifies the contract that
+// GetActivityByName(name) returns the same result as
+// GetActivitiesByName(name)[len-1] when multiple matches exist.
+func TestGetActivityByName_EqualsPluralLast(t *testing.T) {
+	// ValidateCard appears twice in the ProcessPayment chunk: once
+	// completed (first), once failed (retry).
+	ph := makeTestHistory()
+	wf := ph.GetWorkflowByName("ProcessPayment")
+
+	singular := wf.GetActivityByName("ValidateCard")
+	plural := wf.GetActivitiesByName("ValidateCard")
+
+	require.Len(t, plural, 2)
+	last := plural[len(plural)-1]
+
+	// Singular must match the last entry of plural on all observable fields.
+	assert.Equal(t, last.Name, singular.Name)
+	assert.Equal(t, last.Started, singular.Started)
+	assert.Equal(t, last.Completed, singular.Completed)
+	assert.Equal(t, last.Failed, singular.Failed)
+	assert.Equal(t, last.Input.GetValue(), singular.Input.GetValue())
+	assert.Equal(t, last.Output.GetValue(), singular.Output.GetValue())
+	assert.Equal(t, last.Error.GetErrorMessage(), singular.Error.GetErrorMessage())
+
+	// last differs from first (failed retry vs completed first call)
+	assert.NotEqual(t, plural[0].Failed, singular.Failed,
+		"singular must differ from plural[0]")
+}
+
 func TestGetChildWorkflowByName(t *testing.T) {
 	ph := makeTestHistory()
 	wf := ph.GetWorkflowByName("MerchantCheckout")

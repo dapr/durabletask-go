@@ -189,16 +189,11 @@ func (ph *PropagatedHistory) GetWorkflows() []WorkflowResult {
 // Returns the most recent instance, which is the final outcome after retries.
 // Returns a zero WorkflowResult if not found
 func (ph *PropagatedHistory) GetWorkflowByName(name string) WorkflowResult {
-	var last *historyChunk
-	for i := range ph.chunks {
-		if ph.chunks[i].workflowName == name {
-			last = &ph.chunks[i]
-		}
-	}
-	if last == nil {
+	all := ph.GetWorkflowsByName(name)
+	if len(all) == 0 {
 		return WorkflowResult{}
 	}
-	return ph.makeWorkflowResult(*last)
+	return all[len(all)-1]
 }
 
 // GetWorkflowsByName returns all workflow results matching the given name,
@@ -243,19 +238,11 @@ func resolveActivity(events []*protos.HistoryEvent, scheduleEvent *protos.Histor
 // Returns the most recent invocation, which is the final outcome after retries.
 // Returns a zero ActivityResult if not found or if the wf was not found.
 func (wr WorkflowResult) GetActivityByName(name string) ActivityResult {
-	if !wr.Found {
+	all := wr.GetActivitiesByName(name)
+	if len(all) == 0 {
 		return ActivityResult{Name: name}
 	}
-	var lastScheduleEvent *protos.HistoryEvent
-	for _, e := range wr.events {
-		if ts := e.GetTaskScheduled(); ts != nil && ts.GetName() == name {
-			lastScheduleEvent = e
-		}
-	}
-	if lastScheduleEvent == nil {
-		return ActivityResult{Name: name}
-	}
-	return resolveActivity(wr.events, lastScheduleEvent)
+	return all[len(all)-1]
 }
 
 // GetActivitiesByName returns all activity results matching the given name,
@@ -298,21 +285,11 @@ func resolveChildWorkflow(events []*protos.HistoryEvent, eventID int32) ChildWor
 // Returns the most recent invocation, which is the final outcome after retries.
 // Returns a zero ChildWorkflowResult if not found or if the wf was not found.
 func (wr WorkflowResult) GetChildWorkflowByName(name string) ChildWorkflowResult {
-	if !wr.Found {
+	all := wr.GetChildWorkflowsByName(name)
+	if len(all) == 0 {
 		return ChildWorkflowResult{Name: name}
 	}
-	var lastEventID int32
-	found := false
-	for _, e := range wr.events {
-		if cw := e.GetChildWorkflowInstanceCreated(); cw != nil && cw.GetName() == name {
-			lastEventID = e.GetEventId()
-			found = true
-		}
-	}
-	if !found {
-		return ChildWorkflowResult{Name: name}
-	}
-	return resolveChildWorkflow(wr.events, lastEventID)
+	return all[len(all)-1]
 }
 
 // GetChildWorkflowsByName returns all child workflow results matching the given name,
