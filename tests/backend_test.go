@@ -449,7 +449,7 @@ func workItemProcessingTestLogic(
 				applier := runtimestate.NewApplier("example")
 
 				actions := getWorkflowActions()
-				_, err := applier.Actions(state, nil, actions, nil)
+				_, err := applier.Actions(state, nil, actions, nil, nil)
 				if assert.NoError(t, err) {
 					wi.State = state
 					err := be.CompleteWorkflowWorkItem(ctx, wi)

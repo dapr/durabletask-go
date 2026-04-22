@@ -107,6 +107,12 @@ func (w *WorkflowContext) IsPatched(patchName string) bool {
 	return w.oc.IsPatched(patchName)
 }
 
+// GetPropagatedHistory returns the propagated history from a parent workflow,
+// or nil if no history was propagated.
+func (w *WorkflowContext) GetPropagatedHistory() *PropagatedHistory {
+	return w.oc.GetPropagatedHistory()
+}
+
 // WithChildWorkflowAppID is a functional option type for the CallChildWorkflow
 // workflow method that specifies the app ID of the target activity.
 func WithChildWorkflowAppID(appID string) ChildWorkflowOption {

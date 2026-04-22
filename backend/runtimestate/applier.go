@@ -28,6 +28,22 @@ import (
 
 type Applier struct {
 	appID string
+
+	// PropagationEnabled controls whether history propagation is allowed.
+	// dapr sets this based on whether mTLS is enabled — propagation requires
+	// mTLS so that signing can verify the history chain.
+	PropagationEnabled bool
+}
+
+// ActionsResult is the per-call output of Applier.Actions
+type ActionsResult struct {
+	// ContinuedAsNew reports whether a CONTINUED_AS_NEW completion was applied.
+	ContinuedAsNew bool
+
+	// OutgoingHistory is the history being propagated TO each activity
+	// being dispatched this apply — ex: the outgoing payload from this
+	// wf to its activities, keyed by TaskScheduled event ID
+	OutgoingHistory map[int32]*protos.PropagatedHistory
 }
 
 func NewApplier(appID string) *Applier {
@@ -37,7 +53,10 @@ func NewApplier(appID string) *Applier {
 }
 
 // Actions takes a set of actions and updates its internal state, including populating the outbox.
-func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrapperspb.StringValue, actions []*protos.WorkflowAction, currentTraceContext *protos.TraceContext) (bool, error) {
+// receivedHistory is the propagated history this workflow received from its parent, used when
+// assembling outgoing propagated history
+func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrapperspb.StringValue, actions []*protos.WorkflowAction, currentTraceContext *protos.TraceContext, receivedHistory *protos.PropagatedHistory) (ActionsResult, error) {
+	var result ActionsResult
 	s.CustomStatus = customStatus
 	s.Stalled = nil
 
@@ -93,7 +112,8 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				*s = *newState
 
 				// ignore all remaining actions
-				return true, nil
+				result.ContinuedAsNew = true
+				return result, nil
 			} else {
 				AddEvent(s, &protos.HistoryEvent{
 					EventId:   action.Id,
@@ -199,6 +219,13 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 			}
 			_ = AddEvent(s, scheduledEvent)
 			s.PendingTasks = append(s.PendingTasks, scheduledEvent)
+			if a.PropagationEnabled &&
+				scheduleTask.GetHistoryPropagation() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_UNSPECIFIED {
+				if result.OutgoingHistory == nil {
+					result.OutgoingHistory = make(map[int32]*protos.PropagatedHistory)
+				}
+				result.OutgoingHistory[action.Id] = AssembleProtoPropagatedHistory(s, scheduleTask.GetHistoryPropagation(), receivedHistory, a.appID)
+			}
 		} else if createSO := action.GetCreateChildWorkflow(); createSO != nil {
 			// Autogenerate an instance ID for the child workflow if none is provided, using a
 			// deterministic algorithm based on the parent instance ID to help enable de-duplication.
@@ -242,7 +269,15 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				Router: action.Router,
 			}
 
-			s.PendingMessages = append(s.PendingMessages, &protos.WorkflowRuntimeStateMessage{HistoryEvent: startEvent, TargetInstanceId: createSO.InstanceId})
+			msg := &protos.WorkflowRuntimeStateMessage{
+				HistoryEvent:     startEvent,
+				TargetInstanceId: createSO.InstanceId,
+			}
+			if a.PropagationEnabled &&
+				createSO.GetHistoryPropagation() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_UNSPECIFIED {
+				msg.PropagatedHistory = AssembleProtoPropagatedHistory(s, createSO.GetHistoryPropagation(), receivedHistory, a.appID)
+			}
+			s.PendingMessages = append(s.PendingMessages, msg)
 		} else if sendEvent := action.GetSendEvent(); sendEvent != nil {
 			e := &protos.HistoryEvent{
 				EventId:   action.Id,
@@ -299,9 +334,9 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 			}
 			s.PendingMessages = append(s.PendingMessages, msg)
 		} else {
-			return false, fmt.Errorf("unknown action type: %v", action)
+			return result, fmt.Errorf("unknown action type: %v", action)
 		}
 	}
 
-	return false, nil
+	return result, nil
 }

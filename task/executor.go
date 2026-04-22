@@ -26,7 +26,7 @@ func NewTaskExecutor(registry *TaskRegistry) backend.Executor {
 }
 
 // ExecuteActivity implements backend.Executor and executes an activity function in the current goroutine.
-func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, e *protos.HistoryEvent) (response *protos.HistoryEvent, err error) {
+func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, e *protos.HistoryEvent, opts backend.ExecuteOptions) (response *protos.HistoryEvent, err error) {
 	ts := e.GetTaskScheduled()
 	if ts == nil {
 		// No clean way to deal with this other than to abandon it
@@ -53,7 +53,7 @@ func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, 
 			}, nil
 		}
 	}
-	activityCtx := newTaskActivityContext(ctx, e.EventId, ts)
+	activityCtx := newTaskActivityContext(ctx, e.EventId, ts, api.PropagatedHistoryFromProto(opts.PropagatedHistory))
 
 	// convert panics into activity failures
 	defer func() {
@@ -128,8 +128,13 @@ func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, 
 }
 
 // ExecuteWorkflow implements backend.Executor and executes a workflow function in the current goroutine.
-func (te *taskExecutor) ExecuteWorkflow(ctx context.Context, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
+func (te *taskExecutor) ExecuteWorkflow(ctx context.Context, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts backend.ExecuteOptions) (*protos.WorkflowResponse, error) {
 	workflowCtx := NewWorkflowContext(te.Registry, id, oldEvents, newEvents)
+
+	if opts.PropagatedHistory != nil {
+		workflowCtx.SetPropagatedHistory(api.PropagatedHistoryFromProto(opts.PropagatedHistory))
+	}
+
 	actions := workflowCtx.start()
 
 	response := &protos.WorkflowResponse{

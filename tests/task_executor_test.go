@@ -7,6 +7,7 @@ import (
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend"
 	"github.com/dapr/durabletask-go/task"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func Test_Executor_WaitForEventSchedulesTimer(t *testing.T) {
 
 	// Execute the workflow function and expect to get back a single timer action
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results.Actions), "Expected a single action to be scheduled")
 	createTimerAction := results.Actions[0].GetCreateTimer()
@@ -98,7 +99,7 @@ func Test_Executor_WaitForEventWithoutTimeout_CreatesInfiniteTimer(t *testing.T)
 	}
 
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteWorkflow(ctx, iid, []*protos.HistoryEvent{}, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, []*protos.HistoryEvent{}, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results.Actions), "Expected a timer to be created even for indefinite waits")
 	createTimerAction := results.Actions[0].GetCreateTimer()
@@ -142,7 +143,7 @@ func Test_Executor_CreateTimer_SetsCreateTimerOrigin(t *testing.T) {
 	}
 
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteWorkflow(ctx, iid, []*protos.HistoryEvent{}, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, []*protos.HistoryEvent{}, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results.Actions), "Expected a single action to be scheduled")
 	createTimerAction := results.Actions[0].GetCreateTimer()
@@ -222,7 +223,7 @@ func Test_Executor_WaitForEvent_TimerFiresCancelsTask(t *testing.T) {
 	}
 
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 1, len(results.Actions), "Expected a single completion action")
 
@@ -279,7 +280,7 @@ func Test_Executor_SuspendStopsAllActions(t *testing.T) {
 	}
 
 	// Execute the workflow function and expect to get back no actions
-	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err)
 	require.Empty(t, results.Actions, "Suspended workflows should not have any actions")
 }
@@ -379,7 +380,7 @@ func Test_Executor_Replay_PrePatchIndefiniteWaitForEvent(t *testing.T) {
 	}
 
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err, "Replay of pre-patch history must not fail the determinism check")
 	require.Equal(t, 1, len(results.Actions), "Expected a single CompleteWorkflow action after replay")
 
@@ -475,7 +476,7 @@ func Test_Executor_Replay_PostPatchIndefiniteWaitForEvent(t *testing.T) {
 	}
 
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err, "Post-patch replay must succeed")
 	require.Equal(t, 1, len(results.Actions), "Expected a single CompleteWorkflow action")
 
@@ -573,7 +574,7 @@ func Test_Executor_Replay_PrePatchIndefiniteWaitForEvent_ChildWorkflow(t *testin
 	}
 
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err, "Replay of pre-patch history with a child workflow must not fail")
 	require.Equal(t, 1, len(results.Actions), "Expected a single CompleteWorkflow action")
 
@@ -675,7 +676,7 @@ func Test_Executor_Replay_PrePatchIndefiniteWaitForEvent_RealTimer(t *testing.T)
 	}
 
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err, "Replay of pre-patch history with a real timer must not fail")
 	require.Equal(t, 1, len(results.Actions), "Expected a single CompleteWorkflow action")
 
@@ -806,7 +807,7 @@ func Test_Executor_Replay_PrePatchIndefiniteWaitForEvent_Multiple(t *testing.T) 
 	}
 
 	executor := task.NewTaskExecutor(r)
-	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err, "Replay of pre-patch history with multiple indefinite waits must not fail")
 	require.Equal(t, 1, len(results.Actions), "Expected a single CompleteWorkflow action")
 

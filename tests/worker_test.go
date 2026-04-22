@@ -62,7 +62,7 @@ func Test_TryProcessSingleWorkflowWorkItem_BasicFlow(t *testing.T) {
 	}).Once()
 
 	ex := mocks.NewExecutor(t)
-	ex.EXPECT().ExecuteWorkflow(anyContext, wi.InstanceID, state.OldEvents, mock.Anything).Return(result, nil).Once()
+	ex.EXPECT().ExecuteWorkflow(anyContext, wi.InstanceID, state.OldEvents, mock.Anything, mock.Anything).Return(result, nil).Once()
 
 	worker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
 		Backend:  be,
@@ -116,7 +116,7 @@ func Test_TryProcessSingleWorkflowWorkItem_Idempotency(t *testing.T) {
 	ex := mocks.NewExecutor(t)
 
 	callNumber := 0
-	ex.EXPECT().ExecuteWorkflow(anyContext, wi.InstanceID, wi.State.OldEvents, mock.Anything).RunAndReturn(func(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
+	ex.EXPECT().ExecuteWorkflow(anyContext, wi.InstanceID, wi.State.OldEvents, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts backend.ExecuteOptions) (*protos.WorkflowResponse, error) {
 		callNumber++
 		logger.Debugf("execute workflow called %d times", callNumber)
 		if callNumber == 1 {
@@ -213,7 +213,7 @@ func Test_TryProcessSingleWorkflowWorkItem_ExecutionStartedAndCompleted(t *testi
 
 	// Execute should be called with an empty oldEvents list. NewEvents should contain two items,
 	// but there doesn't seem to be a good way to assert this.
-	ex.EXPECT().ExecuteWorkflow(anyContext, iid, []*protos.HistoryEvent{}, mock.Anything).Return(result, nil).Once()
+	ex.EXPECT().ExecuteWorkflow(anyContext, iid, []*protos.HistoryEvent{}, mock.Anything, mock.Anything).Return(result, nil).Once()
 
 	// After execution, the Complete action should be called
 	completed := atomic.Bool{}
