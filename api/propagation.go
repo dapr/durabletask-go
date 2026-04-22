@@ -44,9 +44,12 @@ func PropagateLineage() PropagationOption {
 }
 
 // NewHistoryPropagationScope creates a HistoryPropagationScope from the given option.
+// A nil option is treated as HISTORY_PROPAGATION_SCOPE_UNSPECIFIED (no propagation).
 func NewHistoryPropagationScope(opt PropagationOption) protos.HistoryPropagationScope {
 	var scope protos.HistoryPropagationScope
-	opt(&scope)
+	if opt != nil {
+		opt(&scope)
+	}
 	return scope
 }
 
@@ -124,13 +127,21 @@ func (ph *PropagatedHistory) GetEventsByWorkflowName(name string) []*protos.Hist
 	return events
 }
 
-// chunkEvents returns the slice of events for a given chunk, with bounds checking.
+// chunkEvents returns the slice of events for a given chunk, with bounds
+// checking against malformed or forged propagated history
 func (ph *PropagatedHistory) chunkEvents(chunk historyChunk) []*protos.HistoryEvent {
-	end := chunk.startEventIndex + chunk.eventCount
+	start := chunk.startEventIndex
+	if start < 0 || start > len(ph.events) {
+		return nil
+	}
+	end := start + chunk.eventCount
 	if end > len(ph.events) {
 		end = len(ph.events)
 	}
-	return ph.events[chunk.startEventIndex:end]
+	if end < start {
+		return nil
+	}
+	return ph.events[start:end]
 }
 
 // WorkflowResult is a scoped view of a single workflow's chunk in propagated history.

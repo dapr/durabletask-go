@@ -412,3 +412,56 @@ func TestPropagatedHistoryFromProto_Nil(t *testing.T) {
 	ph := PropagatedHistoryFromProto(nil)
 	assert.Nil(t, ph)
 }
+
+func TestNewHistoryPropagationScope_Nil(t *testing.T) {
+	assert.NotPanics(t, func() {
+		scope := NewHistoryPropagationScope(nil)
+		assert.Equal(t, protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_UNSPECIFIED, scope)
+	})
+}
+
+// TestNewHistoryPropagationScope_Options verifies the option constructors
+// produce the expected scope values.
+func TestNewHistoryPropagationScope_Options(t *testing.T) {
+	assert.Equal(t,
+		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
+		NewHistoryPropagationScope(PropagateOwnHistory()))
+	assert.Equal(t,
+		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
+		NewHistoryPropagationScope(PropagateLineage()))
+}
+
+// TestChunkEvents_Bounds verifies bounds-checking against malformed or
+// forged propagated history. chunkEvents must return nil (not panic) when
+// a chunk's indices are out of range.
+func TestChunkEvents_Bounds(t *testing.T) {
+	ph := &PropagatedHistory{
+		events: []*protos.HistoryEvent{
+			{EventId: 0},
+			{EventId: 1},
+			{EventId: 2},
+		},
+	}
+
+	// Happy path: valid range.
+	assert.Len(t, ph.chunkEvents(historyChunk{startEventIndex: 0, eventCount: 2}), 2)
+	assert.Len(t, ph.chunkEvents(historyChunk{startEventIndex: 1, eventCount: 2}), 2)
+
+	// Negative start — reject.
+	assert.Nil(t, ph.chunkEvents(historyChunk{startEventIndex: -1, eventCount: 2}))
+
+	// Start beyond the events slice — reject.
+	assert.Nil(t, ph.chunkEvents(historyChunk{startEventIndex: 10, eventCount: 1}))
+
+	// Start == len is borderline: empty slice, not out-of-bounds.
+	assert.NotPanics(t, func() {
+		_ = ph.chunkEvents(historyChunk{startEventIndex: len(ph.events), eventCount: 0})
+	})
+
+	// Negative count — end < start, reject.
+	assert.Nil(t, ph.chunkEvents(historyChunk{startEventIndex: 1, eventCount: -5}))
+
+	// Count overflows the slice — clamp to the end, no panic.
+	result := ph.chunkEvents(historyChunk{startEventIndex: 1, eventCount: 100})
+	assert.Len(t, result, 2, "should clamp to len(events)")
+}
