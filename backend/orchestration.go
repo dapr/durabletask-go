@@ -27,10 +27,10 @@ type WorkflowExecutor interface {
 }
 
 type WorkflowWorkerOptions struct {
-	Backend  Backend
-	Executor WorkflowExecutor
-	Logger   Logger
-	AppID    string
+	Backend            Backend
+	Executor           WorkflowExecutor
+	Logger             Logger
+	AppID              string
 	PropagationEnabled bool
 }
 

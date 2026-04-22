@@ -628,7 +628,6 @@ func Test_ChildWorkflowRetry_TimerOriginPointsToFirstChild(t *testing.T) {
 
 func Test_ActivityRetry_TimerOriginMatchesTaskExecutionId(t *testing.T) {
 	const parentID = "parent-instance"
-	const taskExecID = "the-real-exec-id"
 
 	// Register a workflow that calls an activity with a retry policy.
 	r := task.NewTaskRegistry()
