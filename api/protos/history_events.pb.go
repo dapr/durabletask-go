@@ -170,7 +170,7 @@ func (x *PropagatedHistory) GetScope() HistoryPropagationScope {
 	if x != nil {
 		return x.Scope
 	}
-	return HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_UNSPECIFIED
+	return HistoryPropagationScope_NO_HISTORY_PROPAGATION
 }
 
 func (x *PropagatedHistory) GetChunks() []*PropagatedHistoryChunk {

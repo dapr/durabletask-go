@@ -44,7 +44,7 @@ func PropagateLineage() PropagationOption {
 }
 
 // NewHistoryPropagationScope creates a HistoryPropagationScope from the given option.
-// A nil option is treated as HISTORY_PROPAGATION_SCOPE_UNSPECIFIED (no propagation).
+// A nil option is treated as NO_HISTORY_PROPAGATION.
 func NewHistoryPropagationScope(opt PropagationOption) protos.HistoryPropagationScope {
 	var scope protos.HistoryPropagationScope
 	if opt != nil {

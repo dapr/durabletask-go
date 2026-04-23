@@ -220,7 +220,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 			_ = AddEvent(s, scheduledEvent)
 			s.PendingTasks = append(s.PendingTasks, scheduledEvent)
 			if a.PropagationEnabled &&
-				scheduleTask.GetHistoryPropagation() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_UNSPECIFIED {
+				scheduleTask.GetHistoryPropagation() != protos.HistoryPropagationScope_NO_HISTORY_PROPAGATION {
 				if result.OutgoingHistory == nil {
 					result.OutgoingHistory = make(map[int32]*protos.PropagatedHistory)
 				}
@@ -274,7 +274,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				TargetInstanceId: createSO.InstanceId,
 			}
 			if a.PropagationEnabled &&
-				createSO.GetHistoryPropagation() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_UNSPECIFIED {
+				createSO.GetHistoryPropagation() != protos.HistoryPropagationScope_NO_HISTORY_PROPAGATION {
 				msg.PropagatedHistory = AssembleProtoPropagatedHistory(s, createSO.GetHistoryPropagation(), receivedHistory, a.appID)
 			}
 			s.PendingMessages = append(s.PendingMessages, msg)

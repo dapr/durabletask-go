@@ -110,7 +110,7 @@ func (x *ScheduleTaskAction) GetHistoryPropagation() HistoryPropagationScope {
 	if x != nil && x.HistoryPropagation != nil {
 		return *x.HistoryPropagation
 	}
-	return HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_UNSPECIFIED
+	return HistoryPropagationScope_NO_HISTORY_PROPAGATION
 }
 
 type CreateChildWorkflowAction struct {
@@ -198,7 +198,7 @@ func (x *CreateChildWorkflowAction) GetHistoryPropagation() HistoryPropagationSc
 	if x != nil && x.HistoryPropagation != nil {
 		return *x.HistoryPropagation
 	}
-	return HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_UNSPECIFIED
+	return HistoryPropagationScope_NO_HISTORY_PROPAGATION
 }
 
 type CreateTimerAction struct {

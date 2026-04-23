@@ -29,7 +29,7 @@ func AssembleProtoPropagatedHistory(
 	receivedHistory *protos.PropagatedHistory,
 	appID string,
 ) *protos.PropagatedHistory {
-	if scope == protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_UNSPECIFIED {
+	if scope == protos.HistoryPropagationScope_NO_HISTORY_PROPAGATION {
 		return nil
 	}
 
