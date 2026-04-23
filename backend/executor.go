@@ -675,6 +675,7 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Workflo
 		WorkflowStatus:       metadata.RuntimeStatus,
 		CreatedTimestamp:     metadata.CreatedAt,
 		LastUpdatedTimestamp: metadata.LastUpdatedAt,
+		Version:              metadata.Version,
 	}
 
 	if req.GetInputsAndOutputs {

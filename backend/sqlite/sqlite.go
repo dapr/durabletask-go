@@ -639,7 +639,7 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 
 	row := be.db.QueryRowContext(
 		ctx,
-		`SELECT [InstanceID], [Name], [RuntimeStatus], [CreatedTime], [LastUpdatedTime], [Input], [Output], [CustomStatus], [FailureDetails]
+		`SELECT [InstanceID], [Name], [RuntimeStatus], [CreatedTime], [LastUpdatedTime], [Input], [Output], [CustomStatus], [FailureDetails], [Version]
 		FROM Instances WHERE [InstanceID] = ?`,
 		string(iid),
 	)
@@ -660,9 +660,10 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 	var output *string
 	var customStatus *string
 	var failureDetails *protos.TaskFailureDetails
+	var version *string
 
 	var failureDetailsPayload []byte
-	err = row.Scan(&instanceID, &name, &runtimeStatus, &createdAt, &lastUpdatedAt, &input, &output, &customStatus, &failureDetailsPayload)
+	err = row.Scan(&instanceID, &name, &runtimeStatus, &createdAt, &lastUpdatedAt, &input, &output, &customStatus, &failureDetailsPayload, &version)
 	if err == sql.ErrNoRows {
 		return nil, api.ErrInstanceNotFound
 	} else if err != nil {
@@ -672,6 +673,8 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 	var inputw *wrapperspb.StringValue
 	var outputw *wrapperspb.StringValue
 	var customStatusw *wrapperspb.StringValue
+	var versionw *wrapperspb.StringValue
+
 	if input != nil {
 		inputw = wrapperspb.String(*input)
 	}
@@ -680,6 +683,9 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 	}
 	if customStatus != nil {
 		customStatusw = wrapperspb.String(*customStatus)
+	}
+	if version != nil {
+		versionw = wrapperspb.String(*version)
 	}
 
 	if len(failureDetailsPayload) > 0 {
@@ -699,6 +705,7 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 		Output:         outputw,
 		CustomStatus:   customStatusw,
 		FailureDetails: failureDetails,
+		Version:        versionw,
 	}, nil
 }
 
