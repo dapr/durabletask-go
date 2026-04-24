@@ -104,11 +104,11 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 	}
 }
 
-// WithInternalNamePrefix configures the prefix the executor uses to mark workflows as in-process at creation time.
+// WithInProcessNamePrefix configures the prefix the executor uses to mark workflows as in-process at creation time.
 // Top-level workflows whose name begins with this prefix have their persisted ExecutionStartedEvent.InProcess set.
 // Child workflows and activities inherit the flag from the parent. The task-hub worker reads the flag to route
 // to an in-process executor.
-func WithInternalNamePrefix(prefix string) grpcExecutorOptions {
+func WithInProcessNamePrefix(prefix string) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.internalNamePrefix = &prefix
 	}

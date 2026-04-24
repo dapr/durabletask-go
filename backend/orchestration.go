@@ -30,28 +30,28 @@ type WorkflowWorkerOptions struct {
 	Executor WorkflowExecutor
 	Logger   Logger
 	AppID    string
-	// InternalExecutor is forwork items whose WorkflowWorkItem.InProcess flag is true.
+	// InProcessExecutor is forwork items whose WorkflowWorkItem.InProcess flag is true.
 	// This is how internal dapr-side workflows (e.g. dapr.internal.mcp.*) run, inside the sidecar
 	// instead of being shipped to an external SDK via the gRPC work-item stream.
-	InternalExecutor WorkflowExecutor
+	InProcessExecutor WorkflowExecutor
 }
 
 type workflowProcessor struct {
-	be               Backend
-	executor         WorkflowExecutor
-	internalExecutor WorkflowExecutor
-	logger           Logger
+	be                Backend
+	executor          WorkflowExecutor
+	inProcessExecutor WorkflowExecutor
+	logger            Logger
 
 	applier *runtimestate.Applier
 }
 
 func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*WorkflowWorkItem] {
 	processor := &workflowProcessor{
-		be:               opts.Backend,
-		executor:         opts.Executor,
-		internalExecutor: opts.InternalExecutor,
-		logger:           opts.Logger,
-		applier:          runtimestate.NewApplier(opts.AppID),
+		be:                opts.Backend,
+		executor:          opts.Executor,
+		inProcessExecutor: opts.InProcessExecutor,
+		logger:            opts.Logger,
+		applier:           runtimestate.NewApplier(opts.AppID),
 	}
 	return NewTaskWorker[*WorkflowWorkItem](processor, opts.Logger, taskopts...)
 }
@@ -105,8 +105,8 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 
 			// Run the user workflow code, providing the old history and new events together.
 			executor := w.executor
-			if wi.State.GetStartEvent().GetInProcess() && w.internalExecutor != nil {
-				executor = w.internalExecutor
+			if wi.State.GetStartEvent().GetInProcess() && w.inProcessExecutor != nil {
+				executor = w.inProcessExecutor
 			}
 			results, err := executor.ExecuteWorkflow(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents)
 			if err != nil {

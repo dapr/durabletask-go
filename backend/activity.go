@@ -13,9 +13,9 @@ import (
 )
 
 type activityProcessor struct {
-	be               Backend
-	executor         ActivityExecutor
-	internalExecutor ActivityExecutor
+	be                Backend
+	executor          ActivityExecutor
+	inProcessExecutor ActivityExecutor
 }
 
 type ActivityExecutor interface {
@@ -28,18 +28,18 @@ func NewActivityTaskWorker(be Backend, executor ActivityExecutor, logger Logger,
 	return NewTaskWorker(processor, logger, opts...)
 }
 
-// NewActivityTaskWorkerWithInternal constructs an activity worker,
+// NewActivityTaskWorkerWithInProcess constructs an activity worker,
 // and support internal workflow routing.
-func NewActivityTaskWorkerWithInternal(be Backend, executor, internalExecutor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
-	processor := newActivityProcessor(be, executor, internalExecutor)
+func NewActivityTaskWorkerWithInProcess(be Backend, executor, inProcessExecutor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
+	processor := newActivityProcessor(be, executor, inProcessExecutor)
 	return NewTaskWorker(processor, logger, opts...)
 }
 
-func newActivityProcessor(be Backend, executor, internalExecutor ActivityExecutor) TaskProcessor[*ActivityWorkItem] {
+func newActivityProcessor(be Backend, executor, inProcessExecutor ActivityExecutor) TaskProcessor[*ActivityWorkItem] {
 	return &activityProcessor{
-		be:               be,
-		executor:         executor,
-		internalExecutor: internalExecutor,
+		be:                be,
+		executor:          executor,
+		inProcessExecutor: inProcessExecutor,
 	}
 }
 
@@ -80,8 +80,8 @@ func (p *activityProcessor) ProcessWorkItem(ctx context.Context, awi *ActivityWo
 
 	// Execute the activity and get its result.
 	executor := p.executor
-	if ts.GetInProcess() && p.internalExecutor != nil {
-		executor = p.internalExecutor
+	if ts.GetInProcess() && p.inProcessExecutor != nil {
+		executor = p.inProcessExecutor
 	}
 	result, err := executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent)
 	if err != nil {

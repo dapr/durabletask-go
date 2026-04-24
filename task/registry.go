@@ -47,13 +47,10 @@ func (r *TaskRegistry) AddVersionedWorkflow(canonicalName string, isLatest bool,
 	return r.AddVersionedWorkflowN(canonicalName, name, isLatest, o)
 }
 
-// AddVersionedWorkflowN adds a versioned workflow function to the registry with a specified name.
+// AddVersionedWorkflowN adds or replaces a versioned workflow function in the registry.
 func (r *TaskRegistry) AddVersionedWorkflowN(canonicalName string, name string, isLatest bool, o Workflow) error {
 	if _, ok := r.versionedWorkflows[canonicalName]; !ok {
 		r.versionedWorkflows[canonicalName] = make(map[string]Workflow)
-	}
-	if _, ok := r.versionedWorkflows[canonicalName][name]; ok {
-		return fmt.Errorf("versioned workflow named '%s' is already registered", name)
 	}
 	r.versionedWorkflows[canonicalName][name] = o
 	if isLatest {
@@ -69,11 +66,8 @@ func (r *TaskRegistry) AddActivity(a Activity) error {
 	return r.AddActivityN(name, a)
 }
 
-// AddActivityN adds an activity function to the registry with a specified name.
+// AddActivityN adds or replaces an activity function in the registry.
 func (r *TaskRegistry) AddActivityN(name string, a Activity) error {
-	if _, ok := r.activities[name]; ok {
-		return fmt.Errorf("activity named '%s' is already registered", name)
-	}
 	r.activities[name] = a
 	return nil
 }
