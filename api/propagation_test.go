@@ -69,14 +69,14 @@ func makeTestHistory() *PropagatedHistory {
 			}},
 			{EventId: 2, EventType: &protos.HistoryEvent_TaskScheduled{
 				TaskScheduled: &protos.TaskScheduledEvent{
-					Name: "ValidateCard", TaskExecutionId: "exec-3",
+					Name: "ValidateCard", TaskExecutionId: "exec-2",
 					Input: wrapperspb.String(`{"card":"4242","retry":true}`),
 				},
 			}},
 			{EventId: -1, EventType: &protos.HistoryEvent_TaskFailed{
 				TaskFailed: &protos.TaskFailedEvent{
 					TaskScheduledId: 2,
-					TaskExecutionId: "exec-3",
+					TaskExecutionId: "exec-2",
 					FailureDetails:  &protos.TaskFailureDetails{ErrorMessage: "card declined"},
 				},
 			}},

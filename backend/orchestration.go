@@ -130,8 +130,12 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 				return fmt.Errorf("failed to apply the execution result actions: %w", err)
 			}
 
-			// Hand off per-activity propagated history for Dapr to attach
-			// to each ActivityInvocation.
+			// Consumed by Dapr. dapr/dapr's actors backend implements the
+			// Backend interface; the workflow actor reads wi.OutgoingHistory
+			// and hands each PropagatedHistory to the activity actor, which
+			// stores it on reminder data and replays it when the activity
+			// runs. The in-process sqlite/postgres backends in this repo do
+			// not support propagation.
 			wi.OutgoingHistory = applyResult.OutgoingHistory
 
 			// When continuing-as-new, we re-execute the workflow from the beginning with a truncated state in a tight loop

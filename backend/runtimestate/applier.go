@@ -224,6 +224,11 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				if result.OutgoingHistory == nil {
 					result.OutgoingHistory = make(map[int32]*protos.PropagatedHistory)
 				}
+				// Consumed by Dapr's actors backend: the activity actor
+				// receives each PropagatedHistory and persists it on its
+				// reminder data so it is replayed when the activity runs.
+				// In-process sqlite/postgres backends in this repo do not
+				// support propagation.
 				result.OutgoingHistory[action.Id] = AssembleProtoPropagatedHistory(s, scheduleTask.GetHistoryPropagation(), receivedHistory, a.appID)
 			}
 		} else if createSO := action.GetCreateChildWorkflow(); createSO != nil {
@@ -275,6 +280,11 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 			}
 			if a.PropagationEnabled &&
 				createSO.GetHistoryPropagation() != protos.HistoryPropagationScope_NO_HISTORY_PROPAGATION {
+				// Consumed by Dapr's actors backend: the child workflow
+				// actor receives this PropagatedHistory on its create
+				// request and persists it in its state store. In-process
+				// sqlite/postgres backends in this repo do not support
+				// propagation.
 				msg.PropagatedHistory = AssembleProtoPropagatedHistory(s, createSO.GetHistoryPropagation(), receivedHistory, a.appID)
 			}
 			s.PendingMessages = append(s.PendingMessages, msg)
