@@ -726,7 +726,7 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 
 	row := be.db.QueryRow(
 		ctx,
-		`SELECT InstanceID, Name, RuntimeStatus, CreatedTime, LastUpdatedTime, Input, Output, CustomStatus, FailureDetails
+		`SELECT InstanceID, Name, RuntimeStatus, CreatedTime, LastUpdatedTime, Input, Output, CustomStatus, FailureDetails, Version
 		FROM Instances WHERE InstanceID = $1`,
 		string(iid),
 	)
@@ -740,9 +740,10 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 	var output *string
 	var customStatus *string
 	var failureDetails *protos.TaskFailureDetails
+	var version *string
 
 	var failureDetailsPayload []byte
-	err := row.Scan(&instanceID, &name, &runtimeStatus, &createdAt, &lastUpdatedAt, &input, &output, &customStatus, &failureDetailsPayload)
+	err := row.Scan(&instanceID, &name, &runtimeStatus, &createdAt, &lastUpdatedAt, &input, &output, &customStatus, &failureDetailsPayload, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, api.ErrInstanceNotFound
 	} else if err != nil {
@@ -771,6 +772,8 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 	var inputw *wrapperspb.StringValue
 	var outputw *wrapperspb.StringValue
 	var customStatusw *wrapperspb.StringValue
+	var versionw *wrapperspb.StringValue
+
 	if input != nil {
 		inputw = wrapperspb.String(*input)
 	}
@@ -779,6 +782,9 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 	}
 	if customStatus != nil {
 		customStatusw = wrapperspb.String(*customStatus)
+	}
+	if version != nil {
+		versionw = wrapperspb.String(*version)
 	}
 
 	return &backend.WorkflowMetadata{
@@ -791,6 +797,7 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 		Output:         outputw,
 		CustomStatus:   customStatusw,
 		FailureDetails: failureDetails,
+		Version:        versionw,
 	}, nil
 }
 
