@@ -34,6 +34,9 @@ type (
 	WorkflowRuntimeStateMessage   = protos.WorkflowRuntimeStateMessage
 	SigningCertificate            = protos.SigningCertificate
 	HistorySignature              = protos.HistorySignature
+	ExternalSigningCertificate    = protos.ExternalSigningCertificate
+	ChildCompletionAttestation    = protos.ChildCompletionAttestation
+	ActivityCompletionAttestation = protos.ActivityCompletionAttestation
 	RerunWorkflowFromEventRequest = protos.RerunWorkflowFromEventRequest
 	ListInstanceIDsRequest        = protos.ListInstanceIDsRequest
 	ListInstanceIDsResponse       = protos.ListInstanceIDsResponse
