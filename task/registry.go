@@ -71,3 +71,14 @@ func (r *TaskRegistry) AddActivityN(name string, a Activity) error {
 	r.activities[name] = a
 	return nil
 }
+
+// RemoveVersionedWorkflow removes all versions of a workflow from the registry.
+func (r *TaskRegistry) RemoveVersionedWorkflow(canonicalName string) {
+	delete(r.versionedWorkflows, canonicalName)
+	delete(r.latestVersionedWorkflows, canonicalName)
+}
+
+// RemoveActivity removes an activity from the registry.
+func (r *TaskRegistry) RemoveActivity(name string) {
+	delete(r.activities, name)
+}
