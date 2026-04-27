@@ -22,14 +22,16 @@ type WorkflowExecutor interface {
 		ctx context.Context,
 		iid api.InstanceID,
 		oldEvents []*protos.HistoryEvent,
-		newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error)
+		newEvents []*protos.HistoryEvent,
+		opts ExecuteOptions) (*protos.WorkflowResponse, error)
 }
 
 type WorkflowWorkerOptions struct {
-	Backend  Backend
-	Executor WorkflowExecutor
-	Logger   Logger
-	AppID    string
+	Backend            Backend
+	Executor           WorkflowExecutor
+	Logger             Logger
+	AppID              string
+	PropagationEnabled bool
 }
 
 type workflowProcessor struct {
@@ -41,11 +43,13 @@ type workflowProcessor struct {
 }
 
 func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*WorkflowWorkItem] {
+	applier := runtimestate.NewApplier(opts.AppID)
+	applier.PropagationEnabled = opts.PropagationEnabled
 	processor := &workflowProcessor{
 		be:       opts.Backend,
 		executor: opts.Executor,
 		logger:   opts.Logger,
-		applier:  runtimestate.NewApplier(opts.AppID),
+		applier:  applier,
 	}
 	return NewTaskWorker[*WorkflowWorkItem](processor, opts.Logger, taskopts...)
 }
@@ -97,8 +101,10 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 				w.logger.Debugf("%v: invoking workflow", wi.InstanceID)
 			}
 
+			execOpts := ExecuteOptions{PropagatedHistory: wi.IncomingHistory}
+
 			// Run the user workflow code, providing the old history and new events together.
-			results, err := w.executor.ExecuteWorkflow(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents)
+			results, err := w.executor.ExecuteWorkflow(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts)
 			if err != nil {
 				return fmt.Errorf("error executing workflow: %w", err)
 			}
@@ -116,18 +122,36 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 				}
 			}
 
-			// Apply the workflow outputs to the workflow state.
-			continuedAsNew, err := w.applier.Actions(wi.State, results.CustomStatus, results.Actions, helpers.TraceContextFromSpan(span))
+			// Apply the workflow outputs to the workflow state. The received
+			// propagated history is passed through so the applier can assemble
+			// outgoing lineage propagation for children/activities.
+			applyResult, err := w.applier.Actions(wi.State, results.CustomStatus, results.Actions, helpers.TraceContextFromSpan(span), execOpts.PropagatedHistory)
 			if err != nil {
 				return fmt.Errorf("failed to apply the execution result actions: %w", err)
 			}
 
+			// Consumed by Dapr. dapr/dapr's actors backend implements the
+			// Backend interface; the workflow actor reads wi.OutgoingHistory
+			// and hands each PropagatedHistory to the activity actor, which
+			// stores it on reminder data and replays it when the activity
+			// runs. The in-process sqlite/postgres backends in this repo do
+			// not support propagation.
+			wi.OutgoingHistory = applyResult.OutgoingHistory
+
 			// When continuing-as-new, we re-execute the workflow from the beginning with a truncated state in a tight loop
 			// until the workflow performs some non-continue-as-new action.
-			if continuedAsNew {
+			if applyResult.ContinuedAsNew {
 				const MaxContinueAsNewCount = 20
 				if continueAsNewCount >= MaxContinueAsNewCount {
 					return fmt.Errorf("exceeded tight-loop continue-as-new limit of %d iterations", MaxContinueAsNewCount)
+				}
+
+				// Carry the propagation chain forward across the CAN boundary so
+				// the next generation sees the prior generation's events as its
+				// IncomingHistory. Nil when the workflow did not participate in
+				// propagation.
+				if applyResult.NewIncomingHistory != nil {
+					wi.IncomingHistory = applyResult.NewIncomingHistory
 				}
 
 				// We create a new trace span for every continue-as-new

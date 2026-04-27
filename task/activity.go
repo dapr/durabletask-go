@@ -8,15 +8,26 @@ import (
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
-type CallActivityOption func(*callActivityOptions) error
+// CallActivityOption is the interface for options passed to CallActivity.
+type CallActivityOption interface {
+	applyActivityOption(*callActivityOptions) error
+}
+
+type CallActivityOptionFunc func(*callActivityOptions) error
+
+func (f CallActivityOptionFunc) applyActivityOption(opts *callActivityOptions) error {
+	return f(opts)
+}
 
 type callActivityOptions struct {
-	rawInput    *wrapperspb.StringValue
-	retryPolicy *RetryPolicy
-	targetAppID *string
+	rawInput         *wrapperspb.StringValue
+	retryPolicy      *RetryPolicy
+	targetAppID      *string
+	propagationScope *protos.HistoryPropagationScope
 }
 
 type RetryPolicy struct {
@@ -59,7 +70,7 @@ func (policy *RetryPolicy) Validate() error {
 	return nil
 }
 
-func WithActivityAppID(targetAppID string) CallActivityOption {
+func WithActivityAppID(targetAppID string) CallActivityOptionFunc {
 	return func(opt *callActivityOptions) error {
 		opt.targetAppID = &targetAppID
 		return nil
@@ -68,7 +79,7 @@ func WithActivityAppID(targetAppID string) CallActivityOption {
 
 // WithActivityInput configures an input for an activity invocation.
 // The specified input must be JSON serializable.
-func WithActivityInput(input any) CallActivityOption {
+func WithActivityInput(input any) CallActivityOptionFunc {
 	return func(opt *callActivityOptions) error {
 		data, err := marshalData(input)
 		if err != nil {
@@ -80,14 +91,14 @@ func WithActivityInput(input any) CallActivityOption {
 }
 
 // WithRawActivityInput configures a raw input for an activity invocation.
-func WithRawActivityInput(input *wrapperspb.StringValue) CallActivityOption {
+func WithRawActivityInput(input *wrapperspb.StringValue) CallActivityOptionFunc {
 	return func(opt *callActivityOptions) error {
 		opt.rawInput = input
 		return nil
 	}
 }
 
-func WithActivityRetryPolicy(policy *RetryPolicy) CallActivityOption {
+func WithActivityRetryPolicy(policy *RetryPolicy) CallActivityOptionFunc {
 	return func(opt *callActivityOptions) error {
 		if policy == nil {
 			return nil
@@ -108,6 +119,7 @@ type ActivityContext interface {
 	GetTaskExecutionID() string
 	Context() context.Context
 	GetTraceContext() *protos.TraceContext
+	GetPropagatedHistory() *api.PropagatedHistory
 }
 
 type activityContext struct {
@@ -116,22 +128,23 @@ type activityContext struct {
 	Name            string
 	TraceContext    *protos.TraceContext
 
-	rawInput []byte
-	ctx      context.Context
+	rawInput          []byte
+	ctx               context.Context
+	propagatedHistory *api.PropagatedHistory
 }
 
 // Activity is the functional interface for activity implementations.
 type Activity func(ctx ActivityContext) (any, error)
 
-func newTaskActivityContext(ctx context.Context, taskID int32, ts *protos.TaskScheduledEvent) *activityContext {
-
+func newTaskActivityContext(ctx context.Context, taskID int32, ts *protos.TaskScheduledEvent, propagatedHistory *api.PropagatedHistory) *activityContext {
 	return &activityContext{
-		TaskID:          taskID,
-		TaskExecutionID: ts.TaskExecutionId,
-		Name:            ts.Name,
-		TraceContext:    ts.ParentTraceContext,
-		rawInput:        []byte(ts.Input.GetValue()),
-		ctx:             ctx,
+		TaskID:            taskID,
+		TaskExecutionID:   ts.TaskExecutionId,
+		Name:              ts.Name,
+		TraceContext:      ts.ParentTraceContext,
+		rawInput:          []byte(ts.Input.GetValue()),
+		ctx:               ctx,
+		propagatedHistory: propagatedHistory,
 	}
 }
 
@@ -154,4 +167,8 @@ func (actx *activityContext) GetTaskExecutionID() string {
 
 func (actx *activityContext) GetTraceContext() *protos.TraceContext {
 	return actx.TraceContext
+}
+
+func (actx *activityContext) GetPropagatedHistory() *api.PropagatedHistory {
+	return actx.propagatedHistory
 }
