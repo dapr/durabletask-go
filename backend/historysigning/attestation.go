@@ -345,6 +345,14 @@ func VerifyChildAttestation(opts VerifyChildOptions) (*protos.ChildCompletionAtt
 		return nil, errors.New("signer cert digest mismatch: companion cert does not match committed digest")
 	}
 
+	// Cryptographic signature over sha256(payload). Verified before the
+	// (potentially expensive) chain-of-trust check so that an invalid
+	// signature short-circuits without paying trust validation cost. This
+	// matches the order used by VerifyChain in verify.go.
+	if err := opts.Signer.VerifySignature(PayloadSignatureInput(opts.Attestation.GetPayload()), opts.Attestation.GetSignature(), opts.SignerCertDER); err != nil {
+		return nil, fmt.Errorf("attestation signature verification failed: %w", err)
+	}
+
 	// Chain-of-trust at event timestamp. Skipped when the caller has
 	// verified this cert chain at a time covering EventTimestamp (e.g.
 	// via a per-orchestrator cert cache).
@@ -352,11 +360,6 @@ func VerifyChildAttestation(opts VerifyChildOptions) (*protos.ChildCompletionAtt
 		if err := opts.Signer.VerifyCertChainOfTrust(opts.SignerCertDER, opts.EventTimestamp); err != nil {
 			return nil, fmt.Errorf("signer cert chain-of-trust verification failed at %v: %w", opts.EventTimestamp, err)
 		}
-	}
-
-	// Cryptographic signature over sha256(payload).
-	if err := opts.Signer.VerifySignature(PayloadSignatureInput(opts.Attestation.GetPayload()), opts.Attestation.GetSignature(), opts.SignerCertDER); err != nil {
-		return nil, fmt.Errorf("attestation signature verification failed: %w", err)
 	}
 
 	// Parent and task binding.
@@ -539,14 +542,18 @@ func VerifyActivityAttestation(opts VerifyActivityOptions) (*protos.ActivityComp
 		return nil, errors.New("signer cert digest mismatch: companion cert does not match committed digest")
 	}
 
+	// Cryptographic signature over sha256(payload). Verified before the
+	// (potentially expensive) chain-of-trust check so that an invalid
+	// signature short-circuits without paying trust validation cost. This
+	// matches the order used by VerifyChain in verify.go.
+	if err := opts.Signer.VerifySignature(PayloadSignatureInput(opts.Attestation.GetPayload()), opts.Attestation.GetSignature(), opts.SignerCertDER); err != nil {
+		return nil, fmt.Errorf("attestation signature verification failed: %w", err)
+	}
+
 	if !opts.SkipChainOfTrust {
 		if err := opts.Signer.VerifyCertChainOfTrust(opts.SignerCertDER, opts.EventTimestamp); err != nil {
 			return nil, fmt.Errorf("signer cert chain-of-trust verification failed at %v: %w", opts.EventTimestamp, err)
 		}
-	}
-
-	if err := opts.Signer.VerifySignature(PayloadSignatureInput(opts.Attestation.GetPayload()), opts.Attestation.GetSignature(), opts.SignerCertDER); err != nil {
-		return nil, fmt.Errorf("attestation signature verification failed: %w", err)
 	}
 
 	if payload.GetParentInstanceId() != opts.ExpectedParentInstanceId {
