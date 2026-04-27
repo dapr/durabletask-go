@@ -44,6 +44,13 @@ type ActionsResult struct {
 	// being dispatched this apply — ex: the outgoing payload from this
 	// wf to its activities, keyed by TaskScheduled event ID
 	OutgoingHistory map[int32]*protos.PropagatedHistory
+
+	// NewIncomingHistory is the propagated history chunk to attach to the
+	// new generation when a CONTINUED_AS_NEW completion is applied. Built
+	// from the prior generation's events plus whatever lineage the prior
+	// generation received, so the new generation continues to see the
+	// chain. Nil if propagation is not active for this workflow.
+	NewIncomingHistory *protos.PropagatedHistory
 }
 
 func NewApplier(appID string) *Applier {
@@ -71,6 +78,14 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 
 		if completedAction := action.GetCompleteWorkflow(); completedAction != nil {
 			if completedAction.WorkflowStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
+				// Capture a propagated chunk from the prior generation BEFORE we
+				// wipe state, so the new generation can continue the chain
+				if a.PropagationEnabled {
+					if scope := canForwardScope(s, receivedHistory); scope != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
+						result.NewIncomingHistory = AssembleProtoPropagatedHistory(s, scope, receivedHistory, a.appID)
+					}
+				}
+
 				newState := NewWorkflowRuntimeState(s.InstanceId, customStatus, []*protos.HistoryEvent{})
 				newState.ContinuedAsNew = true
 				_ = AddEvent(newState, &protos.HistoryEvent{
@@ -208,11 +223,12 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				Timestamp: timestamppb.New(time.Now()),
 				EventType: &protos.HistoryEvent_TaskScheduled{
 					TaskScheduled: &protos.TaskScheduledEvent{
-						Name:               scheduleTask.Name,
-						TaskExecutionId:    scheduleTask.TaskExecutionId,
-						Version:            scheduleTask.Version,
-						Input:              scheduleTask.Input,
-						ParentTraceContext: currentTraceContext,
+						Name:                    scheduleTask.Name,
+						TaskExecutionId:         scheduleTask.TaskExecutionId,
+						Version:                 scheduleTask.Version,
+						Input:                   scheduleTask.Input,
+						ParentTraceContext:      currentTraceContext,
+						HistoryPropagationScope: scheduleTask.HistoryPropagationScope,
 					},
 				},
 				Router: action.Router,
@@ -220,7 +236,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 			_ = AddEvent(s, scheduledEvent)
 			s.PendingTasks = append(s.PendingTasks, scheduledEvent)
 			if a.PropagationEnabled &&
-				scheduleTask.GetHistoryPropagation() != protos.HistoryPropagationScope_NO_HISTORY_PROPAGATION {
+				scheduleTask.GetHistoryPropagationScope() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
 				if result.OutgoingHistory == nil {
 					result.OutgoingHistory = make(map[int32]*protos.PropagatedHistory)
 				}
@@ -229,7 +245,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				// reminder data so it is replayed when the activity runs.
 				// In-process sqlite/postgres backends in this repo do not
 				// support propagation.
-				result.OutgoingHistory[action.Id] = AssembleProtoPropagatedHistory(s, scheduleTask.GetHistoryPropagation(), receivedHistory, a.appID)
+				result.OutgoingHistory[action.Id] = AssembleProtoPropagatedHistory(s, scheduleTask.GetHistoryPropagationScope(), receivedHistory, a.appID)
 			}
 		} else if createSO := action.GetCreateChildWorkflow(); createSO != nil {
 			// Autogenerate an instance ID for the child workflow if none is provided, using a
@@ -242,11 +258,12 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				Timestamp: timestamppb.New(time.Now()),
 				EventType: &protos.HistoryEvent_ChildWorkflowInstanceCreated{
 					ChildWorkflowInstanceCreated: &protos.ChildWorkflowInstanceCreatedEvent{
-						Name:               createSO.Name,
-						Version:            createSO.Version,
-						Input:              createSO.Input,
-						InstanceId:         createSO.InstanceId,
-						ParentTraceContext: currentTraceContext,
+						Name:                    createSO.Name,
+						Version:                 createSO.Version,
+						Input:                   createSO.Input,
+						InstanceId:              createSO.InstanceId,
+						ParentTraceContext:      currentTraceContext,
+						HistoryPropagationScope: createSO.HistoryPropagationScope,
 					},
 				},
 				Router: action.Router,
@@ -279,13 +296,13 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				TargetInstanceId: createSO.InstanceId,
 			}
 			if a.PropagationEnabled &&
-				createSO.GetHistoryPropagation() != protos.HistoryPropagationScope_NO_HISTORY_PROPAGATION {
+				createSO.GetHistoryPropagationScope() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
 				// Consumed by Dapr's actors backend: the child workflow
 				// actor receives this PropagatedHistory on its create
 				// request and persists it in its state store. In-process
 				// sqlite/postgres backends in this repo do not support
 				// propagation.
-				msg.PropagatedHistory = AssembleProtoPropagatedHistory(s, createSO.GetHistoryPropagation(), receivedHistory, a.appID)
+				msg.PropagatedHistory = AssembleProtoPropagatedHistory(s, createSO.GetHistoryPropagationScope(), receivedHistory, a.appID)
 			}
 			s.PendingMessages = append(s.PendingMessages, msg)
 		} else if sendEvent := action.GetSendEvent(); sendEvent != nil {

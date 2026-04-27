@@ -416,7 +416,7 @@ func TestPropagatedHistoryFromProto_Nil(t *testing.T) {
 func TestNewHistoryPropagationScope_Nil(t *testing.T) {
 	assert.NotPanics(t, func() {
 		scope := NewHistoryPropagationScope(nil)
-		assert.Equal(t, protos.HistoryPropagationScope_NO_HISTORY_PROPAGATION, scope)
+		assert.Equal(t, protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE, scope)
 	})
 }
 

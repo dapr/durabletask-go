@@ -17,6 +17,39 @@ import (
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
+// canForwardScope reports the propagation scope to use when assembling a
+// chunk for a CONTINUE_AS_NEW boundary. Returns HISTORY_PROPAGATION_SCOPE_NONE
+// when the workflow never participated in propagation (no incoming history
+// and no outgoing-propagating tasks), so the new generation starts clean.
+// Otherwise, inherits the incoming scope when present, or defaults to LINEAGE
+// for a workflow that propagated to its own children without itself receiving
+// any history.
+func canForwardScope(s *protos.WorkflowRuntimeState, receivedHistory *protos.PropagatedHistory) protos.HistoryPropagationScope {
+	if receivedHistory != nil && receivedHistory.GetScope() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
+		return receivedHistory.GetScope()
+	}
+	if hasPropagatingTask(s.GetOldEvents()) || hasPropagatingTask(s.GetNewEvents()) {
+		return protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE
+	}
+	return protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE
+}
+
+func hasPropagatingTask(events []*protos.HistoryEvent) bool {
+	for _, e := range events {
+		if ts := e.GetTaskScheduled(); ts != nil {
+			if ts.GetHistoryPropagationScope() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
+				return true
+			}
+		}
+		if cw := e.GetChildWorkflowInstanceCreated(); cw != nil {
+			if cw.GetHistoryPropagationScope() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // AssembleProtoPropagatedHistory builds a proto PropagatedHistory from the
 // current workflow's runtime state, using the given propagation scope.
 // receivedHistory is the propagated history this workflow received from its
@@ -29,7 +62,7 @@ func AssembleProtoPropagatedHistory(
 	receivedHistory *protos.PropagatedHistory,
 	appID string,
 ) *protos.PropagatedHistory {
-	if scope == protos.HistoryPropagationScope_NO_HISTORY_PROPAGATION {
+	if scope == protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
 		return nil
 	}
 

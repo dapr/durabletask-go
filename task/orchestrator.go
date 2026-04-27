@@ -355,7 +355,7 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 
 	if options.propagationScope != nil {
 		if st := scheduleTaskAction.GetScheduleTask(); st != nil {
-			st.HistoryPropagation = options.propagationScope
+			st.HistoryPropagationScope = options.propagationScope
 		}
 	}
 
@@ -422,7 +422,7 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 
 	if options.propagationScope != nil {
 		if cw := createChildWorkflowAction.GetCreateChildWorkflow(); cw != nil {
-			cw.HistoryPropagation = options.propagationScope
+			cw.HistoryPropagationScope = options.propagationScope
 		}
 	}
 

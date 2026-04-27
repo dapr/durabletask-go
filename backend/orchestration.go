@@ -146,6 +146,14 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 					return fmt.Errorf("exceeded tight-loop continue-as-new limit of %d iterations", MaxContinueAsNewCount)
 				}
 
+				// Carry the propagation chain forward across the CAN boundary so
+				// the next generation sees the prior generation's events as its
+				// IncomingHistory. Nil when the workflow did not participate in
+				// propagation.
+				if applyResult.NewIncomingHistory != nil {
+					wi.IncomingHistory = applyResult.NewIncomingHistory
+				}
+
 				// We create a new trace span for every continue-as-new
 				w.endWorkflowSpan(ctx, wi, span, true)
 				ctx, span = w.startOrResumeWorkflowSpan(ctx, wi)
