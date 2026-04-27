@@ -620,6 +620,130 @@ func TestVerifyChildRejectsNilAttestation(t *testing.T) {
 	assert.Contains(t, err.Error(), "attestation must not be nil")
 }
 
+// --- SkipChainOfTrust ---
+
+// buildChildAttWithMismatchedAnchors builds an attestation under a signer
+// whose trust anchor IS its own CA, then returns a *separate* verifier
+// whose trust anchors do NOT include that CA. With SkipChainOfTrust=false
+// the verifier rejects on chain-of-trust; with SkipChainOfTrust=true it
+// must still verify the signature/digest checks.
+func buildChildAttWithMismatchedAnchors(t *testing.T) (
+	verifier *signer.Signer,
+	att *protos.ChildCompletionAttestation,
+	chainDER []byte,
+) {
+	t.Helper()
+	certDER, priv := generateEd25519Cert(t)
+	signSigner := newTestSigner(t, certDER, priv, parseCert(t, certDER))
+
+	a, c, err := BuildChildAttestation(signSigner, ChildAttestationInput{
+		ParentInstanceId:      testParentInstanceID,
+		ParentTaskScheduledId: testParentTaskID,
+		Input:                 wrapperspb.String("in"),
+		Output:                wrapperspb.String("out"),
+		TerminalStatus:        protos.TerminalStatus_TERMINAL_STATUS_COMPLETED,
+	})
+	require.NoError(t, err)
+
+	// Verifier has DIFFERENT trust anchors — chain-of-trust would fail.
+	otherCertDER, _ := generateEd25519Cert(t)
+	verifier = newTestSigner(t, certDER, priv, parseCert(t, otherCertDER))
+	return verifier, a, c
+}
+
+func TestVerifyChildSkipChainOfTrustBypassesTrustCheck(t *testing.T) {
+	verifier, att, certChain := buildChildAttWithMismatchedAnchors(t)
+
+	// Sanity: without skip the verifier rejects on chain-of-trust.
+	_, err := VerifyChildAttestation(VerifyChildOptions{
+		Attestation:                   att,
+		SignerCertDER:                 certChain,
+		EventTimestamp:                testEventTime(),
+		ExpectedParentInstanceId:      testParentInstanceID,
+		ExpectedParentTaskScheduledId: testParentTaskID,
+		ClaimedInput:                  wrapperspb.String("in"),
+		ClaimedOutput:                 wrapperspb.String("out"),
+		Signer:                        verifier,
+		SkipChainOfTrust:              false,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chain-of-trust")
+
+	// With skip the verifier accepts the attestation: chain-of-trust is
+	// the only check that should differ, and the caller is asserting
+	// they verified it independently.
+	_, err = VerifyChildAttestation(VerifyChildOptions{
+		Attestation:                   att,
+		SignerCertDER:                 certChain,
+		EventTimestamp:                testEventTime(),
+		ExpectedParentInstanceId:      testParentInstanceID,
+		ExpectedParentTaskScheduledId: testParentTaskID,
+		ClaimedInput:                  wrapperspb.String("in"),
+		ClaimedOutput:                 wrapperspb.String("out"),
+		Signer:                        verifier,
+		SkipChainOfTrust:              true,
+	})
+	require.NoError(t, err)
+}
+
+func TestVerifyChildSkipChainOfTrustStillEnforcesSignature(t *testing.T) {
+	verifier, att, certChain := buildChildAttWithMismatchedAnchors(t)
+
+	tampered := proto.Clone(att).(*protos.ChildCompletionAttestation)
+	tampered.Signature = bytes.Repeat([]byte{0xFF}, len(att.GetSignature()))
+
+	_, err := VerifyChildAttestation(VerifyChildOptions{
+		Attestation:                   tampered,
+		SignerCertDER:                 certChain,
+		EventTimestamp:                testEventTime(),
+		ExpectedParentInstanceId:      testParentInstanceID,
+		ExpectedParentTaskScheduledId: testParentTaskID,
+		ClaimedInput:                  wrapperspb.String("in"),
+		ClaimedOutput:                 wrapperspb.String("out"),
+		Signer:                        verifier,
+		SkipChainOfTrust:              true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "signature verification failed")
+}
+
+func TestVerifyChildSkipChainOfTrustStillEnforcesCertBinding(t *testing.T) {
+	verifier, att, _ := buildChildAttWithMismatchedAnchors(t)
+	otherCertDER, _ := generateEd25519Cert(t)
+
+	_, err := VerifyChildAttestation(VerifyChildOptions{
+		Attestation:                   att,
+		SignerCertDER:                 otherCertDER,
+		EventTimestamp:                testEventTime(),
+		ExpectedParentInstanceId:      testParentInstanceID,
+		ExpectedParentTaskScheduledId: testParentTaskID,
+		ClaimedInput:                  wrapperspb.String("in"),
+		ClaimedOutput:                 wrapperspb.String("out"),
+		Signer:                        verifier,
+		SkipChainOfTrust:              true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "signer cert digest mismatch")
+}
+
+func TestVerifyChildSkipChainOfTrustStillEnforcesIODigest(t *testing.T) {
+	verifier, att, certChain := buildChildAttWithMismatchedAnchors(t)
+
+	_, err := VerifyChildAttestation(VerifyChildOptions{
+		Attestation:                   att,
+		SignerCertDER:                 certChain,
+		EventTimestamp:                testEventTime(),
+		ExpectedParentInstanceId:      testParentInstanceID,
+		ExpectedParentTaskScheduledId: testParentTaskID,
+		ClaimedInput:                  wrapperspb.String("tampered"),
+		ClaimedOutput:                 wrapperspb.String("out"),
+		Signer:                        verifier,
+		SkipChainOfTrust:              true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ioDigest mismatch")
+}
+
 // --- Activity attestation build & verify ---
 
 func TestBuildVerifyActivityAttestationRoundTripCompleted(t *testing.T) {
@@ -694,6 +818,87 @@ func TestVerifyActivityRejectsWrongActivityName(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "activity name mismatch")
+}
+
+// buildActivityAttWithMismatchedAnchors is the activity-side analogue of
+// buildChildAttWithMismatchedAnchors.
+func buildActivityAttWithMismatchedAnchors(t *testing.T) (
+	verifier *signer.Signer,
+	att *protos.ActivityCompletionAttestation,
+	chainDER []byte,
+) {
+	t.Helper()
+	certDER, priv := generateEd25519Cert(t)
+	signSigner := newTestSigner(t, certDER, priv, parseCert(t, certDER))
+
+	a, c, err := BuildActivityAttestation(signSigner, ActivityAttestationInput{
+		ParentInstanceId:      testParentInstanceID,
+		ParentTaskScheduledId: testParentTaskID,
+		ActivityName:          testActivityName,
+		Input:                 wrapperspb.String("in"),
+		Output:                wrapperspb.String("out"),
+		TerminalStatus:        protos.ActivityTerminalStatus_ACTIVITY_TERMINAL_STATUS_COMPLETED,
+	})
+	require.NoError(t, err)
+
+	otherCertDER, _ := generateEd25519Cert(t)
+	verifier = newTestSigner(t, certDER, priv, parseCert(t, otherCertDER))
+	return verifier, a, c
+}
+
+func TestVerifyActivitySkipChainOfTrustBypassesTrustCheck(t *testing.T) {
+	verifier, att, certChain := buildActivityAttWithMismatchedAnchors(t)
+
+	_, err := VerifyActivityAttestation(VerifyActivityOptions{
+		Attestation:                   att,
+		SignerCertDER:                 certChain,
+		EventTimestamp:                testEventTime(),
+		ExpectedParentInstanceId:      testParentInstanceID,
+		ExpectedParentTaskScheduledId: testParentTaskID,
+		ExpectedActivityName:          testActivityName,
+		ClaimedInput:                  wrapperspb.String("in"),
+		ClaimedOutput:                 wrapperspb.String("out"),
+		Signer:                        verifier,
+		SkipChainOfTrust:              false,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chain-of-trust")
+
+	_, err = VerifyActivityAttestation(VerifyActivityOptions{
+		Attestation:                   att,
+		SignerCertDER:                 certChain,
+		EventTimestamp:                testEventTime(),
+		ExpectedParentInstanceId:      testParentInstanceID,
+		ExpectedParentTaskScheduledId: testParentTaskID,
+		ExpectedActivityName:          testActivityName,
+		ClaimedInput:                  wrapperspb.String("in"),
+		ClaimedOutput:                 wrapperspb.String("out"),
+		Signer:                        verifier,
+		SkipChainOfTrust:              true,
+	})
+	require.NoError(t, err)
+}
+
+func TestVerifyActivitySkipChainOfTrustStillEnforcesSignature(t *testing.T) {
+	verifier, att, certChain := buildActivityAttWithMismatchedAnchors(t)
+
+	tampered := proto.Clone(att).(*protos.ActivityCompletionAttestation)
+	tampered.Signature = bytes.Repeat([]byte{0xFF}, len(att.GetSignature()))
+
+	_, err := VerifyActivityAttestation(VerifyActivityOptions{
+		Attestation:                   tampered,
+		SignerCertDER:                 certChain,
+		EventTimestamp:                testEventTime(),
+		ExpectedParentInstanceId:      testParentInstanceID,
+		ExpectedParentTaskScheduledId: testParentTaskID,
+		ExpectedActivityName:          testActivityName,
+		ClaimedInput:                  wrapperspb.String("in"),
+		ClaimedOutput:                 wrapperspb.String("out"),
+		Signer:                        verifier,
+		SkipChainOfTrust:              true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "signature verification failed")
 }
 
 // --- helpers ---
