@@ -57,6 +57,7 @@ type grpcExecutor struct {
 	streamShutdownChan       <-chan any
 	streamSendTimeout        *time.Duration
 	skipWaitForInstanceStart bool
+	inProcessNamePrefix      *string
 }
 
 type grpcExecutorOptions func(g *grpcExecutor)
@@ -67,9 +68,9 @@ func IsDurableTaskGrpcRequest(fullMethodName string) bool {
 	return strings.HasPrefix(fullMethodName, "/TaskHubSidecarService/")
 }
 
-// WithOnGetWorkItemsConnectionCallback allows the caller to get a notification when an external process
-// connects over gRPC and invokes the GetWorkItems operation. This can be useful for doing things like
-// lazily auto-starting the task hub worker only when necessary.
+// WithOnGetWorkItemsConnectionCallback allows the caller to get a notification when an external process connects over gRPC,
+// and invokes the GetWorkItems operation.
+// This can be useful for doing things like lazily auto-starting the task hub worker only when necessary.
 func WithOnGetWorkItemsConnectionCallback(callback func(context.Context) error) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.onWorkItemConnection = callback
@@ -77,8 +78,8 @@ func WithOnGetWorkItemsConnectionCallback(callback func(context.Context) error) 
 }
 
 // WithOnGetWorkItemsDisconnectCallback allows the caller to get a notification when an external process
-// disconnects from the GetWorkItems operation. This can be useful for doing things like shutting down
-// the task hub worker when the client disconnects.
+// disconnects from the GetWorkItems operation.
+// This can be useful for doing things like shutting down the task hub worker when the client disconnects.
 func WithOnGetWorkItemsDisconnectCallback(callback func(context.Context) error) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.onWorkItemDisconnect = callback
@@ -103,7 +104,23 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 	}
 }
 
-// NewGrpcExecutor returns the Executor object and a method to invoke to register the gRPC server in the executor.
+// WithInProcessNamePrefix configures the prefix the executor uses to mark workflows as in-process at creation time.
+// Top-level workflows whose name begins with this prefix have their persisted ExecutionStartedEvent.InProcess set.
+// Child workflows and activities inherit the flag from the parent. The task-hub worker reads the flag to route
+// to an in-process executor.
+func WithInProcessNamePrefix(prefix string) grpcExecutorOptions {
+	return func(g *grpcExecutor) {
+		g.inProcessNamePrefix = &prefix
+	}
+}
+
+func (g *grpcExecutor) shouldStampInProcess(name string) bool {
+	if g.inProcessNamePrefix == nil || name == "" {
+		return false
+	}
+	return strings.HasPrefix(name, *g.inProcessNamePrefix)
+}
+
 func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (executor Executor, registerServerFn func(grpcServer grpc.ServiceRegistrar)) {
 	grpcExecutor := &grpcExecutor{
 		workItemQueue:     make(chan *protos.WorkItem),
@@ -143,6 +160,9 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 
 	// Send the workflow execution work-item to the connected worker.
 	// This will block if the worker isn't listening for work items.
+	// Worker-level routing (gRPC stream vs in-process internal executor)
+	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.InProcess.
+	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
 		executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
@@ -191,6 +211,9 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 
 	// Send the activity execution work-item to the connected worker.
 	// This will block if the worker isn't listening for work items.
+	// Worker-level routing (gRPC stream vs in-process internal executor)
+	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.InProcess.
+	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
 		executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
@@ -421,8 +444,18 @@ func (g *grpcExecutor) executeOnWorkItemDisconnect(ctx context.Context) error {
 	return nil
 }
 
-// CompleteWorkflowTask implements protos.TaskHubSidecarServiceServer
+// CompleteWorkflowTask implements protos.TaskHubSidecarServiceServer.
 func (g *grpcExecutor) CompleteWorkflowTask(ctx context.Context, res *protos.WorkflowResponse) (*protos.CompleteTaskResponse, error) {
+	// Stamp in_process on child workflow and activity actions so the applier
+	// and worker can route them correctly without string prefix matching.
+	for _, action := range res.GetActions() {
+		if cw := action.GetCreateChildWorkflow(); cw != nil {
+			cw.InProcess = g.shouldStampInProcess(cw.Name)
+		}
+		if st := action.GetScheduleTask(); st != nil {
+			st.InProcess = g.shouldStampInProcess(st.Name)
+		}
+	}
 	return emptyCompleteTaskResponse, g.backend.CompleteWorkflowTask(ctx, res)
 }
 
@@ -515,6 +548,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				},
 				ParentTraceContext:      helpers.TraceContextFromSpan(span),
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
+				InProcess:               g.shouldStampInProcess(req.Name),
 			},
 		},
 	}

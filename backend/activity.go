@@ -13,23 +13,33 @@ import (
 )
 
 type activityProcessor struct {
-	be       Backend
-	executor ActivityExecutor
+	be                Backend
+	executor          ActivityExecutor
+	inProcessExecutor ActivityExecutor
 }
 
 type ActivityExecutor interface {
 	ExecuteActivity(context.Context, api.InstanceID, *protos.HistoryEvent) (*protos.HistoryEvent, error)
 }
 
+// NewActivityTaskWorker constructs an activity worker.
 func NewActivityTaskWorker(be Backend, executor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
-	processor := newActivityProcessor(be, executor)
+	processor := newActivityProcessor(be, executor, nil)
 	return NewTaskWorker(processor, logger, opts...)
 }
 
-func newActivityProcessor(be Backend, executor ActivityExecutor) TaskProcessor[*ActivityWorkItem] {
+// NewActivityTaskWorkerWithInProcess constructs an activity worker,
+// and support internal workflow routing.
+func NewActivityTaskWorkerWithInProcess(be Backend, executor, inProcessExecutor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
+	processor := newActivityProcessor(be, executor, inProcessExecutor)
+	return NewTaskWorker(processor, logger, opts...)
+}
+
+func newActivityProcessor(be Backend, executor, inProcessExecutor ActivityExecutor) TaskProcessor[*ActivityWorkItem] {
 	return &activityProcessor{
-		be:       be,
-		executor: executor,
+		be:                be,
+		executor:          executor,
+		inProcessExecutor: inProcessExecutor,
 	}
 }
 
@@ -68,8 +78,12 @@ func (p *activityProcessor) ProcessWorkItem(ctx context.Context, awi *ActivityWo
 	// set the parent trace context to be the newly created activity span
 	ts.ParentTraceContext = helpers.TraceContextFromSpan(span)
 
-	// Execute the activity and get its result
-	result, err := p.executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent)
+	// Execute the activity and get its result.
+	executor := p.executor
+	if ts.GetInProcess() && p.inProcessExecutor != nil {
+		executor = p.inProcessExecutor
+	}
+	result, err := executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent)
 	if err != nil {
 		if span != nil {
 			span.RecordError(err)

@@ -208,7 +208,7 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 	var ptc *protos.TraceContext = req.ParentTraceContext
 	ctx, err := helpers.ContextFromTraceContext(ctx, ptc)
 	if err != nil {
-		c.logger.Warn("%v: failed to parse trace context: %v", req.Name, err)
+		c.logger.Warnf("%v: failed to parse trace context: %v", req.Name, err)
 	}
 
 	event := &protos.HistoryEvent{
@@ -228,8 +228,6 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 
 	resp := protos.ActivityResponse{InstanceId: req.WorkflowInstance.InstanceId, TaskId: req.TaskId}
 	if err != nil {
-		// NOTE: At the time of writing, there's no known case where this error is returned.
-		//       We add error handling here anyways, just in case.
 		resp.FailureDetails = &protos.TaskFailureDetails{
 			ErrorType:    fmt.Sprintf("%T", err),
 			ErrorMessage: err.Error(),

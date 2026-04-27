@@ -2,7 +2,6 @@ package task
 
 import (
 	"container/list"
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -607,32 +606,21 @@ func (ctx *WorkflowContext) isPatched(patchName string) bool {
 }
 
 func (ctx *WorkflowContext) getWorkflow(es *protos.ExecutionStartedEvent) (Workflow, error) {
-	workflow, ok := ctx.registry.workflows[es.Name]
-	if ok {
+	// Non-versioned workflow
+	if workflow, ok := ctx.registry.GetWorkflow(es.Name); ok {
 		return workflow, nil
 	}
 
-	if versions, ok := ctx.registry.versionedWorkflows[es.Name]; ok {
-		var versionToUse string
-		if ctx.VersionName != nil {
-			versionToUse = *ctx.VersionName
-		} else {
-			if latest, ok := ctx.registry.latestVersionedWorkflows[es.Name]; ok {
-				versionToUse = latest
-			} else {
-				return nil, fmt.Errorf("versioned workflow '%s' does not have a latest version registered", es.Name)
-			}
-		}
-
-		if workflow, ok = versions[versionToUse]; ok {
-			ctx.VersionName = &versionToUse
-			return workflow, nil
-		} else {
-			return nil, api.NewUnsupportedVersionError()
-		}
+	// Versioned workflow
+	if workflow, version, ok := ctx.registry.GetVersionedWorkflow(es.Name, ctx.VersionName); ok {
+		ctx.VersionName = &version
+		return workflow, nil
+	} else if ctx.VersionName != nil {
+		return nil, api.NewUnsupportedVersionError()
 	}
 
-	if workflow, ok = ctx.registry.workflows["*"]; ok {
+	// Wildcard fallback
+	if workflow, ok := ctx.registry.GetWorkflow("*"); ok {
 		return workflow, nil
 	}
 
@@ -869,7 +857,7 @@ func (ctx *WorkflowContext) setComplete(output any) error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
 	var rawOutput *wrapperspb.StringValue
 	if output != nil {
-		bytes, err := json.Marshal(output)
+		bytes, err := marshalData(output)
 		if err != nil {
 			return fmt.Errorf("failed to marshal output to JSON: %w", err)
 		}
@@ -897,7 +885,7 @@ func (ctx *WorkflowContext) setContinuedAsNew() error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW
 	var newRawInput *wrapperspb.StringValue
 	if ctx.continuedAsNewInput != nil {
-		bytes, err := json.Marshal(ctx.continuedAsNewInput)
+		bytes, err := marshalData(ctx.continuedAsNewInput)
 		if err != nil {
 			return fmt.Errorf("failed to marshal continue-as-new payload to JSON: %w", err)
 		}
