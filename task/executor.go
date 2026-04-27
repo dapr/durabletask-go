@@ -34,10 +34,10 @@ func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, 
 		// No clean way to deal with this other than to abandon it
 		return nil, fmt.Errorf("Unexpected event type for ExecuteActivity: %v", e.EventType)
 	}
-	invoker, ok := te.Registry.activities[ts.Name]
+	invoker, ok := te.Registry.GetActivity(ts.Name)
 	if !ok {
 		// try the wildcard match
-		invoker, ok = te.Registry.activities["*"]
+		invoker, ok = te.Registry.GetActivity("*")
 		if !ok {
 			return &protos.HistoryEvent{
 				EventId:   -1,
