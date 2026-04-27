@@ -15,7 +15,6 @@ package runtimestate
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,35 +27,13 @@ import (
 )
 
 type Applier struct {
-	appID                string
-	inProcessNamePrefix *string
+	appID string
 }
 
 func NewApplier(appID string) *Applier {
 	return &Applier{
 		appID: appID,
 	}
-}
-
-// WithInProcessNamePrefix sets the prefix used to determine if a child workflow
-// should be routed to the in-process executor by name, regardless of the parent's flag.
-func (a *Applier) WithInProcessNamePrefix(prefix *string) *Applier {
-	a.inProcessNamePrefix = prefix
-	return a
-}
-
-// shouldBeInProcess returns true if a child workflow or activity should be
-// routed to the in-process executor. True if the parent is in-process (inherited)
-// OR if the child's name matches the in-process prefix (cross-boundary call from
-// an external SDK workflow to a built-in internal workflow).
-func (a *Applier) shouldBeInProcess(s *protos.WorkflowRuntimeState, childName string) bool {
-	if s.StartEvent.GetInProcess() {
-		return true
-	}
-	if a.inProcessNamePrefix != nil && strings.HasPrefix(childName, *a.inProcessNamePrefix) {
-		return true
-	}
-	return false
 }
 
 // Actions takes a set of actions and updates its internal state, including populating the outbox.
@@ -216,7 +193,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 						Version:            scheduleTask.Version,
 						Input:              scheduleTask.Input,
 						ParentTraceContext: currentTraceContext,
-						InProcess:         a.shouldBeInProcess(s, scheduleTask.Name),
+						InProcess:         scheduleTask.GetInProcess(),
 					},
 				},
 				Router: action.Router,
@@ -261,7 +238,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
 						ParentTraceContext: currentTraceContext,
-						InProcess:         a.shouldBeInProcess(s, createSO.Name),
+						InProcess:         createSO.GetInProcess(),
 					},
 				},
 				Router: action.Router,
