@@ -30,7 +30,7 @@ type WorkflowWorkerOptions struct {
 	Executor WorkflowExecutor
 	Logger   Logger
 	AppID    string
-	// InProcessExecutor is forwork items whose WorkflowWorkItem.InProcess flag is true.
+	// InProcessExecutor is for work items whose WorkflowWorkItem.InProcess flag is true.
 	// This is how internal dapr-side workflows (e.g. dapr.internal.mcp.*) run, inside the sidecar
 	// instead of being shipped to an external SDK via the gRPC work-item stream.
 	InProcessExecutor WorkflowExecutor

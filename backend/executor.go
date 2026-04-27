@@ -57,7 +57,7 @@ type grpcExecutor struct {
 	streamShutdownChan       <-chan any
 	streamSendTimeout        *time.Duration
 	skipWaitForInstanceStart bool
-	internalNamePrefix       *string
+	inProcessNamePrefix      *string
 }
 
 type grpcExecutorOptions func(g *grpcExecutor)
@@ -110,15 +110,15 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 // to an in-process executor.
 func WithInProcessNamePrefix(prefix string) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
-		g.internalNamePrefix = &prefix
+		g.inProcessNamePrefix = &prefix
 	}
 }
 
-func (g *grpcExecutor) shouldStampInternal(name string) bool {
-	if g.internalNamePrefix == nil || name == "" {
+func (g *grpcExecutor) shouldStampInProcess(name string) bool {
+	if g.inProcessNamePrefix == nil || name == "" {
 		return false
 	}
-	return strings.HasPrefix(name, *g.internalNamePrefix)
+	return strings.HasPrefix(name, *g.inProcessNamePrefix)
 }
 
 func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (executor Executor, registerServerFn func(grpcServer grpc.ServiceRegistrar)) {
@@ -538,7 +538,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				},
 				ParentTraceContext:      helpers.TraceContextFromSpan(span),
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
-				InProcess:               g.shouldStampInternal(req.Name),
+				InProcess:               g.shouldStampInProcess(req.Name),
 			},
 		},
 	}
