@@ -1082,7 +1082,22 @@ func (be *postgresBackend) AbandonActivityWorkItem(ctx context.Context, wi *back
 	return nil
 }
 
-func (be *postgresBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, force bool) error {
+// PurgeWorkflowState implements backend.Backend.
+//
+// Postgres does not model cross-app routing — a foreign router from a
+// recursive purge driver indicates a configuration mismatch. Return an error
+// in that case so the caller fails loudly.
+func (be *postgresBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool) (int, error) {
+	if router != nil && router.GetTargetAppID() != "" {
+		return 0, errors.New("postgres backend does not support cross-app recursive purge dispatch")
+	}
+	if err := be.purgeWorkflowStateLocal(ctx, id, force); err != nil {
+		return 0, err
+	}
+	return 1, nil
+}
+
+func (be *postgresBackend) purgeWorkflowStateLocal(ctx context.Context, id api.InstanceID, force bool) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}

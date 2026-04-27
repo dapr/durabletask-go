@@ -116,11 +116,16 @@ type Backend interface {
 	// This is called when an internal failure occurs during activity work-item processing.
 	AbandonActivityWorkItem(context.Context, *ActivityWorkItem) error
 
-	// PurgeWorkflowState deletes all saved state for the specified workflow instance.
-	//
+	// PurgeWorkflowState deletes saved workflow state. When router is nil or
+	// targets the local app, this is a single-instance purge of id and the
+	// returned count is 1 on success. When router carries a foreign TargetAppID
+	// set by the recursive purge driver for a child started cross-app the
+	// backend is expected to delegate the entire recursive purge of that subtree
+	// to the target app (the local recursion stops walking through it) and
+	// return the number of instances purged on the remote side.
 	// [api.ErrInstanceNotFound] is returned if the specified workflow instance doesn't exist.
 	// [api.ErrNotCompleted] is returned if the specified workflow instance is still running.
-	PurgeWorkflowState(ctx context.Context, id api.InstanceID, force bool) error
+	PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool) (int, error)
 
 	// CompleteWorkflowTask completes the workflow task by saving the updated runtime state to durable storage.
 	CompleteWorkflowTask(context.Context, *protos.WorkflowResponse) error
@@ -191,10 +196,22 @@ func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, rec
 			return 0, api.ErrNotCompleted
 		}
 		childWorkflowInstances := getChildWorkflowInstances(state.OldEvents, state.NewEvents)
-		for _, childWorkflowInstance := range childWorkflowInstances {
-			// Recursively purge child workflows
-			count, err := purgeWorkflowState(ctx, be, childWorkflowInstance, recursive, force)
-			// `count` child workflows have been successfully purged (even in case of error)
+		for _, child := range childWorkflowInstances {
+			if isRemoteRouter(child.Router) {
+				// Child workflow started cross-app: its state (and any further
+				// descendants) live on a different app, so delegate the entire subtree
+				// to the backend rather than trying to walk it from here.
+				count, err := be.PurgeWorkflowState(ctx, child.InstanceID, child.Router, force)
+				deletedInstanceCount += count
+				if err != nil {
+					return deletedInstanceCount, fmt.Errorf("failed to purge cross-app child workflow: %w", err)
+				}
+				continue
+			}
+			// Same-app child: walk locally.
+			count, err := purgeWorkflowState(ctx, be, child.InstanceID, recursive, force)
+			// `count` child workflows have been successfully purged (even in case of
+			// error)
 			deletedInstanceCount += count
 			if err != nil {
 				return deletedInstanceCount, fmt.Errorf("failed to purge child workflow: %w", err)
@@ -202,10 +219,28 @@ func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, rec
 		}
 	}
 	// Purging root workflow
-	if err := be.PurgeWorkflowState(ctx, iid, force); err != nil {
+	count, err := be.PurgeWorkflowState(ctx, iid, nil, force)
+	if err != nil {
 		return deletedInstanceCount, err
 	}
-	return deletedInstanceCount + 1, nil
+	return deletedInstanceCount + count, nil
+}
+
+// isRemoteRouter reports whether the given router targets a sub-orchestration
+// hosted on a different app, i.e. whether the recursion driver should delegate
+// the entire subtree to the backend's cross-app dispatch path.
+func isRemoteRouter(r *protos.TaskRouter) bool {
+	return r != nil && r.TargetAppID != nil
+}
+
+// childWorkflowRef captures a child workflow's instance ID together with the
+// routing metadata recorded on its ChildWorkflowInstanceCreated history event.
+// The router carries the target app ID for cross-app sub-orchestrations and
+// must be preserved when synthesising new events (e.g. recursive terminate) so
+// the backend can dispatch them to the correct app.
+type childWorkflowRef struct {
+	InstanceID api.InstanceID
+	Router     *protos.TaskRouter
 }
 
 // terminateChildWorkflowInstances submits termination requests to child workflows if [et.Recurse] is true.
@@ -214,7 +249,7 @@ func terminateChildWorkflowInstances(ctx context.Context, be Backend, iid api.In
 		return nil
 	}
 	childWorkflowInstances := getChildWorkflowInstances(state.OldEvents, state.NewEvents)
-	for _, childWorkflowInstance := range childWorkflowInstances {
+	for _, child := range childWorkflowInstances {
 		e := &protos.HistoryEvent{
 			EventId:   -1,
 			Timestamp: timestamppb.Now(),
@@ -224,31 +259,43 @@ func terminateChildWorkflowInstances(ctx context.Context, be Backend, iid api.In
 					Recurse: et.Recurse,
 				},
 			},
+			Router: child.Router,
 		}
 		// Adding terminate event to child workflow instance
-		if err := be.AddNewWorkflowEvent(ctx, childWorkflowInstance, e); err != nil {
+		if err := be.AddNewWorkflowEvent(ctx, child.InstanceID, e); err != nil {
 			return fmt.Errorf("failed to submit termination request to child workflow: %w", err)
 		}
 	}
 	return nil
 }
 
-// getChildWorkflowInstances returns the instance IDs of all child workflows in the specified events.
-func getChildWorkflowInstances(oldEvents []*HistoryEvent, newEvents []*HistoryEvent) []api.InstanceID {
-	childWorkflowInstancesMap := make(map[api.InstanceID]struct{}, len(oldEvents)+len(newEvents))
-	for _, e := range oldEvents {
-		if created := e.GetChildWorkflowInstanceCreated(); created != nil {
-			childWorkflowInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
+// getChildWorkflowInstances returns each child workflow recorded in the given
+// events, paired with the router that was attached to its
+// ChildWorkflowInstanceCreated history event (nil for same-app children).
+func getChildWorkflowInstances(oldEvents []*HistoryEvent, newEvents []*HistoryEvent) []childWorkflowRef {
+	childWorkflowInstancesMap := make(map[api.InstanceID]*protos.TaskRouter, len(oldEvents)+len(newEvents))
+	collect := func(events []*HistoryEvent) {
+		for _, e := range events {
+			created := e.GetChildWorkflowInstanceCreated()
+			if created == nil {
+				continue
+			}
+			id := api.InstanceID(created.InstanceId)
+			if _, ok := childWorkflowInstancesMap[id]; ok {
+				continue
+			}
+			childWorkflowInstancesMap[id] = e.GetRouter()
 		}
 	}
-	for _, e := range newEvents {
-		if created := e.GetChildWorkflowInstanceCreated(); created != nil {
-			childWorkflowInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
-		}
-	}
-	childWorkflowInstances := make([]api.InstanceID, 0, len(childWorkflowInstancesMap))
-	for orch := range childWorkflowInstancesMap {
-		childWorkflowInstances = append(childWorkflowInstances, orch)
+	collect(oldEvents)
+	collect(newEvents)
+
+	childWorkflowInstances := make([]childWorkflowRef, 0, len(childWorkflowInstancesMap))
+	for id, router := range childWorkflowInstancesMap {
+		childWorkflowInstances = append(childWorkflowInstances, childWorkflowRef{
+			InstanceID: id,
+			Router:     router,
+		})
 	}
 	return childWorkflowInstances
 }

@@ -1019,7 +1019,22 @@ func (be *sqliteBackend) AbandonActivityWorkItem(ctx context.Context, wi *backen
 	return nil
 }
 
-func (be *sqliteBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, force bool) error {
+// PurgeWorkflowState implements backend.Backend.
+//
+// SQLite does not model cross-app routing — a foreign router from a
+// recursive purge driver indicates a configuration mismatch. Return an error
+// in that case so the caller fails loudly.
+func (be *sqliteBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool) (int, error) {
+	if router != nil && router.GetTargetAppID() != "" {
+		return 0, errors.New("sqlite backend does not support cross-app recursive purge dispatch")
+	}
+	if err := be.purgeWorkflowStateLocal(ctx, id, force); err != nil {
+		return 0, err
+	}
+	return 1, nil
+}
+
+func (be *sqliteBackend) purgeWorkflowStateLocal(ctx context.Context, id api.InstanceID, force bool) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
