@@ -14,6 +14,7 @@ require (
 	go.opentelemetry.io/otel/exporters/zipkin v1.34.0
 	go.opentelemetry.io/otel/sdk v1.39.0
 	go.opentelemetry.io/otel/trace v1.39.0
+	golang.org/x/text v0.35.0
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.34.5
@@ -43,10 +44,11 @@ require (
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260316180232-0b37fe3546d5 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.61.9 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.8.2 // indirect
 )
+
+replace github.com/dapr/kit => github.com/joshvanl/kit v0.0.0-20260427195132-0e477f349b29
