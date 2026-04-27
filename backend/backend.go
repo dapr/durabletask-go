@@ -228,9 +228,13 @@ func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, rec
 
 // isRemoteRouter reports whether the given router targets a sub-orchestration
 // hosted on a different app, i.e. whether the recursion driver should delegate
-// the entire subtree to the backend's cross-app dispatch path.
+// the entire subtree to the backend's cross-app dispatch path. The applier
+// stamps every action's router with at least SourceAppID, so same-app children
+// arrive here with a non-nil router whose TargetAppID is empty — match on the
+// effective target string to stay aligned with the per-backend dispatch
+// predicates.
 func isRemoteRouter(r *protos.TaskRouter) bool {
-	return r != nil && r.TargetAppID != nil
+	return r.GetTargetAppID() != ""
 }
 
 // childWorkflowRef captures a child workflow's instance ID together with the
@@ -271,7 +275,10 @@ func terminateChildWorkflowInstances(ctx context.Context, be Backend, iid api.In
 
 // getChildWorkflowInstances returns each child workflow recorded in the given
 // events, paired with the router that was attached to its
-// ChildWorkflowInstanceCreated history event (nil for same-app children).
+// ChildWorkflowInstanceCreated history event. The applier always populates a
+// router on emitted history events (at minimum the parent's SourceAppID), so
+// same-app children are represented by a router whose TargetAppID is unset
+// or empty rather than by a nil router.
 func getChildWorkflowInstances(oldEvents []*HistoryEvent, newEvents []*HistoryEvent) []childWorkflowRef {
 	childWorkflowInstancesMap := make(map[api.InstanceID]*protos.TaskRouter, len(oldEvents)+len(newEvents))
 	collect := func(events []*HistoryEvent) {
