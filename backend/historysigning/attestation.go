@@ -80,7 +80,7 @@ func CanonicalSuccessOutput(sv *wrapperspb.StringValue) []byte {
 // Returns an error when the innerFailure chain is deeper than
 // maxFailureRecursionDepth (DoS guard against attacker-supplied malformed
 // chains). A nil input is serialized as a TaskFailureDetails with all fields
-// at their zero values. TGhis keeps the output deterministic rather than
+// at their zero values. This keeps the output deterministic rather than
 // short-circuiting.
 func CanonicalFailureOutput(fd *protos.TaskFailureDetails) ([]byte, error) {
 	var buf bytes.Buffer
