@@ -34,6 +34,10 @@ type WorkflowWorkerOptions struct {
 	// This is how internal dapr-side workflows (e.g. dapr.internal.mcp.*) run, inside the sidecar
 	// instead of being shipped to an external SDK via the gRPC work-item stream.
 	InProcessExecutor WorkflowExecutor
+	// InProcessNamePrefix is used by the applier to stamp child workflows/activities
+	// as in-process when their name matches this prefix, even if the parent is external.
+	// This enables cross-boundary calls (external SDK → built-in internal workflow).
+	InProcessNamePrefix *string
 }
 
 type workflowProcessor struct {
@@ -51,7 +55,7 @@ func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOpti
 		executor:          opts.Executor,
 		inProcessExecutor: opts.InProcessExecutor,
 		logger:            opts.Logger,
-		applier:           runtimestate.NewApplier(opts.AppID),
+		applier:           runtimestate.NewApplier(opts.AppID).WithInProcessNamePrefix(opts.InProcessNamePrefix),
 	}
 	return NewTaskWorker[*WorkflowWorkItem](processor, opts.Logger, taskopts...)
 }
