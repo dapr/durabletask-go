@@ -616,25 +616,14 @@ func (ctx *WorkflowContext) isPatched(patchName string) bool {
 }
 
 func (ctx *WorkflowContext) getWorkflow(es *protos.ExecutionStartedEvent) (Workflow, error) {
-	// Non-versioned workflow
-	if workflow, ok := ctx.registry.GetWorkflow(es.Name); ok {
-		return workflow, nil
+	workflow, version, err := ctx.registry.ResolveWorkflow(es.Name, ctx.VersionName)
+	if err != nil {
+		return nil, err
 	}
-
-	// Versioned workflow
-	if workflow, version, ok := ctx.registry.GetVersionedWorkflow(es.Name, ctx.VersionName); ok {
-		ctx.VersionName = &version
-		return workflow, nil
-	} else if ctx.VersionName != nil {
-		return nil, api.NewUnsupportedVersionError()
+	if version != nil {
+		ctx.VersionName = version
 	}
-
-	// Wildcard fallback
-	if workflow, ok := ctx.registry.GetWorkflow("*"); ok {
-		return workflow, nil
-	}
-
-	return nil, fmt.Errorf("workflow named '%s' is not registered", es.Name)
+	return workflow, nil
 }
 
 func (ctx *WorkflowContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
