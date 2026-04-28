@@ -39,3 +39,27 @@ var MCPMethodSuffix = map[MCPMethod]string{
 	MCP_METHOD_LIST_TOOLS: ".ListTools",
 	MCP_METHOD_CALL_TOOL:  ".CallTool",
 }
+
+// MCPListToolsWorkflowName returns the full workflow name for a ListTools
+// operation on the given MCPServer: dapr.internal.mcp.<server>.ListTools
+func MCPListToolsWorkflowName(serverName string) string {
+	return InProcessWorkflowPrefixes[IN_PROCESS_WF_MCP] + serverName + MCPMethodSuffix[MCP_METHOD_LIST_TOOLS]
+}
+
+// MCPCallToolWorkflowName returns the full workflow name for a CallTool
+// operation on the given MCPServer: dapr.internal.mcp.<server>.CallTool
+func MCPCallToolWorkflowName(serverName string) string {
+	return InProcessWorkflowPrefixes[IN_PROCESS_WF_MCP] + serverName + MCPMethodSuffix[MCP_METHOD_CALL_TOOL]
+}
+
+// MCPListToolsActivityName returns the activity name for a ListTools transport
+// call on the given MCPServer: dapr.internal.mcp.<server>.list-tools
+func MCPListToolsActivityName(serverName string) string {
+	return InProcessWorkflowPrefixes[IN_PROCESS_WF_MCP] + serverName + ".list-tools"
+}
+
+// MCPCallToolActivityName returns the activity name for a CallTool transport
+// call on the given MCPServer: dapr.internal.mcp.<server>.call-tool
+func MCPCallToolActivityName(serverName string) string {
+	return InProcessWorkflowPrefixes[IN_PROCESS_WF_MCP] + serverName + ".call-tool"
+}
