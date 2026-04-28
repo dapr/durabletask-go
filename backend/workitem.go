@@ -20,6 +20,10 @@ type WorkflowWorkItem struct {
 	RetryCount int32
 	State      *protos.WorkflowRuntimeState
 	Properties map[string]interface{}
+	// receive from caller
+	IncomingHistory *protos.PropagatedHistory
+	// sent to each activity (child wf use state.PendingMessages)
+	OutgoingHistory map[int32]*protos.PropagatedHistory
 }
 
 // String implements core.WorkItem and fmt.Stringer
@@ -50,6 +54,8 @@ type ActivityWorkItem struct {
 	Result         *HistoryEvent
 	LockedBy       string
 	Properties     map[string]interface{}
+	// receive from caller
+	IncomingHistory *protos.PropagatedHistory
 }
 
 // String implements core.WorkItem and fmt.Stringer

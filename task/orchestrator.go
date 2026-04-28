@@ -60,24 +60,35 @@ type WorkflowContext struct {
 	historyPatches             map[string]bool
 	appliedPatches             map[string]bool
 	encounteredPatches         []string
+	propagatedHistory          *api.PropagatedHistory
 }
 
 // callChildWorkflowOptions is a struct that holds the options for the CallChildWorkflow workflow method.
 type callChildWorkflowOptions struct {
-	instanceID  string
-	rawInput    *wrapperspb.StringValue
-	targetAppID *string
-	retryPolicy *RetryPolicy
+	instanceID       string
+	rawInput         *wrapperspb.StringValue
+	targetAppID      *string
+	retryPolicy      *RetryPolicy
+	propagationScope *protos.HistoryPropagationScope
 }
 
-// ChildWorkflowOption is a functional option type for the CallChildWorkflow workflow method.
-type ChildWorkflowOption func(*callChildWorkflowOptions) error
+// ChildWorkflowOption is the interface for options passed to CallChildWorkflow.
+type ChildWorkflowOption interface {
+	applyChildWorkflowOption(*callChildWorkflowOptions) error
+}
+
+// ChildWorkflowOptionFunc adapts a function to the ChildWorkflowOption interface.
+type ChildWorkflowOptionFunc func(*callChildWorkflowOptions) error
+
+func (f ChildWorkflowOptionFunc) applyChildWorkflowOption(opts *callChildWorkflowOptions) error {
+	return f(opts)
+}
 
 // ContinueAsNewOption is a functional option type for the ContinueAsNew workflow method.
 type ContinueAsNewOption func(*WorkflowContext)
 
 // WithChildWorkflowAppID is a functional option type for the CallChildWorkflow workflow method that specifies the app ID of the target activity.
-func WithChildWorkflowAppID(appID string) ChildWorkflowOption {
+func WithChildWorkflowAppID(appID string) ChildWorkflowOptionFunc {
 	return func(opts *callChildWorkflowOptions) error {
 		opts.targetAppID = &appID
 		return nil
@@ -94,7 +105,7 @@ func WithKeepUnprocessedEvents() ContinueAsNewOption {
 
 // WithChildWorkflowInput is a functional option type for the CallChildWorkflow
 // workflow method that takes an input value and marshals it to JSON.
-func WithChildWorkflowInput(input any) ChildWorkflowOption {
+func WithChildWorkflowInput(input any) ChildWorkflowOptionFunc {
 	return func(opts *callChildWorkflowOptions) error {
 		bytes, err := marshalData(input)
 		if err != nil {
@@ -107,7 +118,7 @@ func WithChildWorkflowInput(input any) ChildWorkflowOption {
 
 // WithRawChildWorkflowInput is a functional option type for the CallChildWorkflow
 // workflow method that takes a raw input value.
-func WithRawChildWorkflowInput(input *wrapperspb.StringValue) ChildWorkflowOption {
+func WithRawChildWorkflowInput(input *wrapperspb.StringValue) ChildWorkflowOptionFunc {
 	return func(opts *callChildWorkflowOptions) error {
 		opts.rawInput = input
 		return nil
@@ -116,14 +127,14 @@ func WithRawChildWorkflowInput(input *wrapperspb.StringValue) ChildWorkflowOptio
 
 // WithChildWorkflowInstanceID is a functional option type for the CallChildWorkflow
 // workflow method that specifies the instance ID of the child workflow.
-func WithChildWorkflowInstanceID(instanceID string) ChildWorkflowOption {
+func WithChildWorkflowInstanceID(instanceID string) ChildWorkflowOptionFunc {
 	return func(opts *callChildWorkflowOptions) error {
 		opts.instanceID = instanceID
 		return nil
 	}
 }
 
-func WithChildWorkflowRetryPolicy(policy *RetryPolicy) ChildWorkflowOption {
+func WithChildWorkflowRetryPolicy(policy *RetryPolicy) ChildWorkflowOptionFunc {
 	return func(opt *callChildWorkflowOptions) error {
 		if policy == nil {
 			return nil
@@ -282,13 +293,26 @@ func (octx *WorkflowContext) GetInput(v any) error {
 	return unmarshalData(octx.rawInput, v)
 }
 
+// GetPropagatedHistory returns the propagated history from a parent workflow,
+// or nil if no history was propagated. The propagated history contains events
+// from the parent (and optionally ancestor) workflows that opted to propagate
+// their execution context.
+func (octx *WorkflowContext) GetPropagatedHistory() *api.PropagatedHistory {
+	return octx.propagatedHistory
+}
+
+// SetPropagatedHistory sets the propagated history on the context.
+func (octx *WorkflowContext) SetPropagatedHistory(ph *api.PropagatedHistory) {
+	octx.propagatedHistory = ph
+}
+
 // CallActivity schedules an asynchronous invocation of an activity function. The [activity]
 // parameter can be either the name of an activity as a string or can be a pointer to the function
 // that implements the activity, in which case the name is obtained via reflection.
 func (ctx *WorkflowContext) CallActivity(activity interface{}, opts ...CallActivityOption) Task {
 	options := new(callActivityOptions)
 	for _, configure := range opts {
-		if err := configure(options); err != nil {
+		if err := configure.applyActivityOption(options); err != nil {
 			failedTask := newTask(ctx)
 			failedTask.fail(&protos.TaskFailureDetails{
 				ErrorType:    reflect.TypeOf(err).String(),
@@ -329,6 +353,12 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 		}
 	}
 
+	if options.propagationScope != nil {
+		if st := scheduleTaskAction.GetScheduleTask(); st != nil {
+			st.HistoryPropagationScope = options.propagationScope
+		}
+	}
+
 	ctx.pendingActions[scheduleTaskAction.Id] = scheduleTaskAction
 
 	task := newTask(ctx)
@@ -339,7 +369,7 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 func (ctx *WorkflowContext) CallChildWorkflow(workflow interface{}, opts ...ChildWorkflowOption) Task {
 	options := new(callChildWorkflowOptions)
 	for _, configure := range opts {
-		if err := configure(options); err != nil {
+		if err := configure.applyChildWorkflowOption(options); err != nil {
 			failedTask := newTask(ctx)
 			failedTask.fail(&protos.TaskFailureDetails{
 				ErrorType:    reflect.TypeOf(err).String(),
@@ -387,6 +417,12 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 	if options.targetAppID != nil {
 		createChildWorkflowAction.Router = &protos.TaskRouter{
 			TargetAppID: ptr.Of(*options.targetAppID),
+		}
+	}
+
+	if options.propagationScope != nil {
+		if cw := createChildWorkflowAction.GetCreateChildWorkflow(); cw != nil {
+			cw.HistoryPropagationScope = options.propagationScope
 		}
 	}
 

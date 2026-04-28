@@ -18,7 +18,7 @@ type activityProcessor struct {
 }
 
 type ActivityExecutor interface {
-	ExecuteActivity(context.Context, api.InstanceID, *protos.HistoryEvent) (*protos.HistoryEvent, error)
+	ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error)
 }
 
 func NewActivityTaskWorker(be Backend, executor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
@@ -68,8 +68,10 @@ func (p *activityProcessor) ProcessWorkItem(ctx context.Context, awi *ActivityWo
 	// set the parent trace context to be the newly created activity span
 	ts.ParentTraceContext = helpers.TraceContextFromSpan(span)
 
+	execOpts := ExecuteOptions{PropagatedHistory: awi.IncomingHistory}
+
 	// Execute the activity and get its result
-	result, err := p.executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent)
+	result, err := p.executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent, execOpts)
 	if err != nil {
 		if span != nil {
 			span.RecordError(err)

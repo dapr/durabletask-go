@@ -164,7 +164,10 @@ func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 	executor backend.Executor,
 	workItem *protos.WorkflowRequest,
 ) {
-	results, err := executor.ExecuteWorkflow(ctx, api.InstanceID(workItem.InstanceId), workItem.PastEvents, workItem.NewEvents)
+	opts := backend.ExecuteOptions{
+		PropagatedHistory: workItem.GetPropagatedHistory(),
+	}
+	results, err := executor.ExecuteWorkflow(ctx, api.InstanceID(workItem.InstanceId), workItem.PastEvents, workItem.NewEvents, opts)
 
 	resp := protos.WorkflowResponse{InstanceId: workItem.InstanceId}
 	if err != nil {
@@ -205,10 +208,13 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 	executor backend.Executor,
 	req *protos.ActivityRequest,
 ) {
+	opts := backend.ExecuteOptions{
+		PropagatedHistory: req.GetPropagatedHistory(),
+	}
 	var ptc *protos.TraceContext = req.ParentTraceContext
 	ctx, err := helpers.ContextFromTraceContext(ctx, ptc)
 	if err != nil {
-		c.logger.Warn("%v: failed to parse trace context: %v", req.Name, err)
+		c.logger.Warnf("%v: failed to parse trace context: %v", req.Name, err)
 	}
 
 	event := &protos.HistoryEvent{
@@ -224,7 +230,7 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 			},
 		},
 	}
-	result, err := executor.ExecuteActivity(ctx, api.InstanceID(req.WorkflowInstance.InstanceId), event)
+	result, err := executor.ExecuteActivity(ctx, api.InstanceID(req.WorkflowInstance.InstanceId), event, opts)
 
 	resp := protos.ActivityResponse{InstanceId: req.WorkflowInstance.InstanceId, TaskId: req.TaskId}
 	if err != nil {

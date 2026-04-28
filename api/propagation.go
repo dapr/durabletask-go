@@ -1,0 +1,398 @@
+/*
+Copyright 2026 The Dapr Authors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package api
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/dapr/durabletask-go/api/protos"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/wrapperspb"
+)
+
+var ErrPropagationNotFound = errors.New("propagated history: not found")
+
+// PropagationOption is a functional option for configuring history propagation.
+// Pass one of PropagateOwnHistory() or PropagateLineage().
+type PropagationOption func(*protos.HistoryPropagationScope)
+
+// PropagateOwnHistory configures propagation to include the caller's own
+// history events (activities, child workflows, timers, etc.). The child only
+// sees events from the immediate parent, not the ancestor chain.
+func PropagateOwnHistory() PropagationOption {
+	return func(s *protos.HistoryPropagationScope) {
+		*s = protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY
+	}
+}
+
+// PropagateLineage configures propagation to include the caller's own history
+// events AND the full ancestor chain. Any propagated history this workflow
+// received from its own parent is forwarded to the child, preserving the full
+// chain of custody.
+func PropagateLineage() PropagationOption {
+	return func(s *protos.HistoryPropagationScope) {
+		*s = protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE
+	}
+}
+
+// NewHistoryPropagationScope creates a HistoryPropagationScope from the given option.
+// A nil option is treated as HISTORY_PROPAGATION_SCOPE_NONE.
+func NewHistoryPropagationScope(opt PropagationOption) protos.HistoryPropagationScope {
+	var scope protos.HistoryPropagationScope
+	if opt != nil {
+		opt(&scope)
+	}
+	return scope
+}
+
+// historyChunk represents a contiguous range of events produced by a single
+// workflow instance
+type historyChunk struct {
+	appID           string
+	startEventIndex int
+	eventCount      int
+	instanceID      string
+	workflowName    string
+}
+
+// PropagatedHistory is the history propagated from a parent workflow to a
+// child wf or activity
+type PropagatedHistory struct {
+	events []*protos.HistoryEvent
+	scope  protos.HistoryPropagationScope
+	chunks []historyChunk
+}
+
+// Events returns all propagated history events.
+func (ph *PropagatedHistory) Events() []*protos.HistoryEvent {
+	return ph.events
+}
+
+// Scope returns the propagation scope used to produce this history.
+func (ph *PropagatedHistory) Scope() protos.HistoryPropagationScope {
+	return ph.scope
+}
+
+// GetAppIDs returns the ordered, deduplicated list of app IDs in the history chain.
+func (ph *PropagatedHistory) GetAppIDs() []string {
+	seen := make(map[string]bool)
+	var ids []string
+	for _, chunk := range ph.chunks {
+		if !seen[chunk.appID] {
+			seen[chunk.appID] = true
+			ids = append(ids, chunk.appID)
+		}
+	}
+	return ids
+}
+
+// GetEventsByAppID returns only the events produced by the given app.
+func (ph *PropagatedHistory) GetEventsByAppID(appID string) []*protos.HistoryEvent {
+	var events []*protos.HistoryEvent
+	for _, chunk := range ph.chunks {
+		if chunk.appID == appID {
+			events = append(events, ph.chunkEvents(chunk)...)
+		}
+	}
+	return events
+}
+
+// GetEventsByInstanceID returns only the events produced by the given workflow instance.
+func (ph *PropagatedHistory) GetEventsByInstanceID(instanceID string) []*protos.HistoryEvent {
+	var events []*protos.HistoryEvent
+	for _, chunk := range ph.chunks {
+		if chunk.instanceID == instanceID {
+			events = append(events, ph.chunkEvents(chunk)...)
+		}
+	}
+	return events
+}
+
+// GetEventsByWorkflowName returns only the events produced by workflows with the given name.
+func (ph *PropagatedHistory) GetEventsByWorkflowName(name string) []*protos.HistoryEvent {
+	var events []*protos.HistoryEvent
+	for _, chunk := range ph.chunks {
+		if chunk.workflowName == name {
+			events = append(events, ph.chunkEvents(chunk)...)
+		}
+	}
+	return events
+}
+
+// chunkEvents returns the slice of events for a given chunk, with bounds
+// checking against malformed or forged propagated history
+func (ph *PropagatedHistory) chunkEvents(chunk historyChunk) []*protos.HistoryEvent {
+	start := chunk.startEventIndex
+	if start < 0 || start > len(ph.events) {
+		return nil
+	}
+	end := start + chunk.eventCount
+	if end > len(ph.events) {
+		end = len(ph.events)
+	}
+	if end < start {
+		return nil
+	}
+	events := ph.events[start:end]
+	out := make([]*protos.HistoryEvent, len(events))
+	for i, e := range events {
+		out[i] = proto.Clone(e).(*protos.HistoryEvent)
+	}
+	return out
+}
+
+// WorkflowResult is a scoped view of a single workflow's chunk in propagated history.
+// Use GetActivityByName or GetChildWorkflowByName to query specific items.
+type WorkflowResult struct {
+	Found      bool
+	InstanceID string
+	AppID      string
+	Name       string // wf name
+	events     []*protos.HistoryEvent
+}
+
+// ActivityResult holds the status and data of a named activity.
+type ActivityResult struct {
+	Name      string // activity name
+	Started   bool
+	Completed bool
+	Failed    bool
+	Input     *wrapperspb.StringValue
+	Output    *wrapperspb.StringValue
+	Error     *protos.TaskFailureDetails
+}
+
+// ChildWorkflowResult holds the status and data of a named child workflow.
+type ChildWorkflowResult struct {
+	Name      string // child wf name
+	Started   bool
+	Completed bool
+	Failed    bool
+	Output    *wrapperspb.StringValue
+	Error     *protos.TaskFailureDetails
+}
+
+// makeWorkflowResult creates a WorkflowResult from a chunk.
+func (ph *PropagatedHistory) makeWorkflowResult(chunk historyChunk) *WorkflowResult {
+	return &WorkflowResult{
+		Found:      true,
+		InstanceID: chunk.instanceID,
+		AppID:      chunk.appID,
+		Name:       chunk.workflowName,
+		events:     ph.chunkEvents(chunk),
+	}
+}
+
+// GetWorkflows returns all workflow results in the propagated history chain,
+// in execution order (ancestor first, then own)
+func (ph *PropagatedHistory) GetWorkflows() []*WorkflowResult {
+	results := make([]*WorkflowResult, 0, len(ph.chunks))
+	for _, chunk := range ph.chunks {
+		results = append(results, ph.makeWorkflowResult(chunk))
+	}
+	return results
+}
+
+// GetWorkflowByName returns the last workflow chunk in the propagated history
+// whose workflow name matches. When the chain contains the same workflow name
+// more than once (eg a workflow that does ContinueAsNew, or a recursive child
+// workflow) this returns the most-recent occurrence — equivalent to the last
+// element of GetWorkflowsByName. Returns ErrPropagationNotFound when no chunk
+// matches.
+func (ph *PropagatedHistory) GetWorkflowByName(name string) (*WorkflowResult, error) {
+	all := ph.GetWorkflowsByName(name)
+	if len(all) == 0 {
+		return nil, ErrPropagationNotFound
+	}
+	return all[len(all)-1], nil
+}
+
+// GetWorkflowsByName returns all workflow results matching the given name,
+// in execution order. Returns nil if none found.
+func (ph *PropagatedHistory) GetWorkflowsByName(name string) []*WorkflowResult {
+	var results []*WorkflowResult
+	for _, chunk := range ph.chunks {
+		if chunk.workflowName == name {
+			results = append(results, ph.makeWorkflowResult(chunk))
+		}
+	}
+	return results
+}
+
+// resolveActivity builds an ActivityResult for a single TaskScheduled history
+// event and its matching TaskCompleted/TaskFailed. Matching is done by the
+// scheduling event's ID (TaskCompletedEvent.taskScheduledId /
+// TaskFailedEvent.taskScheduledId), NOT by taskExecutionId, because SDK
+// retries reuse the same taskExecutionId
+func resolveActivity(events []*protos.HistoryEvent, scheduleEvent *protos.HistoryEvent) *ActivityResult {
+	ts := scheduleEvent.GetTaskScheduled()
+	result := &ActivityResult{
+		Name:    ts.GetName(),
+		Started: true,
+		Input:   ts.GetInput(),
+	}
+	scheduleID := scheduleEvent.GetEventId()
+	for _, e := range events {
+		if tc := e.GetTaskCompleted(); tc != nil && tc.GetTaskScheduledId() == scheduleID {
+			result.Completed = true
+			result.Output = tc.GetResult()
+		}
+		if tf := e.GetTaskFailed(); tf != nil && tf.GetTaskScheduledId() == scheduleID {
+			result.Failed = true
+			result.Error = tf.GetFailureDetails()
+		}
+	}
+	return result
+}
+
+// GetActivityByName returns the last activity scheduled in this workflow's
+// chunk whose name matches. The returned result reflects the most recent
+// invocation; for SDK-driven retries (which reuse the activity name and
+// taskExecutionId) this is the final attempt. Returns ErrPropagationNotFound
+// when the workflow result is empty or no activity event matches.
+func (wr WorkflowResult) GetActivityByName(name string) (*ActivityResult, error) {
+	all := wr.GetActivitiesByName(name)
+	if len(all) == 0 {
+		return nil, ErrPropagationNotFound
+	}
+	return all[len(all)-1], nil
+}
+
+// GetActivitiesByName returns all activity results matching the given name,
+// in execution order. Useful when the same activity is called multiple times
+// (ex retries/loops). Returns nil if none found.
+func (wr WorkflowResult) GetActivitiesByName(name string) []*ActivityResult {
+	if !wr.Found {
+		return nil
+	}
+	var results []*ActivityResult
+	for _, e := range wr.events {
+		if ts := e.GetTaskScheduled(); ts != nil && ts.GetName() == name {
+			results = append(results, resolveActivity(wr.events, e))
+		}
+	}
+	return results
+}
+
+// resolveChildWorkflow builds a ChildWorkflowResult for a single
+// ChildWorkflowInstanceCreated event and its matching Completed/Failed.
+func resolveChildWorkflow(events []*protos.HistoryEvent, eventID int32) *ChildWorkflowResult {
+	result := &ChildWorkflowResult{Started: true}
+	for _, e := range events {
+		if cw := e.GetChildWorkflowInstanceCreated(); cw != nil && e.GetEventId() == eventID {
+			result.Name = cw.GetName()
+		}
+		if cc := e.GetChildWorkflowInstanceCompleted(); cc != nil && cc.GetTaskScheduledId() == eventID {
+			result.Completed = true
+			result.Output = cc.GetResult()
+		}
+		if cf := e.GetChildWorkflowInstanceFailed(); cf != nil && cf.GetTaskScheduledId() == eventID {
+			result.Failed = true
+			result.Error = cf.GetFailureDetails()
+		}
+	}
+	return result
+}
+
+// GetChildWorkflowByName returns the last child workflow scheduled in this
+// workflow's chunk whose name matches. When the same child workflow name is
+// invoked more than once from this parent (in a loop), this returns the
+// most recent invocation — equivalent to the last element of
+// GetChildWorkflowsByName. Returns ErrPropagationNotFound when the workflow
+// result is empty or no child workflow event matches.
+func (wr WorkflowResult) GetChildWorkflowByName(name string) (*ChildWorkflowResult, error) {
+	all := wr.GetChildWorkflowsByName(name)
+	if len(all) == 0 {
+		return nil, ErrPropagationNotFound
+	}
+	return all[len(all)-1], nil
+}
+
+// GetChildWorkflowsByName returns all child workflow results matching the given name,
+// in execution order. Returns nil if none found.
+func (wr WorkflowResult) GetChildWorkflowsByName(name string) []*ChildWorkflowResult {
+	if !wr.Found {
+		return nil
+	}
+	var results []*ChildWorkflowResult
+	for _, e := range wr.events {
+		if cw := e.GetChildWorkflowInstanceCreated(); cw != nil && cw.GetName() == name {
+			results = append(results, resolveChildWorkflow(wr.events, e.GetEventId()))
+		}
+	}
+	return results
+}
+
+  // PropagatedHistoryFromProto converts a proto PropagatedHistory to the Go
+  // type. Returns an error if the payload is structurally inconsistent, for
+  // example, chunks that overlap, run past the end of the events slice, or
+  // fail to cover every event.
+  func PropagatedHistoryFromProto(ph *protos.PropagatedHistory) (*PropagatedHistory, error) {
+        if ph == nil {
+                return nil, nil
+        }
+        if err := validatePropagatedHistory(ph); err != nil {
+                return nil, err
+        }
+
+        chunks := make([]historyChunk, len(ph.GetChunks()))
+        for i, c := range ph.GetChunks() {
+                chunks[i] = historyChunk{
+                        appID:           c.GetAppId(),
+                        startEventIndex: int(c.GetStartEventIndex()),
+                        eventCount:      int(c.GetEventCount()),
+                        instanceID:      c.GetInstanceId(),
+                        workflowName:    c.GetWorkflowName(),
+                }
+        }
+        return &PropagatedHistory{
+                events: ph.GetEvents(),
+                scope:  ph.GetScope(),
+                chunks: chunks,
+        }, nil
+  }
+  
+  // validatePropagatedHistory enforces the structural contract documented on
+  // the PropagatedHistory proto: chunks are ordered, non-overlapping, in-bounds,
+  // and together cover every event. A malformed payload is rejected at the
+  // trust boundary so it never reaches the query helpers or the state store.
+  func validatePropagatedHistory(ph *protos.PropagatedHistory) error {
+        events := ph.GetEvents()
+        n := int32(len(events))
+
+        var nextExpected int32
+        for i, c := range ph.GetChunks() {
+                start, count := c.GetStartEventIndex(), c.GetEventCount()
+
+                if start < 0 || count < 0 {
+                        return fmt.Errorf("propagated history: chunk %d has negative index/count (start=%d count=%d)", i, start, count)
+                }
+                // Use int64 arithmetic to dodge int32 overflow on the addition.
+                if int64(start)+int64(count) > int64(n) {
+                        return fmt.Errorf("propagated history: chunk %d range [%d,%d) exceeds events length %d", i, start, int64(start)+int64(count), n)
+                }
+                if start != nextExpected {
+                        return fmt.Errorf("propagated history: chunk %d starts at %d, expected %d (chunks must be contiguous and non-overlapping)", i, start, nextExpected)
+                }
+                nextExpected = start + count
+        }
+
+        if nextExpected != n {
+                return fmt.Errorf("propagated history: chunks cover %d events but events length is %d", nextExpected, n)
+        }
+        return nil
+  }

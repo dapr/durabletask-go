@@ -38,9 +38,13 @@ type pendingActivity struct {
 	streamID   string
 }
 
+type ExecuteOptions struct {
+	PropagatedHistory *protos.PropagatedHistory
+}
+
 type Executor interface {
-	ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error)
-	ExecuteActivity(context.Context, api.InstanceID, *protos.HistoryEvent) (*protos.HistoryEvent, error)
+	ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error)
+	ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error)
 	Shutdown(ctx context.Context) error
 }
 
@@ -123,14 +127,15 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 }
 
 // ExecuteWorkflow implements Executor
-func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
+func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error) {
 	executor.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
 
 	req := &protos.WorkflowRequest{
-		InstanceId:  string(iid),
-		ExecutionId: nil,
-		PastEvents:  oldEvents,
-		NewEvents:   newEvents,
+		InstanceId:        string(iid),
+		ExecutionId:       nil,
+		PastEvents:        oldEvents,
+		NewEvents:         newEvents,
+		PropagatedHistory: opts.PropagatedHistory,
 	}
 
 	workItem := &protos.WorkItem{
@@ -166,7 +171,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 }
 
 // ExecuteActivity implements Executor
-func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent) (*protos.HistoryEvent, error) {
+func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error) {
 	key := GetActivityExecutionKey(string(iid), e.EventId)
 	executor.pendingActivities.Store(key, &pendingActivity{instanceID: iid, taskID: e.EventId})
 
@@ -180,6 +185,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		TaskId:             e.EventId,
 		TaskExecutionId:    task.TaskExecutionId,
 		ParentTraceContext: task.ParentTraceContext,
+		PropagatedHistory:  opts.PropagatedHistory,
 	}
 	workItem := &protos.WorkItem{
 		Request: &protos.WorkItem_ActivityRequest{
