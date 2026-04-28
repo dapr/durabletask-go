@@ -67,6 +67,15 @@ type callChildWorkflowOptions struct {
 	rawInput    *wrapperspb.StringValue
 	targetAppID *string
 	retryPolicy *RetryPolicy
+	inProcess   bool
+}
+
+// WithChildWorkflowInProcess marks the child workflow to run on the in-process executor.
+func WithChildWorkflowInProcess() ChildWorkflowOption {
+	return func(opts *callChildWorkflowOptions) error {
+		opts.inProcess = true
+		return nil
+	}
 }
 
 // ChildWorkflowOption is a functional option type for the CallChildWorkflow workflow method.
@@ -318,7 +327,7 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 	scheduleTaskAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
 		WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
-			ScheduleTask: &protos.ScheduleTaskAction{Name: activityName, TaskExecutionId: taskExecutionId, Input: options.rawInput},
+			ScheduleTask: &protos.ScheduleTaskAction{Name: activityName, TaskExecutionId: taskExecutionId, Input: options.rawInput, InProcess: options.inProcess},
 		},
 	}
 
@@ -379,6 +388,7 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 				Name:       workflowName,
 				Input:      options.rawInput,
 				InstanceId: options.instanceID,
+				InProcess:  options.inProcess,
 			},
 		},
 	}

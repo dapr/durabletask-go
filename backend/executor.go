@@ -446,13 +446,15 @@ func (g *grpcExecutor) executeOnWorkItemDisconnect(ctx context.Context) error {
 
 // CompleteWorkflowTask implements protos.TaskHubSidecarServiceServer.
 func (g *grpcExecutor) CompleteWorkflowTask(ctx context.Context, res *protos.WorkflowResponse) (*protos.CompleteTaskResponse, error) {
-	// Stamp in_process on child workflow and activity actions so the applier
-	// and worker can route them correctly without string prefix matching.
+	// Stamp in_process on child workflow and activity actions from external SDKs.
+	// External SDKs (Python, .NET, etc.) don't know about in-process routing,
+	// so the sidecar stamps it based on name prefix before persisting.
+	// Internal (Go) orchestrators set InProcess explicitly via WithActivityInProcess/WithChildWorkflowInProcess.
 	for _, action := range res.GetActions() {
-		if cw := action.GetCreateChildWorkflow(); cw != nil {
+		if cw := action.GetCreateChildWorkflow(); cw != nil && !cw.InProcess {
 			cw.InProcess = g.shouldStampInProcess(cw.Name)
 		}
-		if st := action.GetScheduleTask(); st != nil {
+		if st := action.GetScheduleTask(); st != nil && !st.InProcess {
 			st.InProcess = g.shouldStampInProcess(st.Name)
 		}
 	}
