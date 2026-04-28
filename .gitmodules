@@ -1,5 +1,4 @@
 [submodule "submodules/durabletask-protobuf"]
 	path = submodules/durabletask-protobuf
-; 	I will update this once my durabletask-protobuf PR is merged
-	url = https://github.com/cicoyle/durabletask-protobuf
-	branch = feature-wf-ctx-propagation
+	url = https://github.com/dapr/durabletask-protobuf
+	branch = main
