@@ -119,6 +119,13 @@ func WithChildWorkflowAppID(appID string) ChildWorkflowOption {
 	return ChildWorkflowOption(task.WithChildWorkflowAppID(appID))
 }
 
+// WithChildWorkflowAppNamespace specifies the Dapr namespace that hosts the
+// target child workflow. Must be combined with WithChildWorkflowAppID. See
+// task.WithChildWorkflowAppNamespace for full semantics.
+func WithChildWorkflowAppNamespace(namespace string) ChildWorkflowOption {
+	return ChildWorkflowOption(task.WithChildWorkflowAppNamespace(namespace))
+}
+
 // ContinueAsNewOption is a functional option type for the ContinueAsNew
 // workflow method.
 type ContinueAsNewOption task.ContinueAsNewOption

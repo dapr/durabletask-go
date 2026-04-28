@@ -28,6 +28,13 @@ func WithActivityAppID(targetAppID string) CallActivityOption {
 	return CallActivityOption(task.WithActivityAppID(targetAppID))
 }
 
+// WithActivityAppNamespace specifies the Dapr namespace that hosts the
+// target activity. Must be combined with WithActivityAppID. See
+// task.WithActivityAppNamespace for full semantics.
+func WithActivityAppNamespace(namespace string) CallActivityOption {
+	return CallActivityOption(task.WithActivityAppNamespace(namespace))
+}
+
 // WithActivityInput configures an input for an activity invocation. The
 // specified input must be JSON serializable.
 func WithActivityInput(input any) CallActivityOption {

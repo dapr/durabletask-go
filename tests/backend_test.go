@@ -446,7 +446,7 @@ func workItemProcessingTestLogic(
 					runtimestate.AddEvent(state, e)
 				}
 
-				applier := runtimestate.NewApplier("example")
+				applier := runtimestate.NewApplier("example", "")
 
 				actions := getWorkflowActions()
 				_, err := applier.Actions(state, nil, actions, nil, nil)
