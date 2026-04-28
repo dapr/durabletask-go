@@ -169,7 +169,6 @@ func unmarshalData(data []byte, v any) error {
 	if v == nil {
 		return nil
 	} else if len(data) == 0 {
-		v = nil
 		return nil
 	}
 	if msg, ok := v.(proto.Message); ok {

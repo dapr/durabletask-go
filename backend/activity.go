@@ -29,7 +29,7 @@ func NewActivityTaskWorker(be Backend, executor ActivityExecutor, logger Logger,
 }
 
 // NewActivityTaskWorkerWithInProcess constructs an activity worker,
-// and support internal workflow routing.
+// and supports internal workflow routing.
 func NewActivityTaskWorkerWithInProcess(be Backend, executor, inProcessExecutor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
 	processor := newActivityProcessor(be, executor, inProcessExecutor)
 	return NewTaskWorker(processor, logger, opts...)
