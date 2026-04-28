@@ -27,11 +27,10 @@ type WorkflowExecutor interface {
 }
 
 type WorkflowWorkerOptions struct {
-	Backend            Backend
-	Executor           WorkflowExecutor
-	Logger             Logger
-	AppID              string
-	PropagationEnabled bool
+	Backend  Backend
+	Executor WorkflowExecutor
+	Logger   Logger
+	AppID    string
 }
 
 type workflowProcessor struct {
@@ -44,7 +43,6 @@ type workflowProcessor struct {
 
 func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*WorkflowWorkItem] {
 	applier := runtimestate.NewApplier(opts.AppID)
-	applier.PropagationEnabled = opts.PropagationEnabled
 	processor := &workflowProcessor{
 		be:       opts.Backend,
 		executor: opts.Executor,
