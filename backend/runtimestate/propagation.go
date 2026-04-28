@@ -17,37 +17,14 @@ import (
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
-// canForwardScope reports the propagation scope to use when assembling a
-// chunk for a CONTINUE_AS_NEW boundary. Returns HISTORY_PROPAGATION_SCOPE_NONE
-// when the workflow never participated in propagation (no incoming history
-// and no outgoing-propagating tasks), so the new generation starts clean.
-// Otherwise, inherits the incoming scope when present, or defaults to LINEAGE
-// for a workflow that propagated to its own children without itself receiving
-// any history.
-func canForwardScope(s *protos.WorkflowRuntimeState, receivedHistory *protos.PropagatedHistory) protos.HistoryPropagationScope {
-	if receivedHistory != nil && receivedHistory.GetScope() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
+// Only forward what the wf already received from its parent, no default. If the
+// workflow had no incoming chunk (a root workflow), the new generation
+// starts clean.
+func canForwardScope(receivedHistory *protos.PropagatedHistory) protos.HistoryPropagationScope {
+	if receivedHistory != nil {
 		return receivedHistory.GetScope()
 	}
-	if hasPropagatingTask(s.GetOldEvents()) || hasPropagatingTask(s.GetNewEvents()) {
-		return protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE
-	}
 	return protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE
-}
-
-func hasPropagatingTask(events []*protos.HistoryEvent) bool {
-	for _, e := range events {
-		if ts := e.GetTaskScheduled(); ts != nil {
-			if ts.GetHistoryPropagationScope() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
-				return true
-			}
-		}
-		if cw := e.GetChildWorkflowInstanceCreated(); cw != nil {
-			if cw.GetHistoryPropagationScope() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // AssembleProtoPropagatedHistory builds a proto PropagatedHistory from the

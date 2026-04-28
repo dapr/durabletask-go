@@ -253,3 +253,70 @@ func TestAssembleProtoPropagatedHistory_EmptyState(t *testing.T) {
 	assert.Empty(t, ph.Events, "should have 0 events")
 	assert.Empty(t, ph.Chunks, "should have 0 chunks when no events")
 }
+
+// TestCanForwardScope_NoDefaults asserts the CAN-boundary scope chooser only
+// forwards what the wf already received from a parent. There is no
+// implicit default. A root workflow that schedules propagating tasks but has
+// no IncomingHistory does NOT get a chunk seeded for its next generation.
+func TestCanForwardScope_NoDefaults(t *testing.T) {
+	t.Run("no incoming history returns SCOPE_NONE", func(t *testing.T) {
+		assert.Equal(t,
+			protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE,
+			canForwardScope(nil),
+			"a root workflow with no IncomingHistory must not auto-seed a chunk")
+	})
+
+	t.Run("incoming history with SCOPE_NONE returns SCOPE_NONE", func(t *testing.T) {
+		assert.Equal(t,
+			protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE,
+			canForwardScope(&protos.PropagatedHistory{
+				Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE,
+			}),
+			"a NONE-scoped incoming chunk must not be promoted")
+	})
+
+	t.Run("incoming history with OWN_HISTORY is inherited", func(t *testing.T) {
+		assert.Equal(t,
+			protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
+			canForwardScope(&protos.PropagatedHistory{
+				Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
+			}),
+			"OWN_HISTORY incoming must pass through unchanged")
+	})
+
+	t.Run("incoming history with LINEAGE is inherited", func(t *testing.T) {
+		assert.Equal(t,
+			protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
+			canForwardScope(&protos.PropagatedHistory{
+				Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
+			}),
+			"LINEAGE incoming must pass through unchanged")
+	})
+
+	t.Run("propagating tasks in own history do not synthesize a default", func(t *testing.T) {
+		// A root workflow that scheduled tasks with propagation scope but
+		// itself received nothing must NOT have a chunk seeded for the next
+		// generation. only the incoming chunk drives propagation across CAN.
+		lineageScope := protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE
+		_ = &protos.WorkflowRuntimeState{
+			InstanceId: "root-wf",
+			NewEvents: []*protos.HistoryEvent{
+				makeExecutionStarted(-1, "RootWorkflow"),
+				{
+					EventId: 1,
+					EventType: &protos.HistoryEvent_TaskScheduled{
+						TaskScheduled: &protos.TaskScheduledEvent{
+							Name:                    "act1",
+							HistoryPropagationScope: &lineageScope,
+						},
+					},
+				},
+			},
+		}
+
+		assert.Equal(t,
+			protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE,
+			canForwardScope(nil),
+			"workflow's own outgoing-scope decisions must not be inferred as a CAN default")
+	})
+}
