@@ -120,7 +120,7 @@ func TestGetWorkflowByName(t *testing.T) {
 	assert.Equal(t, "wf-002", wf.InstanceID)
 
 	_, err = ph.GetWorkflowByName("NonExistent")
-	require.ErrorIs(t, err, ErrPropogationNotFound)
+	require.ErrorIs(t, err, ErrPropagationNotFound)
 }
 
 func TestGetWorkflowsByName(t *testing.T) {
@@ -181,7 +181,7 @@ func TestGetActivityByName(t *testing.T) {
 
 	// Activity not found
 	_, err = wf.GetActivityByName("NonExistent")
-	require.ErrorIs(t, err, ErrPropogationNotFound)
+	require.ErrorIs(t, err, ErrPropagationNotFound)
 }
 
 func TestGetActivityByName_ReturnsLast(t *testing.T) {
@@ -235,7 +235,7 @@ func TestGetActivitiesByName_NotFound(t *testing.T) {
 func TestGetActivitiesByName_WorkflowNotFound(t *testing.T) {
 	ph := makeTestHistory()
 	_, err := ph.GetWorkflowByName("NonExistent")
-	require.ErrorIs(t, err, ErrPropogationNotFound)
+	require.ErrorIs(t, err, ErrPropagationNotFound)
 
 	// A zero-valued WorkflowResult (not from the API) returns nil for plural lookups.
 	var wf WorkflowResult
@@ -328,7 +328,7 @@ func TestGetChildWorkflowByName(t *testing.T) {
 	assert.False(t, child.Completed)
 
 	_, err = wf.GetChildWorkflowByName("NonExistent")
-	require.ErrorIs(t, err, ErrPropogationNotFound)
+	require.ErrorIs(t, err, ErrPropagationNotFound)
 }
 
 func TestGetChildWorkflowsByName(t *testing.T) {
