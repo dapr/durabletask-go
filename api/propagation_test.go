@@ -113,13 +113,14 @@ func TestGetWorkflows(t *testing.T) {
 func TestGetWorkflowByName(t *testing.T) {
 	ph := makeTestHistory()
 
-	wf := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	require.NoError(t, err)
 	assert.True(t, wf.Found)
 	assert.Equal(t, "appB", wf.AppID)
 	assert.Equal(t, "wf-002", wf.InstanceID)
 
-	notFound := ph.GetWorkflowByName("NonExistent")
-	assert.False(t, notFound.Found)
+	_, err = ph.GetWorkflowByName("NonExistent")
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestGetWorkflowsByName(t *testing.T) {
@@ -151,7 +152,8 @@ func TestGetWorkflowsByName_Duplicates(t *testing.T) {
 	}
 
 	// Singular returns last (most recent)
-	wf := ph.GetWorkflowByName("Worker")
+	wf, err := ph.GetWorkflowByName("Worker")
+	require.NoError(t, err)
 	assert.Equal(t, "w-2", wf.InstanceID)
 	assert.Equal(t, "app2", wf.AppID)
 
@@ -164,10 +166,12 @@ func TestGetWorkflowsByName_Duplicates(t *testing.T) {
 
 func TestGetActivityByName(t *testing.T) {
 	ph := makeTestHistory()
-	wf := ph.GetWorkflowByName("MerchantCheckout")
+	wf, err := ph.GetWorkflowByName("MerchantCheckout")
+	require.NoError(t, err)
 
 	// Activity that completed
-	act := wf.GetActivityByName("ValidateMerchant")
+	act, err := wf.GetActivityByName("ValidateMerchant")
+	require.NoError(t, err)
 	assert.True(t, act.Started)
 	assert.True(t, act.Completed)
 	assert.False(t, act.Failed)
@@ -176,17 +180,18 @@ func TestGetActivityByName(t *testing.T) {
 	assert.Nil(t, act.Error)
 
 	// Activity not found
-	notFound := wf.GetActivityByName("NonExistent")
-	assert.False(t, notFound.Started)
-	assert.False(t, notFound.Completed)
+	_, err = wf.GetActivityByName("NonExistent")
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestGetActivityByName_ReturnsLast(t *testing.T) {
 	ph := makeTestHistory()
-	wf := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	require.NoError(t, err)
 
 	// ValidateCard was called twice — singular returns the LAST (failed retry)
-	act := wf.GetActivityByName("ValidateCard")
+	act, err := wf.GetActivityByName("ValidateCard")
+	require.NoError(t, err)
 	assert.True(t, act.Started)
 	assert.False(t, act.Completed)
 	assert.True(t, act.Failed)
@@ -196,7 +201,8 @@ func TestGetActivityByName_ReturnsLast(t *testing.T) {
 
 func TestGetActivitiesByName_Retries(t *testing.T) {
 	ph := makeTestHistory()
-	wf := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	require.NoError(t, err)
 
 	// ValidateCard was called twice (retry scenario)
 	acts := wf.GetActivitiesByName("ValidateCard")
@@ -219,7 +225,8 @@ func TestGetActivitiesByName_Retries(t *testing.T) {
 
 func TestGetActivitiesByName_NotFound(t *testing.T) {
 	ph := makeTestHistory()
-	wf := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	require.NoError(t, err)
 
 	acts := wf.GetActivitiesByName("NonExistent")
 	assert.Nil(t, acts)
@@ -227,8 +234,11 @@ func TestGetActivitiesByName_NotFound(t *testing.T) {
 
 func TestGetActivitiesByName_WorkflowNotFound(t *testing.T) {
 	ph := makeTestHistory()
-	wf := ph.GetWorkflowByName("NonExistent")
+	_, err := ph.GetWorkflowByName("NonExistent")
+	require.ErrorIs(t, err, ErrNotFound)
 
+	// A zero-valued WorkflowResult (not from the API) returns nil for plural lookups.
+	var wf WorkflowResult
 	acts := wf.GetActivitiesByName("ValidateCard")
 	assert.Nil(t, acts)
 }
@@ -256,7 +266,8 @@ func TestGetWorkflowByName_EqualsPluralLast(t *testing.T) {
 		},
 	}
 
-	singular := ph.GetWorkflowByName("Worker")
+	singular, err := ph.GetWorkflowByName("Worker")
+	require.NoError(t, err)
 	plural := ph.GetWorkflowsByName("Worker")
 
 	require.Len(t, plural, 3)
@@ -280,9 +291,11 @@ func TestGetActivityByName_EqualsPluralLast(t *testing.T) {
 	// ValidateCard appears twice in the ProcessPayment chunk: once
 	// completed (first), once failed (retry).
 	ph := makeTestHistory()
-	wf := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	require.NoError(t, err)
 
-	singular := wf.GetActivityByName("ValidateCard")
+	singular, err := wf.GetActivityByName("ValidateCard")
+	require.NoError(t, err)
 	plural := wf.GetActivitiesByName("ValidateCard")
 
 	require.Len(t, plural, 2)
@@ -304,21 +317,24 @@ func TestGetActivityByName_EqualsPluralLast(t *testing.T) {
 
 func TestGetChildWorkflowByName(t *testing.T) {
 	ph := makeTestHistory()
-	wf := ph.GetWorkflowByName("MerchantCheckout")
+	wf, err := ph.GetWorkflowByName("MerchantCheckout")
+	require.NoError(t, err)
 
-	child := wf.GetChildWorkflowByName("ProcessPayment")
+	child, err := wf.GetChildWorkflowByName("ProcessPayment")
+	require.NoError(t, err)
 	assert.True(t, child.Started)
 	assert.Equal(t, "ProcessPayment", child.Name)
 	// Not completed in our test data (no ChildWorkflowInstanceCompleted event)
 	assert.False(t, child.Completed)
 
-	notFound := wf.GetChildWorkflowByName("NonExistent")
-	assert.False(t, notFound.Started)
+	_, err = wf.GetChildWorkflowByName("NonExistent")
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestGetChildWorkflowsByName(t *testing.T) {
 	ph := makeTestHistory()
-	wf := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	require.NoError(t, err)
 
 	children := wf.GetChildWorkflowsByName("FraudDetection")
 	require.Len(t, children, 1)

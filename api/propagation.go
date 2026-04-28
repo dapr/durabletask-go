@@ -16,9 +16,13 @@ limitations under the License.
 package api
 
 import (
+	"errors"
+
 	"github.com/dapr/durabletask-go/api/protos"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
+
+var ErrNotFound = errors.New("propagated history: not found")
 
 // PropagationOption is a functional option for configuring history propagation.
 // Pass one of PropagateOwnHistory() or PropagateLineage().
@@ -197,14 +201,15 @@ func (ph *PropagatedHistory) GetWorkflows() []WorkflowResult {
 }
 
 // GetWorkflowByName returns the last workflow result matching the given name.
-// Returns the most recent instance, which is the final outcome after retries.
-// Returns a zero WorkflowResult if not found
-func (ph *PropagatedHistory) GetWorkflowByName(name string) WorkflowResult {
+// The returned result represents the most recent instance, which is the final
+// outcome after retries. Returns ErrNotFound when no chunk in the propagated
+// history matches the given workflow name.
+func (ph *PropagatedHistory) GetWorkflowByName(name string) (WorkflowResult, error) {
 	all := ph.GetWorkflowsByName(name)
 	if len(all) == 0 {
-		return WorkflowResult{}
+		return WorkflowResult{}, ErrNotFound
 	}
-	return all[len(all)-1]
+	return all[len(all)-1], nil
 }
 
 // GetWorkflowsByName returns all workflow results matching the given name,
@@ -246,14 +251,16 @@ func resolveActivity(events []*protos.HistoryEvent, scheduleEvent *protos.Histor
 }
 
 // GetActivityByName returns the last activity result matching the given name.
-// Returns the most recent invocation, which is the final outcome after retries.
-// Returns a zero ActivityResult if not found or if the wf was not found.
-func (wr WorkflowResult) GetActivityByName(name string) ActivityResult {
+// The returned result represents the most recent invocation, which is the
+// final outcome after retries. Returns ErrNotFound when the workflow result
+// itself is empty (zero-valued) or when no activity event in this workflow's
+// chunk matches the given activity name.
+func (wr WorkflowResult) GetActivityByName(name string) (ActivityResult, error) {
 	all := wr.GetActivitiesByName(name)
 	if len(all) == 0 {
-		return ActivityResult{Name: name}
+		return ActivityResult{}, ErrNotFound
 	}
-	return all[len(all)-1]
+	return all[len(all)-1], nil
 }
 
 // GetActivitiesByName returns all activity results matching the given name,
@@ -292,15 +299,17 @@ func resolveChildWorkflow(events []*protos.HistoryEvent, eventID int32) ChildWor
 	return result
 }
 
-// GetChildWorkflowByName returns the last child workflow result matching the given name.
-// Returns the most recent invocation, which is the final outcome after retries.
-// Returns a zero ChildWorkflowResult if not found or if the wf was not found.
-func (wr WorkflowResult) GetChildWorkflowByName(name string) ChildWorkflowResult {
+// GetChildWorkflowByName returns the last child workflow result matching the
+// given name. The returned result represents the most recent invocation,
+// which is the final outcome after retries. Returns ErrNotFound when the
+// workflow result itself is empty (zero-valued) or when no child workflow
+// event in this workflow's chunk matches the given name.
+func (wr WorkflowResult) GetChildWorkflowByName(name string) (ChildWorkflowResult, error) {
 	all := wr.GetChildWorkflowsByName(name)
 	if len(all) == 0 {
-		return ChildWorkflowResult{Name: name}
+		return ChildWorkflowResult{}, ErrNotFound
 	}
-	return all[len(all)-1]
+	return all[len(all)-1], nil
 }
 
 // GetChildWorkflowsByName returns all child workflow results matching the given name,
