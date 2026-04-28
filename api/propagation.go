@@ -336,24 +336,62 @@ func (wr WorkflowResult) GetChildWorkflowsByName(name string) []*ChildWorkflowRe
 	return results
 }
 
-// PropagatedHistoryFromProto converts a proto PropagatedHistory to the Go type.
-func PropagatedHistoryFromProto(ph *protos.PropagatedHistory) *PropagatedHistory {
-	if ph == nil {
-		return nil
-	}
-	chunks := make([]historyChunk, len(ph.GetChunks()))
-	for i, c := range ph.GetChunks() {
-		chunks[i] = historyChunk{
-			appID:           c.GetAppId(),
-			startEventIndex: int(c.GetStartEventIndex()),
-			eventCount:      int(c.GetEventCount()),
-			instanceID:      c.GetInstanceId(),
-			workflowName:    c.GetWorkflowName(),
-		}
-	}
-	return &PropagatedHistory{
-		events: ph.GetEvents(),
-		scope:  ph.GetScope(),
-		chunks: chunks,
-	}
-}
+  // PropagatedHistoryFromProto converts a proto PropagatedHistory to the Go
+  // type. Returns an error if the payload is structurally inconsistent, for
+  // example, chunks that overlap, run past the end of the events slice, or
+  // fail to cover every event.
+  func PropagatedHistoryFromProto(ph *protos.PropagatedHistory) (*PropagatedHistory, error) {
+        if ph == nil {
+                return nil, nil
+        }
+        if err := validatePropagatedHistory(ph); err != nil {
+                return nil, err
+        }
+
+        chunks := make([]historyChunk, len(ph.GetChunks()))
+        for i, c := range ph.GetChunks() {
+                chunks[i] = historyChunk{
+                        appID:           c.GetAppId(),
+                        startEventIndex: int(c.GetStartEventIndex()),
+                        eventCount:      int(c.GetEventCount()),
+                        instanceID:      c.GetInstanceId(),
+                        workflowName:    c.GetWorkflowName(),
+                }
+        }
+        return &PropagatedHistory{
+                events: ph.GetEvents(),
+                scope:  ph.GetScope(),
+                chunks: chunks,
+        }, nil
+  }
+  
+  // validatePropagatedHistory enforces the structural contract documented on
+  // the PropagatedHistory proto: chunks are ordered, non-overlapping, in-bounds,
+  // and together cover every event. A malformed payload is rejected at the
+  // trust boundary so it never reaches the query helpers or the state store.
+  func validatePropagatedHistory(ph *protos.PropagatedHistory) error {
+        events := ph.GetEvents()
+        n := int32(len(events))
+
+        var nextExpected int32
+        for i, c := range ph.GetChunks() {
+                start, count := c.GetStartEventIndex(), c.GetEventCount()
+
+                if start < 0 || count < 0 {
+                        return fmt.Errorf("propagated history: chunk %d has negative index/count (start=%d count=%d)", i, start, count)
+                }
+                // Use int64 arithmetic to dodge int32 overflow on the addition.
+                if int64(start)+int64(count) > int64(n) {
+                        return fmt.Errorf("propagated history: chunk %d range [%d,%d) exceeds events length %d", i, start, int64(start)+int64(count), n)
+                }
+                if start != nextExpected {
+                        return fmt.Errorf("propagated history: chunk %d starts at %d, expected %d (chunks must be contiguous and non-overlapping)", i, start, nextExpected)
+                }
+                nextExpected = start + count
+        }
+
+        if nextExpected != n {
+                return fmt.Errorf("propagated history: chunks cover %d events but events length is %d", nextExpected, n)
+        }
+        return nil
+  }
