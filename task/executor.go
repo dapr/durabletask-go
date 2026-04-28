@@ -53,7 +53,24 @@ func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, 
 			}, nil
 		}
 	}
-	activityCtx := newTaskActivityContext(ctx, e.EventId, ts, api.PropagatedHistoryFromProto(opts.PropagatedHistory))
+	ph, err := api.PropagatedHistoryFromProto(opts.PropagatedHistory)
+	if err != nil {
+		return &protos.HistoryEvent{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_TaskFailed{
+				TaskFailed: &protos.TaskFailedEvent{
+					TaskScheduledId: e.EventId,
+					TaskExecutionId: ts.GetTaskExecutionId(),
+					FailureDetails: &protos.TaskFailureDetails{
+						ErrorType:    "InvalidPropagatedHistory",
+						ErrorMessage: err.Error(),
+					},
+				},
+			},
+		}, nil
+	}
+	activityCtx := newTaskActivityContext(ctx, e.EventId, ts, ph)
 
 	// convert panics into activity failures
 	defer func() {
@@ -132,7 +149,11 @@ func (te *taskExecutor) ExecuteWorkflow(ctx context.Context, id api.InstanceID, 
 	workflowCtx := NewWorkflowContext(te.Registry, id, oldEvents, newEvents)
 
 	if opts.PropagatedHistory != nil {
-		workflowCtx.SetPropagatedHistory(api.PropagatedHistoryFromProto(opts.PropagatedHistory))
+		ph, err := api.PropagatedHistoryFromProto(opts.PropagatedHistory)
+		if err != nil {
+			return nil, fmt.Errorf("invalid propagated history: %w", err)
+		}
+		workflowCtx.SetPropagatedHistory(ph)
 	}
 
 	actions := workflowCtx.start()
