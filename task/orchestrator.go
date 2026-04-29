@@ -338,13 +338,9 @@ func (ctx *WorkflowContext) CallActivity(activity interface{}, opts ...CallActiv
 		}
 	}
 
-	if options.targetAppNamespace != nil && options.targetAppID == nil {
-		failedTask := newTask(ctx)
-		failedTask.fail(&protos.TaskFailureDetails{
-			ErrorType:    "InvalidActivityOptions",
-			ErrorMessage: "WithActivityAppNamespace requires WithActivityAppID to also be set",
-		})
-		return failedTask
+	if t := validateAppNamespaceRequiresAppID(ctx, options.targetAppID, options.targetAppNamespace,
+		"InvalidActivityOptions", "WithActivityAppNamespace", "WithActivityAppID"); t != nil {
+		return t
 	}
 
 	activityName := helpers.GetTaskFunctionName(activity)
@@ -372,13 +368,8 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 		},
 	}
 
-	if options.targetAppID != nil {
-		scheduleTaskAction.Router = &protos.TaskRouter{
-			TargetAppID: ptr.Of(*options.targetAppID),
-		}
-		if options.targetAppNamespace != nil {
-			scheduleTaskAction.Router.TargetAppNamespace = ptr.Of(*options.targetAppNamespace)
-		}
+	if r := taskRouterFromTarget(options.targetAppID, options.targetAppNamespace); r != nil {
+		scheduleTaskAction.Router = r
 	}
 
 	if options.propagationScope != nil {
@@ -407,13 +398,9 @@ func (ctx *WorkflowContext) CallChildWorkflow(workflow interface{}, opts ...Chil
 		}
 	}
 
-	if options.targetAppNamespace != nil && options.targetAppID == nil {
-		failedTask := newTask(ctx)
-		failedTask.fail(&protos.TaskFailureDetails{
-			ErrorType:    "InvalidChildWorkflowOptions",
-			ErrorMessage: "WithChildWorkflowAppNamespace requires WithChildWorkflowAppID to also be set",
-		})
-		return failedTask
+	if t := validateAppNamespaceRequiresAppID(ctx, options.targetAppID, options.targetAppNamespace,
+		"InvalidChildWorkflowOptions", "WithChildWorkflowAppNamespace", "WithChildWorkflowAppID"); t != nil {
+		return t
 	}
 
 	workflowName := helpers.GetTaskFunctionName(workflow)
@@ -451,13 +438,8 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 		},
 	}
 
-	if options.targetAppID != nil {
-		createChildWorkflowAction.Router = &protos.TaskRouter{
-			TargetAppID: ptr.Of(*options.targetAppID),
-		}
-		if options.targetAppNamespace != nil {
-			createChildWorkflowAction.Router.TargetAppNamespace = ptr.Of(*options.targetAppNamespace)
-		}
+	if r := taskRouterFromTarget(options.targetAppID, options.targetAppNamespace); r != nil {
+		createChildWorkflowAction.Router = r
 	}
 
 	if options.propagationScope != nil {
@@ -1104,4 +1086,37 @@ func (ctx *WorkflowContext) actions() []*protos.WorkflowAction {
 		}
 	}
 	return actions
+}
+
+// taskRouterFromTarget builds the routing envelope shared by activity and
+// child-workflow scheduling. Returns nil when the call is local (no target
+// app ID). Cross-namespace routing requires both target app ID and
+// namespace; the caller validates that invariant via
+// validateAppNamespaceRequiresAppID before reaching here.
+func taskRouterFromTarget(targetAppID, targetAppNamespace *string) *protos.TaskRouter {
+	if targetAppID == nil {
+		return nil
+	}
+	r := &protos.TaskRouter{TargetAppID: ptr.Of(*targetAppID)}
+	if targetAppNamespace != nil {
+		r.TargetAppNamespace = ptr.Of(*targetAppNamespace)
+	}
+	return r
+}
+
+// validateAppNamespaceRequiresAppID enforces the documented invariant that
+// a target namespace must be paired with a target app ID. Returns a failed
+// task tagged with errorType when the invariant is violated, otherwise
+// nil. Activity and child-workflow scheduling share this check; the option
+// names differ between the two call sites which is why they are passed in.
+func validateAppNamespaceRequiresAppID(ctx *WorkflowContext, targetAppID, targetAppNamespace *string, errorType, nsOptName, appIDOptName string) Task {
+	if targetAppNamespace == nil || targetAppID != nil {
+		return nil
+	}
+	failedTask := newTask(ctx)
+	failedTask.fail(&protos.TaskFailureDetails{
+		ErrorType:    errorType,
+		ErrorMessage: nsOptName + " requires " + appIDOptName + " to also be set",
+	})
+	return failedTask
 }

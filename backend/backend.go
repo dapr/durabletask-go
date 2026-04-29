@@ -247,7 +247,7 @@ func getChildWorkflowInstances(oldEvents []*HistoryEvent, newEvents []*HistoryEv
 			if created == nil {
 				continue
 			}
-			if e.GetRouter().GetTargetAppNamespace() != "" {
+			if router := e.GetRouter(); router != nil && router.TargetAppNamespace != nil {
 				continue
 			}
 			childWorkflowInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
