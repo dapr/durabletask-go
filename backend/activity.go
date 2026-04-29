@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -13,9 +14,10 @@ import (
 )
 
 type activityProcessor struct {
-	be                Backend
-	executor          ActivityExecutor
-	inProcessExecutor ActivityExecutor
+	be                  Backend
+	executor            ActivityExecutor
+	inProcessExecutor   ActivityExecutor
+	inProcessNamePrefix string
 }
 
 type ActivityExecutor interface {
@@ -24,22 +26,24 @@ type ActivityExecutor interface {
 
 // NewActivityTaskWorker constructs an activity worker.
 func NewActivityTaskWorker(be Backend, executor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
-	processor := newActivityProcessor(be, executor, nil)
+	processor := newActivityProcessor(be, executor, nil, "")
 	return NewTaskWorker(processor, logger, opts...)
 }
 
-// NewActivityTaskWorkerWithInProcess constructs an activity worker,
-// and supports internal workflow routing.
-func NewActivityTaskWorkerWithInProcess(be Backend, executor, inProcessExecutor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
-	processor := newActivityProcessor(be, executor, inProcessExecutor)
+// NewActivityTaskWorkerWithInProcess constructs an activity worker that dispatches
+// activities whose name starts with inProcessNamePrefix to inProcessExecutor.
+// An empty prefix disables in-process dispatch.
+func NewActivityTaskWorkerWithInProcess(be Backend, executor, inProcessExecutor ActivityExecutor, inProcessNamePrefix string, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
+	processor := newActivityProcessor(be, executor, inProcessExecutor, inProcessNamePrefix)
 	return NewTaskWorker(processor, logger, opts...)
 }
 
-func newActivityProcessor(be Backend, executor, inProcessExecutor ActivityExecutor) TaskProcessor[*ActivityWorkItem] {
+func newActivityProcessor(be Backend, executor, inProcessExecutor ActivityExecutor, inProcessNamePrefix string) TaskProcessor[*ActivityWorkItem] {
 	return &activityProcessor{
-		be:                be,
-		executor:          executor,
-		inProcessExecutor: inProcessExecutor,
+		be:                  be,
+		executor:            executor,
+		inProcessExecutor:   inProcessExecutor,
+		inProcessNamePrefix: inProcessNamePrefix,
 	}
 }
 
@@ -82,7 +86,7 @@ func (p *activityProcessor) ProcessWorkItem(ctx context.Context, awi *ActivityWo
 
 	// Execute the activity and get its result.
 	executor := p.executor
-	if ts.GetInProcess() && p.inProcessExecutor != nil {
+	if p.inProcessExecutor != nil && p.inProcessNamePrefix != "" && strings.HasPrefix(ts.GetName(), p.inProcessNamePrefix) {
 		executor = p.inProcessExecutor
 	}
 	result, err := executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent, execOpts)
