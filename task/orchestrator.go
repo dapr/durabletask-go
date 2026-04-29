@@ -2,7 +2,6 @@ package task
 
 import (
 	"container/list"
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -69,7 +68,16 @@ type callChildWorkflowOptions struct {
 	rawInput         *wrapperspb.StringValue
 	targetAppID      *string
 	retryPolicy      *RetryPolicy
+	inProcess        bool
 	propagationScope *protos.HistoryPropagationScope
+}
+
+// WithChildWorkflowInProcess marks the child workflow to run on the in-process executor.
+func WithChildWorkflowInProcess() ChildWorkflowOptionFunc {
+	return func(opts *callChildWorkflowOptions) error {
+		opts.inProcess = true
+		return nil
+	}
 }
 
 // ChildWorkflowOption is the interface for options passed to CallChildWorkflow.
@@ -343,7 +351,7 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 	scheduleTaskAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
 		WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
-			ScheduleTask: &protos.ScheduleTaskAction{Name: activityName, TaskExecutionId: taskExecutionId, Input: options.rawInput},
+			ScheduleTask: &protos.ScheduleTaskAction{Name: activityName, TaskExecutionId: taskExecutionId, Input: options.rawInput, InProcess: options.inProcess},
 		},
 	}
 
@@ -410,6 +418,7 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 				Name:       workflowName,
 				Input:      options.rawInput,
 				InstanceId: options.instanceID,
+				InProcess:  options.inProcess,
 			},
 		},
 	}
@@ -643,36 +652,14 @@ func (ctx *WorkflowContext) isPatched(patchName string) bool {
 }
 
 func (ctx *WorkflowContext) getWorkflow(es *protos.ExecutionStartedEvent) (Workflow, error) {
-	workflow, ok := ctx.registry.workflows[es.Name]
-	if ok {
-		return workflow, nil
+	workflow, version, err := ctx.registry.ResolveWorkflow(es.Name, ctx.VersionName)
+	if err != nil {
+		return nil, err
 	}
-
-	if versions, ok := ctx.registry.versionedWorkflows[es.Name]; ok {
-		var versionToUse string
-		if ctx.VersionName != nil {
-			versionToUse = *ctx.VersionName
-		} else {
-			if latest, ok := ctx.registry.latestVersionedWorkflows[es.Name]; ok {
-				versionToUse = latest
-			} else {
-				return nil, fmt.Errorf("versioned workflow '%s' does not have a latest version registered", es.Name)
-			}
-		}
-
-		if workflow, ok = versions[versionToUse]; ok {
-			ctx.VersionName = &versionToUse
-			return workflow, nil
-		} else {
-			return nil, api.NewUnsupportedVersionError()
-		}
+	if version != nil {
+		ctx.VersionName = version
 	}
-
-	if workflow, ok = ctx.registry.workflows["*"]; ok {
-		return workflow, nil
-	}
-
-	return nil, fmt.Errorf("workflow named '%s' is not registered", es.Name)
+	return workflow, nil
 }
 
 func (ctx *WorkflowContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
@@ -905,7 +892,7 @@ func (ctx *WorkflowContext) setComplete(output any) error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
 	var rawOutput *wrapperspb.StringValue
 	if output != nil {
-		bytes, err := json.Marshal(output)
+		bytes, err := marshalData(output)
 		if err != nil {
 			return fmt.Errorf("failed to marshal output to JSON: %w", err)
 		}
@@ -933,7 +920,7 @@ func (ctx *WorkflowContext) setContinuedAsNew() error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW
 	var newRawInput *wrapperspb.StringValue
 	if ctx.continuedAsNewInput != nil {
-		bytes, err := json.Marshal(ctx.continuedAsNewInput)
+		bytes, err := marshalData(ctx.continuedAsNewInput)
 		if err != nil {
 			return fmt.Errorf("failed to marshal continue-as-new payload to JSON: %w", err)
 		}

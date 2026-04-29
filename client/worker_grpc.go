@@ -234,8 +234,6 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 
 	resp := protos.ActivityResponse{InstanceId: req.WorkflowInstance.InstanceId, TaskId: req.TaskId}
 	if err != nil {
-		// NOTE: At the time of writing, there's no known case where this error is returned.
-		//       We add error handling here anyways, just in case.
 		resp.FailureDetails = &protos.TaskFailureDetails{
 			ErrorType:    fmt.Sprintf("%T", err),
 			ErrorMessage: err.Error(),

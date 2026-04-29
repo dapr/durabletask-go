@@ -31,12 +31,17 @@ type WorkflowWorkerOptions struct {
 	Executor WorkflowExecutor
 	Logger   Logger
 	AppID    string
+	// InProcessExecutor is for work items whose WorkflowWorkItem.InProcess flag is true.
+	// This is how internal dapr-side workflows (e.g. dapr.internal.mcp.*) run, inside the sidecar
+	// instead of being shipped to an external SDK via the gRPC work-item stream.
+	InProcessExecutor WorkflowExecutor
 }
 
 type workflowProcessor struct {
-	be       Backend
-	executor WorkflowExecutor
-	logger   Logger
+	be                Backend
+	executor          WorkflowExecutor
+	inProcessExecutor WorkflowExecutor
+	logger            Logger
 
 	applier *runtimestate.Applier
 }
@@ -44,10 +49,11 @@ type workflowProcessor struct {
 func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*WorkflowWorkItem] {
 	applier := runtimestate.NewApplier(opts.AppID)
 	processor := &workflowProcessor{
-		be:       opts.Backend,
-		executor: opts.Executor,
-		logger:   opts.Logger,
-		applier:  applier,
+		be:                opts.Backend,
+		executor:          opts.Executor,
+		inProcessExecutor: opts.InProcessExecutor,
+		logger:            opts.Logger,
+		applier:           applier,
 	}
 	return NewTaskWorker[*WorkflowWorkItem](processor, opts.Logger, taskopts...)
 }
@@ -102,7 +108,11 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 			execOpts := ExecuteOptions{PropagatedHistory: wi.IncomingHistory}
 
 			// Run the user workflow code, providing the old history and new events together.
-			results, err := w.executor.ExecuteWorkflow(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts)
+			executor := w.executor
+			if wi.State.GetStartEvent().GetInProcess() && w.inProcessExecutor != nil {
+				executor = w.inProcessExecutor
+			}
+			results, err := executor.ExecuteWorkflow(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts)
 			if err != nil {
 				return fmt.Errorf("error executing workflow: %w", err)
 			}
