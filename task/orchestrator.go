@@ -64,11 +64,12 @@ type WorkflowContext struct {
 
 // callChildWorkflowOptions is a struct that holds the options for the CallChildWorkflow workflow method.
 type callChildWorkflowOptions struct {
-	instanceID       string
-	rawInput         *wrapperspb.StringValue
-	targetAppID      *string
-	retryPolicy      *RetryPolicy
-	propagationScope *protos.HistoryPropagationScope
+	instanceID         string
+	rawInput           *wrapperspb.StringValue
+	targetAppID        *string
+	targetAppNamespace *string
+	retryPolicy        *RetryPolicy
+	propagationScope   *protos.HistoryPropagationScope
 }
 
 // ChildWorkflowOption is the interface for options passed to CallChildWorkflow.
@@ -90,6 +91,22 @@ type ContinueAsNewOption func(*WorkflowContext)
 func WithChildWorkflowAppID(appID string) ChildWorkflowOptionFunc {
 	return func(opts *callChildWorkflowOptions) error {
 		opts.targetAppID = &appID
+		return nil
+	}
+}
+
+// WithChildWorkflowAppNamespace specifies the Dapr namespace that hosts the
+// target child workflow. When set, the routing envelope carries a
+// targetAppNamespace so that the caller sidecar performs a durable
+// cross-namespace dispatch (service invocation with per-hop reminders)
+// instead of a direct actor call via placement. Must be combined with
+// WithChildWorkflowAppID; setting a namespace without an app ID is
+// rejected when the child workflow is scheduled. Cross-namespace calls are
+// gated by the WorkflowAccessPolicy feature: a policy on the target side
+// must explicitly permit the caller's (namespace, appID).
+func WithChildWorkflowAppNamespace(namespace string) ChildWorkflowOptionFunc {
+	return func(opts *callChildWorkflowOptions) error {
+		opts.targetAppNamespace = &namespace
 		return nil
 	}
 }
@@ -321,6 +338,11 @@ func (ctx *WorkflowContext) CallActivity(activity interface{}, opts ...CallActiv
 		}
 	}
 
+	if t := validateAppNamespaceRequiresAppID(ctx, options.targetAppID, options.targetAppNamespace,
+		"InvalidActivityOptions", "WithActivityAppNamespace", "WithActivityAppID"); t != nil {
+		return t
+	}
+
 	activityName := helpers.GetTaskFunctionName(activity)
 
 	if options.retryPolicy != nil {
@@ -346,10 +368,8 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 		},
 	}
 
-	if options.targetAppID != nil {
-		scheduleTaskAction.Router = &protos.TaskRouter{
-			TargetAppID: ptr.Of(*options.targetAppID),
-		}
+	if r := taskRouterFromTarget(options.targetAppID, options.targetAppNamespace); r != nil {
+		scheduleTaskAction.Router = r
 	}
 
 	if options.propagationScope != nil {
@@ -376,6 +396,11 @@ func (ctx *WorkflowContext) CallChildWorkflow(workflow interface{}, opts ...Chil
 			})
 			return failedTask
 		}
+	}
+
+	if t := validateAppNamespaceRequiresAppID(ctx, options.targetAppID, options.targetAppNamespace,
+		"InvalidChildWorkflowOptions", "WithChildWorkflowAppNamespace", "WithChildWorkflowAppID"); t != nil {
+		return t
 	}
 
 	workflowName := helpers.GetTaskFunctionName(workflow)
@@ -413,10 +438,8 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 		},
 	}
 
-	if options.targetAppID != nil {
-		createChildWorkflowAction.Router = &protos.TaskRouter{
-			TargetAppID: ptr.Of(*options.targetAppID),
-		}
+	if r := taskRouterFromTarget(options.targetAppID, options.targetAppNamespace); r != nil {
+		createChildWorkflowAction.Router = r
 	}
 
 	if options.propagationScope != nil {
@@ -1063,4 +1086,37 @@ func (ctx *WorkflowContext) actions() []*protos.WorkflowAction {
 		}
 	}
 	return actions
+}
+
+// taskRouterFromTarget builds the routing envelope shared by activity and
+// child-workflow scheduling. Returns nil when the call is local (no target
+// app ID). Cross-namespace routing requires both target app ID and
+// namespace; the caller validates that invariant via
+// validateAppNamespaceRequiresAppID before reaching here.
+func taskRouterFromTarget(targetAppID, targetAppNamespace *string) *protos.TaskRouter {
+	if targetAppID == nil {
+		return nil
+	}
+	r := &protos.TaskRouter{TargetAppID: ptr.Of(*targetAppID)}
+	if targetAppNamespace != nil {
+		r.TargetAppNamespace = ptr.Of(*targetAppNamespace)
+	}
+	return r
+}
+
+// validateAppNamespaceRequiresAppID enforces the documented invariant that
+// a target namespace must be paired with a target app ID. Returns a failed
+// task tagged with errorType when the invariant is violated, otherwise
+// nil. Activity and child-workflow scheduling share this check; the option
+// names differ between the two call sites which is why they are passed in.
+func validateAppNamespaceRequiresAppID(ctx *WorkflowContext, targetAppID, targetAppNamespace *string, errorType, nsOptName, appIDOptName string) Task {
+	if targetAppNamespace == nil || targetAppID != nil {
+		return nil
+	}
+	failedTask := newTask(ctx)
+	failedTask.fail(&protos.TaskFailureDetails{
+		ErrorType:    errorType,
+		ErrorMessage: nsOptName + " requires " + appIDOptName + " to also be set",
+	})
+	return failedTask
 }

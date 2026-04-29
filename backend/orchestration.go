@@ -28,10 +28,11 @@ type WorkflowExecutor interface {
 }
 
 type WorkflowWorkerOptions struct {
-	Backend  Backend
-	Executor WorkflowExecutor
-	Logger   Logger
-	AppID    string
+	Backend   Backend
+	Executor  WorkflowExecutor
+	Logger    Logger
+	AppID     string
+	Namespace string
 	// InProcessExecutor is used to dispatch work items whose workflow name has
 	// InProcessNamePrefix as a prefix. This is how internal dapr-side workflows
 	// (e.g. dapr.internal.mcp.*) run inside the sidecar instead of being shipped
@@ -53,14 +54,13 @@ type workflowProcessor struct {
 }
 
 func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*WorkflowWorkItem] {
-	applier := runtimestate.NewApplier(opts.AppID)
 	processor := &workflowProcessor{
 		be:                  opts.Backend,
 		executor:            opts.Executor,
 		inProcessExecutor:   opts.InProcessExecutor,
 		inProcessNamePrefix: opts.InProcessNamePrefix,
 		logger:              opts.Logger,
-		applier:             applier,
+		applier:             runtimestate.NewApplier(opts.AppID, opts.Namespace),
 	}
 	return NewTaskWorker[*WorkflowWorkItem](processor, opts.Logger, taskopts...)
 }
