@@ -10,6 +10,7 @@ import (
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend"
 	"github.com/dapr/durabletask-go/task"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -63,7 +64,7 @@ func MapWorkflow(o task.Workflow) func(http.ResponseWriter, *http.Request) {
 		}
 		fmt.Printf("Workflow request for instance ID '%s': %v\n", request.InstanceId, &request)
 
-		results, err := executor.ExecuteWorkflow(context.TODO(), api.InstanceID(request.InstanceId), request.PastEvents, request.NewEvents)
+		results, err := executor.ExecuteWorkflow(context.TODO(), api.InstanceID(request.InstanceId), request.PastEvents, request.NewEvents, backend.ExecuteOptions{})
 		if err != nil {
 			fmt.Printf("ERROR: Unexpected failure executing the workflow function: %v\n", err)
 			return
@@ -126,7 +127,7 @@ func MapActivity(a task.Activity) func(http.ResponseWriter, *http.Request) {
 				},
 			},
 		}
-		e, err := executor.ExecuteActivity(context.TODO(), api.InstanceID(instanceID), ts)
+		e, err := executor.ExecuteActivity(context.TODO(), api.InstanceID(instanceID), ts, backend.ExecuteOptions{})
 		if err != nil {
 			panic(fmt.Errorf("ERROR: Activity execution failed with an error: %w", err))
 		}
