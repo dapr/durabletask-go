@@ -13,53 +13,42 @@ limitations under the License.
 
 package api
 
-import "github.com/dapr/durabletask-go/api/protos"
-
-type InProcessWorkflow = protos.InProcessWorkflow
-type MCPMethod = protos.MCPMethod
-
-const (
-	IN_PROCESS_WF_MCP InProcessWorkflow = protos.InProcessWorkflow_IN_PROCESS_WORKFLOW_MCP
-)
+// MCP workflow name constants. These are the canonical string values that all
+// SDKs use to construct workflow/activity names. The authoritative proto enums
+// live in dapr/dapr/dapr/proto/workflows/v1/mcp.proto; these constants mirror
+// their string mappings so durabletask-go doesn't need a dapr/dapr dependency.
 
 const (
-	MCP_METHOD_LIST_TOOLS MCPMethod = protos.MCPMethod_MCP_METHOD_LIST_TOOLS
-	MCP_METHOD_CALL_TOOL  MCPMethod = protos.MCPMethod_MCP_METHOD_CALL_TOOL
+	// MCPWorkflowPrefix is the prefix for all MCP internal workflows.
+	MCPWorkflowPrefix = "dapr.internal.mcp."
+
+	// MCPMethodListTools is the suffix for ListTools operations.
+	MCPMethodListTools = ".ListTools"
+
+	// MCPMethodCallTool is the suffix for CallTool operations.
+	MCPMethodCallTool = ".CallTool"
 )
-
-// InProcessWorkflowPrefixes maps an InProcessWorkflow enum to its canonical
-// string prefix used when constructing workflow names.
-var InProcessWorkflowPrefixes = map[InProcessWorkflow]string{
-	IN_PROCESS_WF_MCP: "dapr.internal.mcp.",
-}
-
-// MCPMethodSuffix maps an MCPMethod enum to its canonical method suffix
-// used when constructing workflow names.
-var MCPMethodSuffix = map[MCPMethod]string{
-	MCP_METHOD_LIST_TOOLS: ".ListTools",
-	MCP_METHOD_CALL_TOOL:  ".CallTool",
-}
 
 // MCPListToolsWorkflowName returns the full workflow name for a ListTools
 // operation on the given MCPServer: dapr.internal.mcp.<server>.ListTools
 func MCPListToolsWorkflowName(serverName string) string {
-	return InProcessWorkflowPrefixes[IN_PROCESS_WF_MCP] + serverName + MCPMethodSuffix[MCP_METHOD_LIST_TOOLS]
+	return MCPWorkflowPrefix + serverName + MCPMethodListTools
 }
 
 // MCPCallToolWorkflowName returns the full workflow name for a CallTool
 // operation on the given MCPServer: dapr.internal.mcp.<server>.CallTool
 func MCPCallToolWorkflowName(serverName string) string {
-	return InProcessWorkflowPrefixes[IN_PROCESS_WF_MCP] + serverName + MCPMethodSuffix[MCP_METHOD_CALL_TOOL]
+	return MCPWorkflowPrefix + serverName + MCPMethodCallTool
 }
 
 // MCPListToolsActivityName returns the activity name for a ListTools transport
 // call on the given MCPServer: dapr.internal.mcp.<server>.list-tools
 func MCPListToolsActivityName(serverName string) string {
-	return InProcessWorkflowPrefixes[IN_PROCESS_WF_MCP] + serverName + ".list-tools"
+	return MCPWorkflowPrefix + serverName + ".list-tools"
 }
 
 // MCPCallToolActivityName returns the activity name for a CallTool transport
 // call on the given MCPServer: dapr.internal.mcp.<server>.call-tool
 func MCPCallToolActivityName(serverName string) string {
-	return InProcessWorkflowPrefixes[IN_PROCESS_WF_MCP] + serverName + ".call-tool"
+	return MCPWorkflowPrefix + serverName + ".call-tool"
 }
