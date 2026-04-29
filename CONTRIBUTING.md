@@ -36,9 +36,12 @@ Use the following command to regenerate the protobuf from the submodule. Use thi
 # This will place the generated files directly in api/protos/, matching the go_package and your repo structure.
 protoc --go_out=. --go-grpc_out=. \
   -I submodules/durabletask-protobuf/protos \
-  submodules/durabletask-protobuf/protos/orchestrator_service.proto \
-  submodules/durabletask-protobuf/protos/backend_service.proto \
-  submodules/durabletask-protobuf/protos/runtime_state.proto
+  submodules/durabletask-protobuf/protos/backend_service.proto   \
+  submodules/durabletask-protobuf/protos/history_events.proto \
+  submodules/durabletask-protobuf/protos/runtime_state.proto  \
+  submodules/durabletask-protobuf/protos/orchestration.proto \
+  submodules/durabletask-protobuf/protos/orchestrator_actions.proto \
+  submodules/durabletask-protobuf/protos/orchestrator_service.proto
 ```
 
 For local development with protobuf changes:
@@ -51,9 +54,12 @@ replace github.com/dapr/durabletask-protobuf => ../durabletask-protobuf
 # Regenerate protobuf files using your local proto definitions
 protoc --go_out=. --go-grpc_out=. \
   -I ../durabletask-protobuf/protos \
-  ../durabletask-protobuf/protos/orchestrator_service.proto \
-  ../durabletask-protobuf/protos/backend_service.proto \
-  ../durabletask-protobuf/protos/runtime_state.proto
+  ../durabletask-protobuf/protos/backend_service.proto   \
+  ../durabletask-protobuf/protos/history_events.proto \
+  ../durabletask-protobuf/protos/runtime_state.proto  \
+  ../durabletask-protobuf/protos/orchestration.proto \
+  ../durabletask-protobuf/protos/orchestrator_actions.proto \
+  ../durabletask-protobuf/protos/orchestrator_service.proto
 ```
 
 This will use your local proto files instead of the ones in the submodule, which is useful when testing protobuf changes before submitting them upstream.
