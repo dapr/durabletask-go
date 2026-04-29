@@ -27,16 +27,7 @@ type callActivityOptions struct {
 	rawInput         *wrapperspb.StringValue
 	retryPolicy      *RetryPolicy
 	targetAppID      *string
-	inProcess        bool
 	propagationScope *protos.HistoryPropagationScope
-}
-
-// WithActivityInProcess marks the activity to run on the in-process executor.
-func WithActivityInProcess() CallActivityOption {
-	return CallActivityOptionFunc(func(opts *callActivityOptions) error {
-		opts.inProcess = true
-		return nil
-	})
 }
 
 type RetryPolicy struct {
