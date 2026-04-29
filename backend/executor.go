@@ -38,9 +38,13 @@ type pendingActivity struct {
 	streamID   string
 }
 
+type ExecuteOptions struct {
+	PropagatedHistory *protos.PropagatedHistory
+}
+
 type Executor interface {
-	ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error)
-	ExecuteActivity(context.Context, api.InstanceID, *protos.HistoryEvent) (*protos.HistoryEvent, error)
+	ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error)
+	ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error)
 	Shutdown(ctx context.Context) error
 }
 
@@ -57,6 +61,7 @@ type grpcExecutor struct {
 	streamShutdownChan       <-chan any
 	streamSendTimeout        *time.Duration
 	skipWaitForInstanceStart bool
+	inProcessNamePrefix      *string
 }
 
 type grpcExecutorOptions func(g *grpcExecutor)
@@ -67,9 +72,9 @@ func IsDurableTaskGrpcRequest(fullMethodName string) bool {
 	return strings.HasPrefix(fullMethodName, "/TaskHubSidecarService/")
 }
 
-// WithOnGetWorkItemsConnectionCallback allows the caller to get a notification when an external process
-// connects over gRPC and invokes the GetWorkItems operation. This can be useful for doing things like
-// lazily auto-starting the task hub worker only when necessary.
+// WithOnGetWorkItemsConnectionCallback allows the caller to get a notification when an external process connects over gRPC,
+// and invokes the GetWorkItems operation.
+// This can be useful for doing things like lazily auto-starting the task hub worker only when necessary.
 func WithOnGetWorkItemsConnectionCallback(callback func(context.Context) error) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.onWorkItemConnection = callback
@@ -77,8 +82,8 @@ func WithOnGetWorkItemsConnectionCallback(callback func(context.Context) error) 
 }
 
 // WithOnGetWorkItemsDisconnectCallback allows the caller to get a notification when an external process
-// disconnects from the GetWorkItems operation. This can be useful for doing things like shutting down
-// the task hub worker when the client disconnects.
+// disconnects from the GetWorkItems operation.
+// This can be useful for doing things like shutting down the task hub worker when the client disconnects.
 func WithOnGetWorkItemsDisconnectCallback(callback func(context.Context) error) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.onWorkItemDisconnect = callback
@@ -103,7 +108,24 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 	}
 }
 
-// NewGrpcExecutor returns the Executor object and a method to invoke to register the gRPC server in the executor.
+// WithInProcessNamePrefix configures the prefix the executor uses to mark workflows as in-process at creation time.
+// Top-level workflows whose name begins with this prefix have their persisted ExecutionStartedEvent.InProcess set.
+// Child workflows and activities do NOT inherit the flag automatically — they must be explicitly flagged via
+// WithChildWorkflowInProcess or WithActivityInProcess task options. The task-hub worker reads the persisted
+// in-process flag on each specific workflow or action to decide routing.
+func WithInProcessNamePrefix(prefix string) grpcExecutorOptions {
+	return func(g *grpcExecutor) {
+		g.inProcessNamePrefix = &prefix
+	}
+}
+
+func (g *grpcExecutor) shouldStampInProcess(name string) bool {
+	if g.inProcessNamePrefix == nil || name == "" {
+		return false
+	}
+	return strings.HasPrefix(name, *g.inProcessNamePrefix)
+}
+
 func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (executor Executor, registerServerFn func(grpcServer grpc.ServiceRegistrar)) {
 	grpcExecutor := &grpcExecutor{
 		workItemQueue:     make(chan *protos.WorkItem),
@@ -123,14 +145,15 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 }
 
 // ExecuteWorkflow implements Executor
-func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
+func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error) {
 	executor.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
 
 	req := &protos.WorkflowRequest{
-		InstanceId:  string(iid),
-		ExecutionId: nil,
-		PastEvents:  oldEvents,
-		NewEvents:   newEvents,
+		InstanceId:        string(iid),
+		ExecutionId:       nil,
+		PastEvents:        oldEvents,
+		NewEvents:         newEvents,
+		PropagatedHistory: opts.PropagatedHistory,
 	}
 
 	workItem := &protos.WorkItem{
@@ -143,6 +166,9 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 
 	// Send the workflow execution work-item to the connected worker.
 	// This will block if the worker isn't listening for work items.
+	// Worker-level routing (gRPC stream vs in-process internal executor)
+	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.InProcess.
+	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
 		executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
@@ -166,7 +192,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 }
 
 // ExecuteActivity implements Executor
-func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent) (*protos.HistoryEvent, error) {
+func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error) {
 	key := GetActivityExecutionKey(string(iid), e.EventId)
 	executor.pendingActivities.Store(key, &pendingActivity{instanceID: iid, taskID: e.EventId})
 
@@ -180,6 +206,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		TaskId:             e.EventId,
 		TaskExecutionId:    task.TaskExecutionId,
 		ParentTraceContext: task.ParentTraceContext,
+		PropagatedHistory:  opts.PropagatedHistory,
 	}
 	workItem := &protos.WorkItem{
 		Request: &protos.WorkItem_ActivityRequest{
@@ -191,6 +218,9 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 
 	// Send the activity execution work-item to the connected worker.
 	// This will block if the worker isn't listening for work items.
+	// Worker-level routing (gRPC stream vs in-process internal executor)
+	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.InProcess.
+	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
 		executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
@@ -421,8 +451,20 @@ func (g *grpcExecutor) executeOnWorkItemDisconnect(ctx context.Context) error {
 	return nil
 }
 
-// CompleteWorkflowTask implements protos.TaskHubSidecarServiceServer
+// CompleteWorkflowTask implements protos.TaskHubSidecarServiceServer.
 func (g *grpcExecutor) CompleteWorkflowTask(ctx context.Context, res *protos.WorkflowResponse) (*protos.CompleteTaskResponse, error) {
+	// Stamp in_process on child workflow and activity actions from external SDKs.
+	// External SDKs (Python, .NET, etc.) don't know about in-process routing,
+	// so the sidecar stamps it based on name prefix before persisting.
+	// Internal (Go) orchestrators set InProcess explicitly via WithActivityInProcess/WithChildWorkflowInProcess.
+	for _, action := range res.GetActions() {
+		if cw := action.GetCreateChildWorkflow(); cw != nil && !cw.InProcess {
+			cw.InProcess = g.shouldStampInProcess(cw.Name)
+		}
+		if st := action.GetScheduleTask(); st != nil && !st.InProcess {
+			st.InProcess = g.shouldStampInProcess(st.Name)
+		}
+	}
 	return emptyCompleteTaskResponse, g.backend.CompleteWorkflowTask(ctx, res)
 }
 
@@ -515,6 +557,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				},
 				ParentTraceContext:      helpers.TraceContextFromSpan(span),
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
+				InProcess:               g.shouldStampInProcess(req.Name),
 			},
 		},
 	}

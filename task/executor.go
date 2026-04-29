@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -26,16 +28,16 @@ func NewTaskExecutor(registry *TaskRegistry) backend.Executor {
 }
 
 // ExecuteActivity implements backend.Executor and executes an activity function in the current goroutine.
-func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, e *protos.HistoryEvent) (response *protos.HistoryEvent, err error) {
+func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, e *protos.HistoryEvent, opts backend.ExecuteOptions) (response *protos.HistoryEvent, err error) {
 	ts := e.GetTaskScheduled()
 	if ts == nil {
 		// No clean way to deal with this other than to abandon it
 		return nil, fmt.Errorf("Unexpected event type for ExecuteActivity: %v", e.EventType)
 	}
-	invoker, ok := te.Registry.activities[ts.Name]
+	invoker, ok := te.Registry.getActivity(ts.Name)
 	if !ok {
 		// try the wildcard match
-		invoker, ok = te.Registry.activities["*"]
+		invoker, ok = te.Registry.getActivity("*")
 		if !ok {
 			return &protos.HistoryEvent{
 				EventId:   -1,
@@ -53,7 +55,24 @@ func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, 
 			}, nil
 		}
 	}
-	activityCtx := newTaskActivityContext(ctx, e.EventId, ts)
+	ph, err := api.PropagatedHistoryFromProto(opts.PropagatedHistory)
+	if err != nil {
+		return &protos.HistoryEvent{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_TaskFailed{
+				TaskFailed: &protos.TaskFailedEvent{
+					TaskScheduledId: e.EventId,
+					TaskExecutionId: ts.GetTaskExecutionId(),
+					FailureDetails: &protos.TaskFailureDetails{
+						ErrorType:    "InvalidPropagatedHistory",
+						ErrorMessage: err.Error(),
+					},
+				},
+			},
+		}, nil
+	}
+	activityCtx := newTaskActivityContext(ctx, e.EventId, ts, ph)
 
 	// convert panics into activity failures
 	defer func() {
@@ -128,8 +147,17 @@ func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, 
 }
 
 // ExecuteWorkflow implements backend.Executor and executes a workflow function in the current goroutine.
-func (te *taskExecutor) ExecuteWorkflow(ctx context.Context, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent) (*protos.WorkflowResponse, error) {
+func (te *taskExecutor) ExecuteWorkflow(ctx context.Context, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts backend.ExecuteOptions) (*protos.WorkflowResponse, error) {
 	workflowCtx := NewWorkflowContext(te.Registry, id, oldEvents, newEvents)
+
+	if opts.PropagatedHistory != nil {
+		ph, err := api.PropagatedHistoryFromProto(opts.PropagatedHistory)
+		if err != nil {
+			return nil, fmt.Errorf("invalid propagated history: %w", err)
+		}
+		workflowCtx.SetPropagatedHistory(ph)
+	}
+
 	actions := workflowCtx.start()
 
 	response := &protos.WorkflowResponse{
@@ -159,20 +187,28 @@ func (te taskExecutor) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// protoMarshaler uses UseProtoNames so JSON output uses snake_case field names
+// (matching the proto field names), which is the convention for workflow payloads.
+var protoMarshaler = protojson.MarshalOptions{UseProtoNames: true}
+
 func unmarshalData(data []byte, v any) error {
 	if v == nil {
 		return nil
 	} else if len(data) == 0 {
-		v = nil
 		return nil
-	} else {
-		return json.Unmarshal(data, v)
 	}
+	if msg, ok := v.(proto.Message); ok {
+		return protojson.Unmarshal(data, msg)
+	}
+	return json.Unmarshal(data, v)
 }
 
 func marshalData(v any) ([]byte, error) {
 	if v == nil {
 		return nil, nil
+	}
+	if msg, ok := v.(proto.Message); ok {
+		return protoMarshaler.Marshal(msg)
 	}
 	return json.Marshal(v)
 }

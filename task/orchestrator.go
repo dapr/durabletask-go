@@ -2,7 +2,6 @@ package task
 
 import (
 	"container/list"
-	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -60,24 +59,44 @@ type WorkflowContext struct {
 	historyPatches             map[string]bool
 	appliedPatches             map[string]bool
 	encounteredPatches         []string
+	propagatedHistory          *api.PropagatedHistory
 }
 
 // callChildWorkflowOptions is a struct that holds the options for the CallChildWorkflow workflow method.
 type callChildWorkflowOptions struct {
-	instanceID  string
-	rawInput    *wrapperspb.StringValue
-	targetAppID *string
-	retryPolicy *RetryPolicy
+	instanceID       string
+	rawInput         *wrapperspb.StringValue
+	targetAppID      *string
+	retryPolicy      *RetryPolicy
+	inProcess        bool
+	propagationScope *protos.HistoryPropagationScope
 }
 
-// ChildWorkflowOption is a functional option type for the CallChildWorkflow workflow method.
-type ChildWorkflowOption func(*callChildWorkflowOptions) error
+// WithChildWorkflowInProcess marks the child workflow to run on the in-process executor.
+func WithChildWorkflowInProcess() ChildWorkflowOptionFunc {
+	return func(opts *callChildWorkflowOptions) error {
+		opts.inProcess = true
+		return nil
+	}
+}
+
+// ChildWorkflowOption is the interface for options passed to CallChildWorkflow.
+type ChildWorkflowOption interface {
+	applyChildWorkflowOption(*callChildWorkflowOptions) error
+}
+
+// ChildWorkflowOptionFunc adapts a function to the ChildWorkflowOption interface.
+type ChildWorkflowOptionFunc func(*callChildWorkflowOptions) error
+
+func (f ChildWorkflowOptionFunc) applyChildWorkflowOption(opts *callChildWorkflowOptions) error {
+	return f(opts)
+}
 
 // ContinueAsNewOption is a functional option type for the ContinueAsNew workflow method.
 type ContinueAsNewOption func(*WorkflowContext)
 
 // WithChildWorkflowAppID is a functional option type for the CallChildWorkflow workflow method that specifies the app ID of the target activity.
-func WithChildWorkflowAppID(appID string) ChildWorkflowOption {
+func WithChildWorkflowAppID(appID string) ChildWorkflowOptionFunc {
 	return func(opts *callChildWorkflowOptions) error {
 		opts.targetAppID = &appID
 		return nil
@@ -94,7 +113,7 @@ func WithKeepUnprocessedEvents() ContinueAsNewOption {
 
 // WithChildWorkflowInput is a functional option type for the CallChildWorkflow
 // workflow method that takes an input value and marshals it to JSON.
-func WithChildWorkflowInput(input any) ChildWorkflowOption {
+func WithChildWorkflowInput(input any) ChildWorkflowOptionFunc {
 	return func(opts *callChildWorkflowOptions) error {
 		bytes, err := marshalData(input)
 		if err != nil {
@@ -107,7 +126,7 @@ func WithChildWorkflowInput(input any) ChildWorkflowOption {
 
 // WithRawChildWorkflowInput is a functional option type for the CallChildWorkflow
 // workflow method that takes a raw input value.
-func WithRawChildWorkflowInput(input *wrapperspb.StringValue) ChildWorkflowOption {
+func WithRawChildWorkflowInput(input *wrapperspb.StringValue) ChildWorkflowOptionFunc {
 	return func(opts *callChildWorkflowOptions) error {
 		opts.rawInput = input
 		return nil
@@ -116,14 +135,14 @@ func WithRawChildWorkflowInput(input *wrapperspb.StringValue) ChildWorkflowOptio
 
 // WithChildWorkflowInstanceID is a functional option type for the CallChildWorkflow
 // workflow method that specifies the instance ID of the child workflow.
-func WithChildWorkflowInstanceID(instanceID string) ChildWorkflowOption {
+func WithChildWorkflowInstanceID(instanceID string) ChildWorkflowOptionFunc {
 	return func(opts *callChildWorkflowOptions) error {
 		opts.instanceID = instanceID
 		return nil
 	}
 }
 
-func WithChildWorkflowRetryPolicy(policy *RetryPolicy) ChildWorkflowOption {
+func WithChildWorkflowRetryPolicy(policy *RetryPolicy) ChildWorkflowOptionFunc {
 	return func(opt *callChildWorkflowOptions) error {
 		if policy == nil {
 			return nil
@@ -282,13 +301,26 @@ func (octx *WorkflowContext) GetInput(v any) error {
 	return unmarshalData(octx.rawInput, v)
 }
 
+// GetPropagatedHistory returns the propagated history from a parent workflow,
+// or nil if no history was propagated. The propagated history contains events
+// from the parent (and optionally ancestor) workflows that opted to propagate
+// their execution context.
+func (octx *WorkflowContext) GetPropagatedHistory() *api.PropagatedHistory {
+	return octx.propagatedHistory
+}
+
+// SetPropagatedHistory sets the propagated history on the context.
+func (octx *WorkflowContext) SetPropagatedHistory(ph *api.PropagatedHistory) {
+	octx.propagatedHistory = ph
+}
+
 // CallActivity schedules an asynchronous invocation of an activity function. The [activity]
 // parameter can be either the name of an activity as a string or can be a pointer to the function
 // that implements the activity, in which case the name is obtained via reflection.
 func (ctx *WorkflowContext) CallActivity(activity interface{}, opts ...CallActivityOption) Task {
 	options := new(callActivityOptions)
 	for _, configure := range opts {
-		if err := configure(options); err != nil {
+		if err := configure.applyActivityOption(options); err != nil {
 			failedTask := newTask(ctx)
 			failedTask.fail(&protos.TaskFailureDetails{
 				ErrorType:    reflect.TypeOf(err).String(),
@@ -319,13 +351,19 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 	scheduleTaskAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
 		WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
-			ScheduleTask: &protos.ScheduleTaskAction{Name: activityName, TaskExecutionId: taskExecutionId, Input: options.rawInput},
+			ScheduleTask: &protos.ScheduleTaskAction{Name: activityName, TaskExecutionId: taskExecutionId, Input: options.rawInput, InProcess: options.inProcess},
 		},
 	}
 
 	if options.targetAppID != nil {
 		scheduleTaskAction.Router = &protos.TaskRouter{
 			TargetAppID: ptr.Of(*options.targetAppID),
+		}
+	}
+
+	if options.propagationScope != nil {
+		if st := scheduleTaskAction.GetScheduleTask(); st != nil {
+			st.HistoryPropagationScope = options.propagationScope
 		}
 	}
 
@@ -339,7 +377,7 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 func (ctx *WorkflowContext) CallChildWorkflow(workflow interface{}, opts ...ChildWorkflowOption) Task {
 	options := new(callChildWorkflowOptions)
 	for _, configure := range opts {
-		if err := configure(options); err != nil {
+		if err := configure.applyChildWorkflowOption(options); err != nil {
 			failedTask := newTask(ctx)
 			failedTask.fail(&protos.TaskFailureDetails{
 				ErrorType:    reflect.TypeOf(err).String(),
@@ -380,6 +418,7 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 				Name:       workflowName,
 				Input:      options.rawInput,
 				InstanceId: options.instanceID,
+				InProcess:  options.inProcess,
 			},
 		},
 	}
@@ -387,6 +426,12 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 	if options.targetAppID != nil {
 		createChildWorkflowAction.Router = &protos.TaskRouter{
 			TargetAppID: ptr.Of(*options.targetAppID),
+		}
+	}
+
+	if options.propagationScope != nil {
+		if cw := createChildWorkflowAction.GetCreateChildWorkflow(); cw != nil {
+			cw.HistoryPropagationScope = options.propagationScope
 		}
 	}
 
@@ -607,36 +652,14 @@ func (ctx *WorkflowContext) isPatched(patchName string) bool {
 }
 
 func (ctx *WorkflowContext) getWorkflow(es *protos.ExecutionStartedEvent) (Workflow, error) {
-	workflow, ok := ctx.registry.workflows[es.Name]
-	if ok {
-		return workflow, nil
+	workflow, version, err := ctx.registry.ResolveWorkflow(es.Name, ctx.VersionName)
+	if err != nil {
+		return nil, err
 	}
-
-	if versions, ok := ctx.registry.versionedWorkflows[es.Name]; ok {
-		var versionToUse string
-		if ctx.VersionName != nil {
-			versionToUse = *ctx.VersionName
-		} else {
-			if latest, ok := ctx.registry.latestVersionedWorkflows[es.Name]; ok {
-				versionToUse = latest
-			} else {
-				return nil, fmt.Errorf("versioned workflow '%s' does not have a latest version registered", es.Name)
-			}
-		}
-
-		if workflow, ok = versions[versionToUse]; ok {
-			ctx.VersionName = &versionToUse
-			return workflow, nil
-		} else {
-			return nil, api.NewUnsupportedVersionError()
-		}
+	if version != nil {
+		ctx.VersionName = version
 	}
-
-	if workflow, ok = ctx.registry.workflows["*"]; ok {
-		return workflow, nil
-	}
-
-	return nil, fmt.Errorf("workflow named '%s' is not registered", es.Name)
+	return workflow, nil
 }
 
 func (ctx *WorkflowContext) onExecutionStarted(es *protos.ExecutionStartedEvent) error {
@@ -869,7 +892,7 @@ func (ctx *WorkflowContext) setComplete(output any) error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED
 	var rawOutput *wrapperspb.StringValue
 	if output != nil {
-		bytes, err := json.Marshal(output)
+		bytes, err := marshalData(output)
 		if err != nil {
 			return fmt.Errorf("failed to marshal output to JSON: %w", err)
 		}
@@ -897,7 +920,7 @@ func (ctx *WorkflowContext) setContinuedAsNew() error {
 	status := protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW
 	var newRawInput *wrapperspb.StringValue
 	if ctx.continuedAsNewInput != nil {
-		bytes, err := json.Marshal(ctx.continuedAsNewInput)
+		bytes, err := marshalData(ctx.continuedAsNewInput)
 		if err != nil {
 			return fmt.Errorf("failed to marshal continue-as-new payload to JSON: %w", err)
 		}
