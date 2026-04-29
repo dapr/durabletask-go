@@ -280,7 +280,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
 						ParentTraceContext: currentTraceContext,
-						InProcess:         createSO.GetInProcess(),
+						InProcess:          createSO.GetInProcess(),
 					},
 				},
 				Router: action.Router,
