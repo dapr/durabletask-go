@@ -37,7 +37,6 @@ Use the following command to regenerate the protobuf from the submodule. Use thi
 protoc --go_out=. --go-grpc_out=. \
   -I submodules/durabletask-protobuf/protos \
   submodules/durabletask-protobuf/protos/orchestration.proto \
-  submodules/durabletask-protobuf/protos/mcp.proto \
   submodules/durabletask-protobuf/protos/orchestrator_service.proto \
   submodules/durabletask-protobuf/protos/backend_service.proto \
   submodules/durabletask-protobuf/protos/runtime_state.proto
