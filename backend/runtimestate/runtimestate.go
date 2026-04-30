@@ -116,12 +116,20 @@ func Output(s *protos.WorkflowRuntimeState) (*wrapperspb.StringValue, error) {
 
 func RuntimeStatus(s *protos.WorkflowRuntimeState) protos.OrchestrationStatus {
 	switch {
-	case s.Stalled != nil:
-		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED
 	case s.StartEvent == nil:
+		// A workflow can stall before its ExecutionStartedEvent is ever
+		// processed (e.g. an oversized IncomingHistory chunk trips the
+		// orchestrator's payload-size precheck), so report STALLED here
+		// instead of PENDING. Completion precedence is preserved below
+		// because a CompletedEvent always implies StartEvent is set.
+		if s.Stalled != nil {
+			return protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED
+		}
 		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
 	case s.CompletedEvent != nil:
 		return s.CompletedEvent.GetWorkflowStatus()
+	case s.Stalled != nil:
+		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED
 	case s.IsSuspended:
 		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED
 	default:
