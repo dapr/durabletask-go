@@ -412,7 +412,8 @@ func TestPropagatedHistoryFromProto(t *testing.T) {
 		},
 	}
 
-	ph := PropagatedHistoryFromProto(proto)
+	ph, err := PropagatedHistoryFromProto(proto)
+	require.NoError(t, err)
 	require.NotNil(t, ph)
 	assert.Len(t, ph.Events(), 2)
 	assert.Equal(t, protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE, ph.Scope())
@@ -425,7 +426,8 @@ func TestPropagatedHistoryFromProto(t *testing.T) {
 }
 
 func TestPropagatedHistoryFromProto_Nil(t *testing.T) {
-	ph := PropagatedHistoryFromProto(nil)
+	ph, err := PropagatedHistoryFromProto(nil)
+	require.NoError(t, err)
 	assert.Nil(t, ph)
 }
 
