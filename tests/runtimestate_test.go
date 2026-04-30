@@ -154,7 +154,7 @@ func Test_CompletedChildWorkflow(t *testing.T) {
 		},
 	}
 
-	applier := runtimestate.NewApplier("example")
+	applier := runtimestate.NewApplier("example", "")
 	result, err := applier.Actions(s, nil, actions, nil, nil)
 	if assert.NoError(t, err) && assert.False(t, result.ContinuedAsNew) {
 		if assert.Len(t, s.NewEvents, 1) {
@@ -224,7 +224,7 @@ func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 		},
 	}
 
-	applier := runtimestate.NewApplier("example")
+	applier := runtimestate.NewApplier("example", "")
 	result, err := applier.Actions(state, nil, actions, nil, nil)
 	if assert.NoError(t, err) && assert.True(t, result.ContinuedAsNew) {
 		if assert.Len(t, state.NewEvents, 3) {
@@ -292,7 +292,7 @@ func Test_CreateTimer(t *testing.T) {
 		})
 	}
 
-	applier := runtimestate.NewApplier("example")
+	applier := runtimestate.NewApplier("example", "")
 	result, err := applier.Actions(s, nil, actions, nil, nil)
 	if assert.NoError(t, err) && assert.False(t, result.ContinuedAsNew) {
 		if assert.Len(t, s.NewEvents, timerCount) {
@@ -356,7 +356,7 @@ func Test_CreateTimer_ExternalEventOrigin(t *testing.T) {
 		},
 	}
 
-	applier := runtimestate.NewApplier("example")
+	applier := runtimestate.NewApplier("example", "")
 	result, err := applier.Actions(s, nil, actions, nil, nil)
 	if assert.NoError(t, err) && assert.False(t, result.ContinuedAsNew) {
 		if assert.Len(t, s.NewEvents, 1) {
@@ -412,7 +412,7 @@ func Test_CreateTimer_ActivityRetryOrigin(t *testing.T) {
 		},
 	}
 
-	applier := runtimestate.NewApplier("example")
+	applier := runtimestate.NewApplier("example", "")
 	result, err := applier.Actions(s, nil, actions, nil, nil)
 	if assert.NoError(t, err) && assert.False(t, result.ContinuedAsNew) {
 		if assert.Len(t, s.NewEvents, 1) {
@@ -468,7 +468,7 @@ func Test_CreateTimer_ChildWorkflowRetryOrigin(t *testing.T) {
 		},
 	}
 
-	applier := runtimestate.NewApplier("example")
+	applier := runtimestate.NewApplier("example", "")
 	result, err := applier.Actions(s, nil, actions, nil, nil)
 	if assert.NoError(t, err) && assert.False(t, result.ContinuedAsNew) {
 		if assert.Len(t, s.NewEvents, 1) {
@@ -502,7 +502,7 @@ func Test_ChildWorkflowRetry_TimerOriginPointsToFirstChild(t *testing.T) {
 	})
 
 	executor := task.NewTaskExecutor(r)
-	applier := runtimestate.NewApplier("test")
+	applier := runtimestate.NewApplier("test", "")
 
 	startEvent := &protos.HistoryEvent{
 		EventId:   -1,
@@ -822,7 +822,7 @@ func Test_ScheduleTask(t *testing.T) {
 	}
 
 	tc := &protos.TraceContext{TraceParent: "trace", TraceState: wrapperspb.String("state")}
-	applier := runtimestate.NewApplier("example")
+	applier := runtimestate.NewApplier("example", "")
 	result, err := applier.Actions(state, nil, actions, tc, nil)
 	if assert.NoError(t, err) && assert.False(t, result.ContinuedAsNew) {
 		if assert.Len(t, state.NewEvents, 1) {
@@ -894,7 +894,7 @@ func Test_CreateChildWorkflow(t *testing.T) {
 		TraceParent: expectedTraceParent,
 		TraceState:  wrapperspb.String(expectedTraceState),
 	}
-	applier := runtimestate.NewApplier("example")
+	applier := runtimestate.NewApplier("example", "")
 	result, err := applier.Actions(state, nil, actions, tc, nil)
 	if assert.NoError(t, err) && assert.False(t, result.ContinuedAsNew) {
 		if assert.Len(t, state.NewEvents, 1) {
@@ -969,7 +969,7 @@ func Test_SendEvent(t *testing.T) {
 		},
 	}
 
-	applier := runtimestate.NewApplier("example")
+	applier := runtimestate.NewApplier("example", "")
 	result, err := applier.Actions(s, nil, actions, nil, nil)
 	if assert.NoError(t, err) && assert.False(t, result.ContinuedAsNew) {
 		if assert.Len(t, s.NewEvents, 1) {

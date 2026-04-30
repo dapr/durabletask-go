@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -27,33 +28,39 @@ type WorkflowExecutor interface {
 }
 
 type WorkflowWorkerOptions struct {
-	Backend  Backend
-	Executor WorkflowExecutor
-	Logger   Logger
-	AppID    string
-	// InProcessExecutor is for work items whose WorkflowWorkItem.InProcess flag is true.
-	// This is how internal dapr-side workflows (e.g. dapr.internal.mcp.*) run, inside the sidecar
-	// instead of being shipped to an external SDK via the gRPC work-item stream.
+	Backend   Backend
+	Executor  WorkflowExecutor
+	Logger    Logger
+	AppID     string
+	Namespace string
+	// InProcessExecutor is used to dispatch work items whose workflow name has
+	// InProcessNamePrefix as a prefix. This is how internal dapr-side workflows
+	// (e.g. dapr.internal.mcp.*) run inside the sidecar instead of being shipped
+	// to an external SDK via the gRPC work-item stream.
 	InProcessExecutor WorkflowExecutor
+	// InProcessNamePrefix is the workflow-name prefix that selects InProcessExecutor.
+	// Empty string disables prefix-based dispatch.
+	InProcessNamePrefix string
 }
 
 type workflowProcessor struct {
-	be                Backend
-	executor          WorkflowExecutor
-	inProcessExecutor WorkflowExecutor
-	logger            Logger
+	be                  Backend
+	executor            WorkflowExecutor
+	inProcessExecutor   WorkflowExecutor
+	inProcessNamePrefix string
+	logger              Logger
 
 	applier *runtimestate.Applier
 }
 
 func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*WorkflowWorkItem] {
-	applier := runtimestate.NewApplier(opts.AppID)
 	processor := &workflowProcessor{
-		be:                opts.Backend,
-		executor:          opts.Executor,
-		inProcessExecutor: opts.InProcessExecutor,
-		logger:            opts.Logger,
-		applier:           applier,
+		be:                  opts.Backend,
+		executor:            opts.Executor,
+		inProcessExecutor:   opts.InProcessExecutor,
+		inProcessNamePrefix: opts.InProcessNamePrefix,
+		logger:              opts.Logger,
+		applier:             runtimestate.NewApplier(opts.AppID, opts.Namespace),
 	}
 	return NewTaskWorker[*WorkflowWorkItem](processor, opts.Logger, taskopts...)
 }
@@ -109,8 +116,10 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 
 			// Run the user workflow code, providing the old history and new events together.
 			executor := w.executor
-			if wi.State.GetStartEvent().GetInProcess() && w.inProcessExecutor != nil {
-				executor = w.inProcessExecutor
+			if w.inProcessExecutor != nil && w.inProcessNamePrefix != "" {
+				if name := wi.State.GetStartEvent().GetName(); strings.HasPrefix(name, w.inProcessNamePrefix) {
+					executor = w.inProcessExecutor
+				}
 			}
 			results, err := executor.ExecuteWorkflow(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts)
 			if err != nil {

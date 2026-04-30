@@ -61,7 +61,6 @@ type grpcExecutor struct {
 	streamShutdownChan       <-chan any
 	streamSendTimeout        *time.Duration
 	skipWaitForInstanceStart bool
-	inProcessNamePrefix      *string
 }
 
 type grpcExecutorOptions func(g *grpcExecutor)
@@ -106,24 +105,6 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.skipWaitForInstanceStart = true
 	}
-}
-
-// WithInProcessNamePrefix configures the prefix the executor uses to mark workflows as in-process at creation time.
-// Top-level workflows whose name begins with this prefix have their persisted ExecutionStartedEvent.InProcess set.
-// Child workflows and activities do NOT inherit the flag automatically — they must be explicitly flagged via
-// WithChildWorkflowInProcess or WithActivityInProcess task options. The task-hub worker reads the persisted
-// in-process flag on each specific workflow or action to decide routing.
-func WithInProcessNamePrefix(prefix string) grpcExecutorOptions {
-	return func(g *grpcExecutor) {
-		g.inProcessNamePrefix = &prefix
-	}
-}
-
-func (g *grpcExecutor) shouldStampInProcess(name string) bool {
-	if g.inProcessNamePrefix == nil || name == "" {
-		return false
-	}
-	return strings.HasPrefix(name, *g.inProcessNamePrefix)
 }
 
 func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (executor Executor, registerServerFn func(grpcServer grpc.ServiceRegistrar)) {
@@ -453,18 +434,6 @@ func (g *grpcExecutor) executeOnWorkItemDisconnect(ctx context.Context) error {
 
 // CompleteWorkflowTask implements protos.TaskHubSidecarServiceServer.
 func (g *grpcExecutor) CompleteWorkflowTask(ctx context.Context, res *protos.WorkflowResponse) (*protos.CompleteTaskResponse, error) {
-	// Stamp in_process on child workflow and activity actions from external SDKs.
-	// External SDKs (Python, .NET, etc.) don't know about in-process routing,
-	// so the sidecar stamps it based on name prefix before persisting.
-	// Internal (Go) orchestrators set InProcess explicitly via WithActivityInProcess/WithChildWorkflowInProcess.
-	for _, action := range res.GetActions() {
-		if cw := action.GetCreateChildWorkflow(); cw != nil && !cw.InProcess {
-			cw.InProcess = g.shouldStampInProcess(cw.Name)
-		}
-		if st := action.GetScheduleTask(); st != nil && !st.InProcess {
-			st.InProcess = g.shouldStampInProcess(st.Name)
-		}
-	}
 	return emptyCompleteTaskResponse, g.backend.CompleteWorkflowTask(ctx, res)
 }
 
@@ -557,7 +526,6 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				},
 				ParentTraceContext:      helpers.TraceContextFromSpan(span),
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
-				InProcess:               g.shouldStampInProcess(req.Name),
 			},
 		},
 	}

@@ -233,19 +233,28 @@ func terminateChildWorkflowInstances(ctx context.Context, be Backend, iid api.In
 	return nil
 }
 
-// getChildWorkflowInstances returns the instance IDs of all child workflows in the specified events.
+// getChildWorkflowInstances returns the instance IDs of all child workflows
+// in the specified events. Children scheduled with a cross-namespace router
+// are excluded: their state lives on a different sidecar and recursive
+// termination of them through this backend would fail with "no such
+// instance exists". The host (dapr) is responsible for delivering a
+// cross-namespace terminate hop when needed.
 func getChildWorkflowInstances(oldEvents []*HistoryEvent, newEvents []*HistoryEvent) []api.InstanceID {
 	childWorkflowInstancesMap := make(map[api.InstanceID]struct{}, len(oldEvents)+len(newEvents))
-	for _, e := range oldEvents {
-		if created := e.GetChildWorkflowInstanceCreated(); created != nil {
+	collect := func(events []*HistoryEvent) {
+		for _, e := range events {
+			created := e.GetChildWorkflowInstanceCreated()
+			if created == nil {
+				continue
+			}
+			if router := e.GetRouter(); router != nil && router.TargetAppNamespace != nil {
+				continue
+			}
 			childWorkflowInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
 		}
 	}
-	for _, e := range newEvents {
-		if created := e.GetChildWorkflowInstanceCreated(); created != nil {
-			childWorkflowInstancesMap[api.InstanceID(created.InstanceId)] = struct{}{}
-		}
-	}
+	collect(oldEvents)
+	collect(newEvents)
 	childWorkflowInstances := make([]api.InstanceID, 0, len(childWorkflowInstancesMap))
 	for orch := range childWorkflowInstancesMap {
 		childWorkflowInstances = append(childWorkflowInstances, orch)

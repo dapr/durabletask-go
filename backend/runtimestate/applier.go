@@ -27,7 +27,8 @@ import (
 )
 
 type Applier struct {
-	appID string
+	appID     string
+	namespace string
 }
 
 // ActionsResult is the per-call output of Applier.Actions
@@ -48,9 +49,10 @@ type ActionsResult struct {
 	NewIncomingHistory *protos.PropagatedHistory
 }
 
-func NewApplier(appID string) *Applier {
+func NewApplier(appID string, namespace string) *Applier {
 	return &Applier{
-		appID: appID,
+		appID:     appID,
+		namespace: namespace,
 	}
 }
 
@@ -143,6 +145,14 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 							SourceAppID: action.Router.GetSourceAppID(),
 							TargetAppID: ptr.Of(parentInstance.GetAppID()),
 						}
+						// Propagate the parent's namespace so the dispatcher
+						// in the host (dapr) classifies the result hop as
+						// cross-namespace and ships back to the parent's
+						// sidecar via service invocation rather than via
+						// placement in the local (target) namespace.
+						if parentInstance.AppNamespace != nil {
+							completionRouter.TargetAppNamespace = ptr.Of(parentInstance.GetAppNamespace())
+						}
 					} else {
 						completionRouter = action.Router
 					}
@@ -221,7 +231,6 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 						Version:                 scheduleTask.Version,
 						Input:                   scheduleTask.Input,
 						ParentTraceContext:      currentTraceContext,
-						InProcess:               scheduleTask.GetInProcess(),
 						HistoryPropagationScope: scheduleTask.HistoryPropagationScope,
 					},
 				},
@@ -267,20 +276,14 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				Timestamp: timestamppb.New(time.Now()),
 				EventType: &protos.HistoryEvent_ExecutionStarted{
 					ExecutionStarted: &protos.ExecutionStartedEvent{
-						Name: createSO.Name,
-						ParentInstance: &protos.ParentInstanceInfo{
-							TaskScheduledId:  action.Id,
-							Name:             wrapperspb.String(s.StartEvent.Name),
-							WorkflowInstance: &protos.WorkflowInstance{InstanceId: string(s.InstanceId)},
-							AppID:            ptr.Of(action.Router.GetSourceAppID()),
-						},
-						Input: createSO.Input,
+						Name:           createSO.Name,
+						ParentInstance: parentInstanceInfo(a.namespace, action, s),
+						Input:          createSO.Input,
 						WorkflowInstance: &protos.WorkflowInstance{
 							InstanceId:  createSO.InstanceId,
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
 						ParentTraceContext: currentTraceContext,
-						InProcess:          createSO.GetInProcess(),
 					},
 				},
 				Router: action.Router,
@@ -361,4 +364,27 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 	}
 
 	return result, nil
+}
+
+// parentInstanceInfo constructs the ParentInstanceInfo embedded in a
+// scheduled child workflow's StartEvent. Carries the parent's namespace
+// (so cross-namespace completion routing can flip the destination back
+// to the parent's sidecar) and the parent's executionId (so a stale
+// result that arrives after the parent was purged + recreated under the
+// same instance ID is detectable and droppable).
+func parentInstanceInfo(parentNamespace string, action *protos.WorkflowAction, s *protos.WorkflowRuntimeState) *protos.ParentInstanceInfo {
+	parentInstance := &protos.WorkflowInstance{InstanceId: string(s.InstanceId)}
+	if execID := s.StartEvent.GetWorkflowInstance().GetExecutionId(); execID != nil {
+		parentInstance.ExecutionId = execID
+	}
+	pi := &protos.ParentInstanceInfo{
+		TaskScheduledId:  action.Id,
+		Name:             wrapperspb.String(s.StartEvent.Name),
+		WorkflowInstance: parentInstance,
+		AppID:            ptr.Of(action.Router.GetSourceAppID()),
+	}
+	if parentNamespace != "" {
+		pi.AppNamespace = ptr.Of(parentNamespace)
+	}
+	return pi
 }
