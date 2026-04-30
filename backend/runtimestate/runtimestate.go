@@ -115,17 +115,18 @@ func Output(s *protos.WorkflowRuntimeState) (*wrapperspb.StringValue, error) {
 }
 
 func RuntimeStatus(s *protos.WorkflowRuntimeState) protos.OrchestrationStatus {
-	if s.StartEvent == nil {
-		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
-	} else if s.CompletedEvent != nil {
-		return s.CompletedEvent.GetWorkflowStatus()
-	} else if s.Stalled != nil {
+	switch {
+	case s.Stalled != nil:
 		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED
-	} else if s.IsSuspended {
+	case s.StartEvent == nil:
+		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING
+	case s.CompletedEvent != nil:
+		return s.CompletedEvent.GetWorkflowStatus()
+	case s.IsSuspended:
 		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED
+	default:
+		return protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING
 	}
-
-	return protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING
 }
 
 func CreatedTime(s *protos.WorkflowRuntimeState) (time.Time, error) {
