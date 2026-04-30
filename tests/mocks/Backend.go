@@ -942,22 +942,32 @@ func (_c *Backend_NextWorkflowWorkItem_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// PurgeWorkflowState provides a mock function with given fields: ctx, id, force
-func (_m *Backend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, force bool) error {
-	ret := _m.Called(ctx, id, force)
+// PurgeWorkflowState provides a mock function with given fields: ctx, id, router, force
+func (_m *Backend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool) (int, error) {
+	ret := _m.Called(ctx, id, router, force)
 
 	if len(ret) == 0 {
 		panic("no return value specified for PurgeWorkflowState")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, bool) error); ok {
-		r0 = rf(ctx, id, force)
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, *protos.TaskRouter, bool) (int, error)); ok {
+		return rf(ctx, id, router, force)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, *protos.TaskRouter, bool) int); ok {
+		r0 = rf(ctx, id, router, force)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(int)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, api.InstanceID, *protos.TaskRouter, bool) error); ok {
+		r1 = rf(ctx, id, router, force)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // Backend_PurgeWorkflowState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PurgeWorkflowState'
@@ -968,24 +978,25 @@ type Backend_PurgeWorkflowState_Call struct {
 // PurgeWorkflowState is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id api.InstanceID
+//   - router *protos.TaskRouter
 //   - force bool
-func (_e *Backend_Expecter) PurgeWorkflowState(ctx interface{}, id interface{}, force interface{}) *Backend_PurgeWorkflowState_Call {
-	return &Backend_PurgeWorkflowState_Call{Call: _e.mock.On("PurgeWorkflowState", ctx, id, force)}
+func (_e *Backend_Expecter) PurgeWorkflowState(ctx interface{}, id interface{}, router interface{}, force interface{}) *Backend_PurgeWorkflowState_Call {
+	return &Backend_PurgeWorkflowState_Call{Call: _e.mock.On("PurgeWorkflowState", ctx, id, router, force)}
 }
 
-func (_c *Backend_PurgeWorkflowState_Call) Run(run func(ctx context.Context, id api.InstanceID, force bool)) *Backend_PurgeWorkflowState_Call {
+func (_c *Backend_PurgeWorkflowState_Call) Run(run func(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool)) *Backend_PurgeWorkflowState_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(bool))
+		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(*protos.TaskRouter), args[3].(bool))
 	})
 	return _c
 }
 
-func (_c *Backend_PurgeWorkflowState_Call) Return(_a0 error) *Backend_PurgeWorkflowState_Call {
-	_c.Call.Return(_a0)
+func (_c *Backend_PurgeWorkflowState_Call) Return(_a0 int, _a1 error) *Backend_PurgeWorkflowState_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Backend_PurgeWorkflowState_Call) RunAndReturn(run func(context.Context, api.InstanceID, bool) error) *Backend_PurgeWorkflowState_Call {
+func (_c *Backend_PurgeWorkflowState_Call) RunAndReturn(run func(context.Context, api.InstanceID, *protos.TaskRouter, bool) (int, error)) *Backend_PurgeWorkflowState_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -393,7 +393,7 @@ func Test_PurgeWorkflowState(t *testing.T) {
 		workItemProcessingTestLogic(t, be, getWorkflowActions, validateMetadata)
 
 		// Purge the workflow state
-		if err := be.PurgeWorkflowState(ctx, instanceID, false); !assert.NoError(t, err) {
+		if _, err := be.PurgeWorkflowState(ctx, instanceID, nil, false); !assert.NoError(t, err) {
 			return
 		}
 
@@ -411,7 +411,7 @@ func Test_PurgeWorkflowState(t *testing.T) {
 		assert.Equal(t, 0, len(state.OldEvents))
 
 		// Attempting to purge again should fail with api.ErrInstanceNotFound
-		if err := be.PurgeWorkflowState(ctx, instanceID, false); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
+		if _, err := be.PurgeWorkflowState(ctx, instanceID, nil, false); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
 			return
 		}
 	}

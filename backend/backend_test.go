@@ -44,12 +44,12 @@ func childCreatedEvent(instanceID string, targetAppNamespace *string) *HistoryEv
 	}
 }
 
-// TestGetChildWorkflowInstances_SkipsCrossNamespace asserts that recursive
-// terminate enumeration excludes children scheduled with a router that
-// targets another namespace. Their state lives on a different sidecar; the
-// local backend can't terminate them and the host (dapr) handles
-// cross-namespace terminate dispatch separately.
-func TestGetChildWorkflowInstances_SkipsCrossNamespace(t *testing.T) {
+// TestGetChildWorkflowInstances_PreservesCrossNamespaceRouter asserts that
+// cross-namespace children are enumerated and that the router recorded on
+// their ChildWorkflowInstanceCreated event is preserved on the returned ref.
+// The caller relies on the router to dispatch the recursive terminate to the
+// correct sidecar.
+func TestGetChildWorkflowInstances_PreservesCrossNamespaceRouter(t *testing.T) {
 	old := []*HistoryEvent{
 		childCreatedEvent("local-old", nil),
 		childCreatedEvent("xns-old", ptr.Of("other-ns")),
@@ -60,21 +60,26 @@ func TestGetChildWorkflowInstances_SkipsCrossNamespace(t *testing.T) {
 	}
 
 	got := getChildWorkflowInstances(old, newEvts)
-	gotSet := make(map[api.InstanceID]struct{}, len(got))
-	for _, id := range got {
-		gotSet[id] = struct{}{}
+	gotMap := make(map[api.InstanceID]*protos.TaskRouter, len(got))
+	for _, child := range got {
+		gotMap[child.InstanceID] = child.Router
 	}
 
-	require.Len(t, got, 2, "only local children should be enumerated")
-	assert.Contains(t, gotSet, api.InstanceID("local-old"))
-	assert.Contains(t, gotSet, api.InstanceID("local-new"))
-	assert.NotContains(t, gotSet, api.InstanceID("xns-old"))
-	assert.NotContains(t, gotSet, api.InstanceID("xns-new"))
+	require.Len(t, got, 4, "all children should be enumerated regardless of router")
+	assert.Contains(t, gotMap, api.InstanceID("local-old"))
+	assert.Contains(t, gotMap, api.InstanceID("local-new"))
+	assert.Contains(t, gotMap, api.InstanceID("xns-old"))
+	assert.Contains(t, gotMap, api.InstanceID("xns-new"))
+
+	require.NotNil(t, gotMap[api.InstanceID("xns-old")])
+	assert.Equal(t, "other-ns", gotMap[api.InstanceID("xns-old")].GetTargetAppNamespace())
+	require.NotNil(t, gotMap[api.InstanceID("xns-new")])
+	assert.Equal(t, "other-ns", gotMap[api.InstanceID("xns-new")].GetTargetAppNamespace())
 }
 
 // TestGetChildWorkflowInstances_NoRouterTreatedAsLocal confirms that a
 // ChildWorkflowInstanceCreated event with no router (i.e. legacy/same-app
-// scheduling) is enumerated as a local child.
+// scheduling) is enumerated as a local child with a nil router.
 func TestGetChildWorkflowInstances_NoRouterTreatedAsLocal(t *testing.T) {
 	e := &HistoryEvent{
 		EventId:   1,
@@ -88,13 +93,13 @@ func TestGetChildWorkflowInstances_NoRouterTreatedAsLocal(t *testing.T) {
 	}
 	got := getChildWorkflowInstances(nil, []*HistoryEvent{e})
 	require.Len(t, got, 1)
-	assert.Equal(t, api.InstanceID("no-router-child"), got[0])
+	assert.Equal(t, api.InstanceID("no-router-child"), got[0].InstanceID)
+	assert.Nil(t, got[0].Router)
 }
 
 // TestGetChildWorkflowInstances_RouterWithoutNamespaceIsLocal asserts that a
 // router carrying a target appID but no target namespace (cross-app
-// invocation, same-namespace) is still enumerated as a local child for
-// recursive terminate.
+// invocation, same-namespace) is enumerated and its router preserved.
 func TestGetChildWorkflowInstances_RouterWithoutNamespaceIsLocal(t *testing.T) {
 	e := &HistoryEvent{
 		EventId:   1,
@@ -108,7 +113,9 @@ func TestGetChildWorkflowInstances_RouterWithoutNamespaceIsLocal(t *testing.T) {
 	}
 	got := getChildWorkflowInstances(nil, []*HistoryEvent{e})
 	require.Len(t, got, 1)
-	assert.Equal(t, api.InstanceID("cross-app-child"), got[0])
+	assert.Equal(t, api.InstanceID("cross-app-child"), got[0].InstanceID)
+	require.NotNil(t, got[0].Router)
+	assert.Equal(t, "other-app", got[0].Router.GetTargetAppID())
 }
 
 // TestGetChildWorkflowInstances_Deduplicates sanity-checks that a child
@@ -117,5 +124,5 @@ func TestGetChildWorkflowInstances_Deduplicates(t *testing.T) {
 	dup := childCreatedEvent("dup", nil)
 	got := getChildWorkflowInstances([]*HistoryEvent{dup}, []*HistoryEvent{dup})
 	require.Len(t, got, 1)
-	assert.Equal(t, api.InstanceID("dup"), got[0])
+	assert.Equal(t, api.InstanceID("dup"), got[0].InstanceID)
 }
