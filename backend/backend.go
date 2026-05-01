@@ -206,6 +206,11 @@ func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, rec
 				// to the backend rather than trying to walk it from here.
 				count, err := be.PurgeWorkflowState(ctx, child.InstanceID, child.Router, force)
 				deletedInstanceCount += count
+				if errors.Is(err, api.ErrInstanceNotFound) {
+					// Child was already purged out-of-band; skip and continue so
+					// recursive purge stays idempotent against partial deletions.
+					continue
+				}
 				if err != nil {
 					return deletedInstanceCount, fmt.Errorf("failed to purge cross-app child workflow: %w", err)
 				}
@@ -216,6 +221,9 @@ func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, rec
 			// `count` child workflows have been successfully purged (even in case of
 			// error)
 			deletedInstanceCount += count
+			if errors.Is(err, api.ErrInstanceNotFound) {
+				continue
+			}
 			if err != nil {
 				return deletedInstanceCount, fmt.Errorf("failed to purge child workflow: %w", err)
 			}
