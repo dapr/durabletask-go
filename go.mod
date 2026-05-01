@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/dapr/kit v0.17.1-0.20260402173438-be272d92042b
+	github.com/dapr/kit v0.17.1-0.20260501143900-6e5616aa395f
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.4
 	github.com/spiffe/go-spiffe/v2 v2.6.0
@@ -50,5 +50,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.8.2 // indirect
 )
-
-replace github.com/dapr/kit => github.com/joshvanl/kit v0.0.0-20260427195132-0e477f349b29

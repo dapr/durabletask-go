@@ -299,13 +299,14 @@ type VerifyChildOptions struct {
 	// Signer provides cryptographic verification and certificate chain-of-
 	// trust checking against Sentry trust anchors.
 	Signer *signer.Signer
-	// SkipChainOfTrust skips the VerifyCertChainOfTrust call and trusts
-	// the caller to have verified the cert chain independently (e.g. via
-	// a per-orchestrator cache keyed by signerCertDigest). Signature,
-	// digest, and parent binding checks are still performed. Use only
-	// when the caller can guarantee the cert chain was previously
-	// verified at a time covered by EventTimestamp.
-	SkipChainOfTrust bool
+	// ChainOfTrustVerifiedExternally signals that the caller has already
+	// verified the signer cert chain independently (e.g. via a per-
+	// orchestrator cache keyed by signerCertDigest) and that
+	// VerifyCertChainOfTrust should be skipped. Signature, digest, and
+	// parent binding checks are still performed. Use only when the caller
+	// can guarantee the cert chain was previously verified at a time
+	// covered by EventTimestamp.
+	ChainOfTrustVerifiedExternally bool
 }
 
 // VerifyChildAttestation verifies a child completion attestation end to
@@ -356,7 +357,7 @@ func VerifyChildAttestation(opts VerifyChildOptions) (*protos.ChildCompletionAtt
 	// Chain-of-trust at event timestamp. Skipped when the caller has
 	// verified this cert chain at a time covering EventTimestamp (e.g.
 	// via a per-orchestrator cert cache).
-	if !opts.SkipChainOfTrust {
+	if !opts.ChainOfTrustVerifiedExternally {
 		if err := opts.Signer.VerifyCertChainOfTrust(opts.SignerCertDER, opts.EventTimestamp); err != nil {
 			return nil, fmt.Errorf("signer cert chain-of-trust verification failed at %v: %w", opts.EventTimestamp, err)
 		}
@@ -504,10 +505,10 @@ type VerifyActivityOptions struct {
 	ClaimedOutput                 *wrapperspb.StringValue
 	ClaimedFailure                *protos.TaskFailureDetails
 	Signer                        *signer.Signer
-	// SkipChainOfTrust skips the VerifyCertChainOfTrust call and trusts
-	// the caller to have verified the cert chain independently. See
-	// VerifyChildOptions.SkipChainOfTrust.
-	SkipChainOfTrust bool
+	// ChainOfTrustVerifiedExternally signals that the caller has already
+	// verified the signer cert chain independently. See
+	// VerifyChildOptions.ChainOfTrustVerifiedExternally.
+	ChainOfTrustVerifiedExternally bool
 }
 
 // VerifyActivityAttestation is the activity-side analogue of
@@ -550,7 +551,7 @@ func VerifyActivityAttestation(opts VerifyActivityOptions) (*protos.ActivityComp
 		return nil, fmt.Errorf("attestation signature verification failed: %w", err)
 	}
 
-	if !opts.SkipChainOfTrust {
+	if !opts.ChainOfTrustVerifiedExternally {
 		if err := opts.Signer.VerifyCertChainOfTrust(opts.SignerCertDER, opts.EventTimestamp); err != nil {
 			return nil, fmt.Errorf("signer cert chain-of-trust verification failed at %v: %w", opts.EventTimestamp, err)
 		}
