@@ -301,3 +301,77 @@ func TestPurgeWorkflowState_Recursive_PropagatesNonNotFoundChildError(t *testing
 	assert.Equal(t, []api.InstanceID{childID}, be.purgeCalls,
 		"driver must abort before attempting to purge the parent on a non-NotFound child error")
 }
+
+// TestPurgeWorkflowState_Recursive_RequiresCompletedWithoutForce asserts the
+// pre-existing contract: a recursive purge of an in-progress workflow returns
+// ErrNotCompleted when force is false.
+func TestPurgeWorkflowState_Recursive_RequiresCompletedWithoutForce(t *testing.T) {
+	const parentID = api.InstanceID("parent")
+
+	running := &protos.WorkflowRuntimeState{
+		InstanceId: string(parentID),
+		NewEvents: []*HistoryEvent{
+			{
+				EventId:   1,
+				Timestamp: timestamppb.Now(),
+				EventType: &protos.HistoryEvent_ExecutionStarted{
+					ExecutionStarted: &protos.ExecutionStartedEvent{},
+				},
+			},
+		},
+		// No CompletedEvent: runtimestate.IsCompleted returns false.
+	}
+
+	be := &fakePurgeBackend{
+		states: map[api.InstanceID]*protos.WorkflowRuntimeState{parentID: running},
+	}
+
+	count, err := purgeWorkflowState(t.Context(), be, parentID, true, false)
+	require.ErrorIs(t, err, api.ErrNotCompleted)
+	assert.Equal(t, 0, count)
+	assert.Empty(t, be.purgeCalls, "driver must not touch the backend when the root is in-progress without force")
+}
+
+// TestPurgeWorkflowState_Recursive_ForceBypassesIsCompleted asserts that
+// force=true lets a recursive purge tear down an in-progress workflow and its
+// children. Without this carve-out, force-purging a parent that is still
+// waiting on a child returns ErrNotCompleted.
+func TestPurgeWorkflowState_Recursive_ForceBypassesIsCompleted(t *testing.T) {
+	const (
+		parentID = api.InstanceID("parent")
+		childID  = api.InstanceID("xapp-child")
+	)
+
+	xappChild := &HistoryEvent{
+		EventId:   1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_ChildWorkflowInstanceCreated{
+			ChildWorkflowInstanceCreated: &protos.ChildWorkflowInstanceCreatedEvent{
+				InstanceId: string(childID),
+			},
+		},
+		Router: &protos.TaskRouter{TargetAppID: ptr.Of("other-app")},
+	}
+
+	running := &protos.WorkflowRuntimeState{
+		InstanceId: string(parentID),
+		NewEvents:  []*HistoryEvent{xappChild},
+		// No CompletedEvent: runtimestate.IsCompleted returns false.
+	}
+
+	be := &fakePurgeBackend{
+		states: map[api.InstanceID]*protos.WorkflowRuntimeState{parentID: running},
+		purgeResults: map[api.InstanceID]struct {
+			count int
+			err   error
+		}{
+			childID:  {count: 1, err: nil},
+			parentID: {count: 1, err: nil},
+		},
+	}
+
+	count, err := purgeWorkflowState(t.Context(), be, parentID, true, true)
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+	assert.Equal(t, []api.InstanceID{childID, parentID}, be.purgeCalls)
+}

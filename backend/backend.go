@@ -194,8 +194,9 @@ func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, rec
 			// If there are no events, the workflow instance doesn't exist
 			return 0, api.ErrInstanceNotFound
 		}
-		if !runtimestate.IsCompleted(state) {
-			// Workflow must be completed before purging its state
+		if !force && !runtimestate.IsCompleted(state) {
+			// Workflow must be completed before purging its state, unless the
+			// caller is forcing the purge (e.g. tearing down a stuck subtree).
 			return 0, api.ErrNotCompleted
 		}
 		childWorkflowInstances := getChildWorkflowInstances(state.OldEvents, state.NewEvents)
