@@ -11,6 +11,7 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend/runtimestate/dedup"
 )
 
 var ErrDuplicateEvent = errors.New("duplicate event")
@@ -23,19 +24,42 @@ func NewOrchestrationRuntimeState(instanceID string, customStatus *wrapperspb.St
 		CustomStatus: customStatus,
 	}
 
+	seen := dedup.New(len(existingHistory))
 	for _, e := range existingHistory {
-		addEvent(s, e, false)
+		addEventWithDedup(s, e, false, seen)
 	}
 
 	return s
 }
 
-// AddEvent appends a new history event to the orchestration history
+// AddEvent appends a new history event to the workflow history.
 func AddEvent(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent) error {
-	return addEvent(s, e, true)
+	return addEventWithDedup(s, e, true, nil)
+}
+
+// AddEvents appends a batch of new history events. errs is aligned with
+// events; nil entries indicate a successful add, non-nil entries (typically
+// ErrDuplicateEvent) indicate the event was rejected and not appended.
+func AddEvents(s *protos.OrchestrationRuntimeState, events []*protos.HistoryEvent) []error {
+	if len(events) == 0 {
+		return nil
+	}
+	seen := dedup.NewForState(s)
+	errs := make([]error, len(events))
+	for i, e := range events {
+		errs[i] = addEventWithDedup(s, e, true, seen)
+	}
+	return errs
 }
 
 func addEvent(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent, isNew bool) error {
+	return addEventWithDedup(s, e, isNew, nil)
+}
+
+// addEventWithDedup is the shared body of AddEvent / addEvent. When seen is
+// nil the resolution-key duplicate check scans OldEvents and NewEvents;
+// otherwise the set is consulted and updated.
+func addEventWithDedup(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent, isNew bool, seen dedup.Set) error {
 	if startEvent := e.GetExecutionStarted(); startEvent != nil {
 		if s.StartEvent != nil {
 			return ErrDuplicateEvent
@@ -57,8 +81,16 @@ func addEvent(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent, isNew
 			Reason:      stalledEvent.Reason,
 			Description: stalledEvent.Description,
 		}
-	} else {
-		// TODO: Check for other possible duplicates using task IDs
+	} else if kind, id, ok := dedup.Of(e); ok {
+		// Once a scheduled task or timer has resolved, any further
+		// resolution event for the same id is a duplicate.
+		if seen != nil {
+			if seen.Add(kind, id) {
+				return ErrDuplicateEvent
+			}
+		} else if dedup.IsPresent(s.OldEvents, kind, id) || dedup.IsPresent(s.NewEvents, kind, id) {
+			return ErrDuplicateEvent
+		}
 	}
 
 	// Any successfully processed event clears a prior stalled state, unless
