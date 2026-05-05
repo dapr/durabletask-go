@@ -29,20 +29,19 @@ import (
 	"github.com/dapr/kit/crypto/spiffe/signer"
 )
 
-// signChunk produces signed chunk material for `events` using `s` and
-// returns rawSignatures + cert chains, exactly as a producer would attach
-// to a PropagatedHistoryChunk.
-func signChunk(t *testing.T, s *signer.Signer, events []*protos.HistoryEvent) ([][]byte, [][]byte) {
+// signChunk marshals events, signs them, and returns the (rawEvents, rawSigs,
+// certChains) triple a producer would attach to a PropagatedHistoryChunk.
+func signChunk(t *testing.T, s *signer.Signer, events []*protos.HistoryEvent) (rawEvents, rawSigs, certs [][]byte) {
 	t.Helper()
-	raw := marshalEvents(t, events)
+	rawEvents = marshalEvents(t, events)
 	res, err := Sign(s, SignOptions{
-		RawEvents:       raw,
+		RawEvents:       rawEvents,
 		StartEventIndex: 0,
 		ExistingCerts:   nil,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, res.NewCert)
-	return [][]byte{res.RawSignature}, [][]byte{res.NewCert.GetCertificate()}
+	return rawEvents, [][]byte{res.RawSignature}, [][]byte{res.NewCert.GetCertificate()}
 }
 
 // generateEd25519CertWithSpiffePath issues a fresh self-signed Ed25519 leaf
@@ -65,16 +64,15 @@ func generateEd25519CertWithSpiffePath(t *testing.T, spiffePath string) ([]byte,
 }
 
 // makePropagatedHistory builds a single-chunk PropagatedHistory for tests.
-func makePropagatedHistory(appID, instanceID string, events []*protos.HistoryEvent, rawSigs [][]byte, certs [][]byte) *protos.PropagatedHistory {
+// The chunk owns its rawEvents/rawSignatures/signingCertChains directly.
+func makePropagatedHistory(appID, instanceID string, rawEvents, rawSigs, certs [][]byte) *protos.PropagatedHistory {
 	return &protos.PropagatedHistory{
-		Events: events,
-		Scope:  protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
+		Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
 		Chunks: []*protos.PropagatedHistoryChunk{{
 			AppId:             appID,
-			StartEventIndex:   0,
-			EventCount:        int32(len(events)),
 			InstanceId:        instanceID,
 			WorkflowName:      "TestWorkflow",
+			RawEvents:         rawEvents,
 			RawSignatures:     rawSigs,
 			SigningCertChains: certs,
 		}},
@@ -86,8 +84,8 @@ func TestVerifyPropagatedHistory_HappyPath(t *testing.T) {
 	events := testEvents()
 	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
 
-	rawSigs, certs := signChunk(t, s, events)
-	ph := makePropagatedHistory("app-a", "wf-1", events, rawSigs, certs)
+	rawEvents, rawSigs, certs := signChunk(t, s, events)
+	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, certs)
 
 	res, err := VerifyPropagatedHistory(VerifyPropagationOptions{
 		History: ph,
@@ -102,25 +100,27 @@ func TestVerifyPropagatedHistory_WrongAppID(t *testing.T) {
 	certDER, priv := generateEd25519Cert(t) // /ns/default/app-a
 	events := testEvents()
 	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
-	rawSigs, certs := signChunk(t, s, events)
+	rawEvents, rawSigs, certs := signChunk(t, s, events)
 
 	// Producer's cert SPIFFE ID says app-a, but the chunk claims app-b.
-	ph := makePropagatedHistory("app-b", "wf-1", events, rawSigs, certs)
+	ph := makePropagatedHistory("app-b", "wf-1", rawEvents, rawSigs, certs)
 
 	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "identity mismatch")
 }
 
-func TestVerifyPropagatedHistory_TamperedEvent(t *testing.T) {
+func TestVerifyPropagatedHistory_TamperedRawEvents(t *testing.T) {
 	certDER, priv := generateEd25519Cert(t)
 	events := testEvents()
 	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
-	rawSigs, certs := signChunk(t, s, events)
+	rawEvents, rawSigs, certs := signChunk(t, s, events)
 
-	// Flip a byte in an event AFTER signing.
-	events[1].GetExecutionStarted().Name = "Tampered"
-	ph := makePropagatedHistory("app-a", "wf-1", events, rawSigs, certs)
+	// Flip a byte in the signed bytes. VerifyChain's events digest check
+	// must reject the chunk.
+	require.NotEmpty(t, rawEvents[0])
+	rawEvents[0][0] ^= 0xFF
+	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, certs)
 
 	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
 	require.Error(t, err)
@@ -130,9 +130,9 @@ func TestVerifyPropagatedHistory_MissingSignatures(t *testing.T) {
 	certDER, priv := generateEd25519Cert(t)
 	events := testEvents()
 	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
-	_, certs := signChunk(t, s, events)
+	rawEvents, _, certs := signChunk(t, s, events)
 
-	ph := makePropagatedHistory("app-a", "wf-1", events, nil /* missing */, certs)
+	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, nil /* missing */, certs)
 
 	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
 	require.Error(t, err)
@@ -143,32 +143,16 @@ func TestVerifyPropagatedHistory_MissingCerts(t *testing.T) {
 	certDER, priv := generateEd25519Cert(t)
 	events := testEvents()
 	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
-	rawSigs, _ := signChunk(t, s, events)
+	rawEvents, rawSigs, _ := signChunk(t, s, events)
 
-	ph := makePropagatedHistory("app-a", "wf-1", events, rawSigs, nil)
+	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, nil)
 
 	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing signingCertChains")
 }
 
-func TestVerifyPropagatedHistory_OutOfBoundsRange(t *testing.T) {
-	certDER, priv := generateEd25519Cert(t)
-	events := testEvents()
-	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
-	rawSigs, certs := signChunk(t, s, events)
-
-	ph := makePropagatedHistory("app-a", "wf-1", events, rawSigs, certs)
-	ph.Chunks[0].EventCount = int32(len(events)) + 5 // overshoot
-
-	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "exceeds events length")
-}
-
 func TestVerifyPropagatedHistory_TwoChunksLineage(t *testing.T) {
-	// app-a signs the first 2 events; app-b signs the remaining event.
-	// Each chunk verifies independently against its own producer cert.
 	certA, privA := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a")
 	certB, privB := generateEd25519CertWithSpiffePath(t, "/ns/default/app-b")
 
@@ -178,30 +162,26 @@ func TestVerifyPropagatedHistory_TwoChunksLineage(t *testing.T) {
 	events := testEvents()
 	require.GreaterOrEqual(t, len(events), 3)
 
-	// Sign each subset independently.
-	rawA, certsA := signChunkRange(t, signerA, events[:2])
-	rawB, certsB := signChunkRange(t, signerB, events[2:])
+	rawA, rawSigsA, certsA := signChunk(t, signerA, events[:2])
+	rawB, rawSigsB, certsB := signChunk(t, signerB, events[2:])
 
 	ph := &protos.PropagatedHistory{
-		Events: events,
-		Scope:  protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
+		Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
 		Chunks: []*protos.PropagatedHistoryChunk{
 			{
 				AppId:             "app-a",
-				StartEventIndex:   0,
-				EventCount:        2,
 				InstanceId:        "wf-a",
 				WorkflowName:      "A",
-				RawSignatures:     rawA,
+				RawEvents:         rawA,
+				RawSignatures:     rawSigsA,
 				SigningCertChains: certsA,
 			},
 			{
 				AppId:             "app-b",
-				StartEventIndex:   2,
-				EventCount:        int32(len(events) - 2),
 				InstanceId:        "wf-b",
 				WorkflowName:      "B",
-				RawSignatures:     rawB,
+				RawEvents:         rawB,
+				RawSignatures:     rawSigsB,
 				SigningCertChains: certsB,
 			},
 		},
@@ -212,124 +192,33 @@ func TestVerifyPropagatedHistory_TwoChunksLineage(t *testing.T) {
 	assert.Len(t, res.VerifiedCerts, 2)
 }
 
-// signChunkRange signs an arbitrary slice of events as a fresh chunk.
-// The signer's existing cert is used; chunk-local rawSignatures and
-// chunk-local signing cert chain are returned.
-func signChunkRange(t *testing.T, s *signer.Signer, events []*protos.HistoryEvent) ([][]byte, [][]byte) {
-	t.Helper()
-	raw := marshalEvents(t, events)
-	res, err := Sign(s, SignOptions{
-		RawEvents:       raw,
-		StartEventIndex: 0,
-		ExistingCerts:   nil,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, res.NewCert)
-	return [][]byte{res.RawSignature}, [][]byte{res.NewCert.GetCertificate()}
-}
-
-// TestVerifyPropagatedHistory_NoChunksWithEvents covers the case where the
-// payload carries events but no chunks. Without coverage validation this
-// would slip through with no signature checks at all.
-func TestVerifyPropagatedHistory_NoChunksWithEvents(t *testing.T) {
-	certDER, priv := generateEd25519Cert(t)
-	events := testEvents()
-	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
-
-	ph := &protos.PropagatedHistory{Events: events, Chunks: nil}
-	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "chunks cover")
-}
-
-// TestVerifyPropagatedHistory_GapBetweenChunks covers a gap in the chunk
-// cover - some events between two chunks have no signing claim.
-func TestVerifyPropagatedHistory_GapBetweenChunks(t *testing.T) {
-	certA, privA := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a")
-	certB, privB := generateEd25519CertWithSpiffePath(t, "/ns/default/app-b")
-	signerA := newTestSigner(t, certA, privA, parseCert(t, certA), parseCert(t, certB))
-
-	events := testEvents()
-	require.GreaterOrEqual(t, len(events), 3)
-	rawA, certsA := signChunkRange(t, signerA, events[:1])
-	signerB := newTestSigner(t, certB, privB, parseCert(t, certA), parseCert(t, certB))
-	rawB, certsB := signChunkRange(t, signerB, events[2:])
-
-	ph := &protos.PropagatedHistory{
-		Events: events,
-		Chunks: []*protos.PropagatedHistoryChunk{
-			{AppId: "app-a", StartEventIndex: 0, EventCount: 1, RawSignatures: rawA, SigningCertChains: certsA},
-			// Gap: event at index 1 is uncovered.
-			{AppId: "app-b", StartEventIndex: 2, EventCount: int32(len(events) - 2), RawSignatures: rawB, SigningCertChains: certsB},
-		},
-	}
-	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: signerA})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "contiguous and non-overlapping")
-}
-
-// TestVerifyPropagatedHistory_OverlappingChunks covers two chunks whose
-// event ranges overlap.
-func TestVerifyPropagatedHistory_OverlappingChunks(t *testing.T) {
-	certA, privA := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a")
-	certB, privB := generateEd25519CertWithSpiffePath(t, "/ns/default/app-b")
-	signerA := newTestSigner(t, certA, privA, parseCert(t, certA), parseCert(t, certB))
-	signerB := newTestSigner(t, certB, privB, parseCert(t, certA), parseCert(t, certB))
-
-	events := testEvents()
-	rawA, certsA := signChunkRange(t, signerA, events[:2])
-	rawB, certsB := signChunkRange(t, signerB, events[1:])
-
-	ph := &protos.PropagatedHistory{
-		Events: events,
-		Chunks: []*protos.PropagatedHistoryChunk{
-			{AppId: "app-a", StartEventIndex: 0, EventCount: 2, RawSignatures: rawA, SigningCertChains: certsA},
-			{AppId: "app-b", StartEventIndex: 1, EventCount: int32(len(events) - 1), RawSignatures: rawB, SigningCertChains: certsB},
-		},
-	}
-	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: signerA})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "contiguous and non-overlapping")
-}
-
-// TestVerifyPropagatedHistory_PartialCoverage covers chunks that stop short
-// of the events length, leaving trailing events uncovered.
-func TestVerifyPropagatedHistory_PartialCoverage(t *testing.T) {
+func TestVerifyPropagatedHistory_EmptyChunkWithSigs(t *testing.T) {
 	certDER, priv := generateEd25519Cert(t)
 	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
-
 	events := testEvents()
-	require.GreaterOrEqual(t, len(events), 2)
-	rawSigs, certs := signChunkRange(t, s, events[:1])
+	_, rawSigs, certs := signChunk(t, s, events)
 
-	ph := &protos.PropagatedHistory{
-		Events: events,
-		Chunks: []*protos.PropagatedHistoryChunk{
-			{AppId: "app-a", StartEventIndex: 0, EventCount: 1, RawSignatures: rawSigs, SigningCertChains: certs},
-		},
-	}
+	// Zero rawEvents but signatures attached - the verifier must reject.
+	ph := makePropagatedHistory("app-a", "wf-1", nil, rawSigs, certs)
+
 	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "events length")
+	assert.Contains(t, err.Error(), "empty rawEvents but")
 }
 
-// TestVerifyPropagatedHistory_UnreferencedCertOmittedFromResult ensures that
-// a cert chain attached to a chunk but not referenced by any signature's
-// certificateIndex is NOT reported as verified - VerifyChain only checks
-// chain-of-trust for certs that signatures actually point at.
 func TestVerifyPropagatedHistory_UnreferencedCertOmittedFromResult(t *testing.T) {
 	certA, privA := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a")
-	certB, _ := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a") // same SPIFFE path so identity check passes
+	certB, _ := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a") // same SPIFFE so identity check passes
 	s := newTestSigner(t, certA, privA, parseCert(t, certA), parseCert(t, certB))
 
 	events := testEvents()
-	rawSigs, certs := signChunkRange(t, s, events)
+	rawEvents, rawSigs, certs := signChunk(t, s, events)
 	require.Len(t, certs, 1)
 
 	// Append an extra cert chain at index 1; no signature references it.
 	certs = append(certs, certB)
 
-	ph := makePropagatedHistory("app-a", "wf-1", events, rawSigs, certs)
+	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, certs)
 	res, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
 	require.NoError(t, err)
 	require.NotNil(t, res)

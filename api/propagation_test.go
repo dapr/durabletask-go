@@ -20,9 +20,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api/protos"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func makeTestHistory() *PropagatedHistory {
@@ -401,18 +402,23 @@ func TestGetEventsByWorkflowName(t *testing.T) {
 }
 
 func TestPropagatedHistoryFromProto(t *testing.T) {
-	proto := &protos.PropagatedHistory{
-		Events: []*protos.HistoryEvent{
-			{EventId: 1},
-			{EventId: 2},
-		},
+	// Each chunk carries its own raw event bytes; FromProto decodes them
+	// into typed events for SDK consumption.
+	rawEvents := make([][]byte, 2)
+	for i, e := range []*protos.HistoryEvent{{EventId: 1}, {EventId: 2}} {
+		b, err := proto.MarshalOptions{Deterministic: true}.Marshal(e)
+		require.NoError(t, err)
+		rawEvents[i] = b
+	}
+
+	wireProto := &protos.PropagatedHistory{
 		Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
 		Chunks: []*protos.PropagatedHistoryChunk{
-			{AppId: "app1", StartEventIndex: 0, EventCount: 2, InstanceId: "wf-1", WorkflowName: "MyWf"},
+			{AppId: "app1", InstanceId: "wf-1", WorkflowName: "MyWf", RawEvents: rawEvents},
 		},
 	}
 
-	ph, err := PropagatedHistoryFromProto(proto)
+	ph, err := PropagatedHistoryFromProto(wireProto)
 	require.NoError(t, err)
 	require.NotNil(t, ph)
 	assert.Len(t, ph.Events(), 2)

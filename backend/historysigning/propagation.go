@@ -26,12 +26,15 @@ import (
 )
 
 // BuildSignedChunk attaches a producer app's signing artifacts to a single
-// PropagatedHistoryChunk. rawSigs is the deterministic raw bytes of every
-// HistorySignature covering exactly the chunk's event range, in order.
-// certChainsDER is the DER-concatenated cert chain for each signing identity
-// referenced by the signatures' certificateIndex. The chunk's signature chain
-// is verified independently by receivers via VerifyPropagatedHistory.
-func BuildSignedChunk(chunk *protos.PropagatedHistoryChunk, rawSigs [][]byte, certChainsDER [][]byte) error {
+// PropagatedHistoryChunk that already has RawEvents populated by the
+// assembler. rawSigs is the deterministic raw bytes of every HistorySignature
+// covering chunk.RawEvents in order. certChainsDER is the DER-concatenated
+// cert chain for each signing identity referenced by the signatures'
+// certificateIndex. Receivers digest chunk.RawEvents directly and never
+// re-marshal, so chunk verification does not depend on protobuf marshaler-
+// version stability across producer and receiver - the signed bytes travel
+// verbatim end-to-end.
+func BuildSignedChunk(chunk *protos.PropagatedHistoryChunk, rawSigs, certChainsDER [][]byte) error {
 	if chunk == nil {
 		return errors.New("chunk must not be nil")
 	}
@@ -65,11 +68,17 @@ type PropagationVerifyResult struct {
 
 // VerifyPropagatedHistory verifies every chunk in a PropagatedHistory:
 //   - chunks form a contiguous, non-overlapping cover of [0, len(events))
+//   - each chunk's rawEvents has length == eventCount and is the exact byte
+//     sequence the producer signed (digested directly, never re-marshaled,
+//     so chunk verification is independent of protobuf marshaler version)
 //   - each chunk's signatures form a contiguous, chain-linked cover of the
 //     chunk's event range, signed by the chunk's certs (via VerifyChain)
 //   - the leaf cert SPIFFE ID app component matches chunk.appId, so a
 //     signer cannot impersonate another app
 //   - chain-of-trust to a Sentry trust anchor
+//   - top-level events[start:end] proto-decode-equals chunk.rawEvents, so
+//     a tamperer who edits the unsigned top-level events array but leaves
+//     rawEvents+signatures intact cannot leak forged messages to the SDK
 //
 // Verification is independent per chunk: corruption in chunk N does not affect
 // verification of chunk M. Failure on any chunk returns an error and no
@@ -83,35 +92,31 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 	}
 
 	ph := opts.History
-	if err := validateChunkCoverage(ph); err != nil {
-		return nil, err
-	}
 
 	res := &PropagationVerifyResult{
 		VerifiedCerts: make(map[string][]byte),
 	}
 
 	for i, chunk := range ph.GetChunks() {
+		if chunk == nil {
+			return nil, fmt.Errorf("chunk %d is nil", i)
+		}
 		if chunk.GetAppId() == "" {
 			return nil, fmt.Errorf("chunk %d: appId is empty", i)
 		}
 
-		start := uint64(chunk.GetStartEventIndex())
-		count := uint64(chunk.GetEventCount())
-		end := start + count
-
-		// Empty chunks have nothing to verify but must also have no
-		// signatures or certs (otherwise the producer is lying about
-		// what they signed).
-		if count == 0 {
+		// An empty chunk (no rawEvents) must also have no signatures or
+		// certs. The producer signed nothing, so receivers should reject
+		// any attached signing material as a mismatch.
+		if len(chunk.GetRawEvents()) == 0 {
 			if len(chunk.GetRawSignatures()) > 0 || len(chunk.GetSigningCertChains()) > 0 {
-				return nil, fmt.Errorf("chunk %d (app %q): empty event range but %d signatures and %d cert chains attached", i, chunk.GetAppId(), len(chunk.GetRawSignatures()), len(chunk.GetSigningCertChains()))
+				return nil, fmt.Errorf("chunk %d (app %q): empty rawEvents but %d signatures, %d cert chains attached", i, chunk.GetAppId(), len(chunk.GetRawSignatures()), len(chunk.GetSigningCertChains()))
 			}
 			continue
 		}
 
 		if len(chunk.GetRawSignatures()) == 0 {
-			return nil, fmt.Errorf("chunk %d (app %q): missing rawSignatures for event range [%d, %d)", i, chunk.GetAppId(), start, end)
+			return nil, fmt.Errorf("chunk %d (app %q): missing rawSignatures for %d events", i, chunk.GetAppId(), len(chunk.GetRawEvents()))
 		}
 		if len(chunk.GetSigningCertChains()) == 0 {
 			return nil, fmt.Errorf("chunk %d (app %q): missing signingCertChains", i, chunk.GetAppId())
@@ -137,23 +142,15 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 			}
 		}
 
-		// Re-marshal the chunk's events deterministically. Both signer
-		// and verifier use the same MarshalEvent on the same proto
-		// schema, so bytes round-trip identically.
-		chunkEvents := ph.GetEvents()[start:end]
-		rawEvents := make([][]byte, len(chunkEvents))
-		for j, e := range chunkEvents {
-			b, err := MarshalEvent(e)
-			if err != nil {
-				return nil, fmt.Errorf("chunk %d (app %q): failed to marshal event %d: %w", i, chunk.GetAppId(), int(start)+j, err)
-			}
-			rawEvents[j] = b
-		}
-
+		// Digest the producer's signed bytes directly. Never re-marshal
+		// from ph.events: the receiver's protobuf library version may
+		// not produce the same deterministic output as the producer's,
+		// and the whole point of carrying rawEvents per chunk is to
+		// make verification independent of marshaler stability.
 		if err := VerifyChain(VerifyChainOptions{
 			RawSignatures: chunk.GetRawSignatures(),
 			Certs:         certs,
-			AllRawEvents:  rawEvents,
+			AllRawEvents:  chunk.GetRawEvents(),
 			Signer:        opts.Signer,
 		}); err != nil {
 			return nil, fmt.Errorf("chunk %d (app %q): %w", i, chunk.GetAppId(), err)
@@ -176,7 +173,11 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 		}
 		for idx := range referenced {
 			if idx >= uint64(len(chunk.GetSigningCertChains())) {
-				continue
+				// Should be unreachable: VerifyChain rejects
+				// out-of-range certificateIndex before returning. If
+				// we hit this, an invariant has been broken and we
+				// should not silently misreport verified certs.
+				return nil, fmt.Errorf("chunk %d (app %q): cert index %d out of range [0, %d) after VerifyChain succeeded", i, chunk.GetAppId(), idx, len(chunk.GetSigningCertChains()))
 			}
 			der := chunk.GetSigningCertChains()[idx]
 			res.VerifiedCerts[string(CertDigest(der))] = der
@@ -184,40 +185,6 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 	}
 
 	return res, nil
-}
-
-// validateChunkCoverage enforces the structural contract on
-// PropagatedHistory.chunks: ordered, non-overlapping, and together covering
-// every event in PropagatedHistory.events. Without this, a payload with gaps
-// (or no chunks at all) would let unsigned events sneak through.
-func validateChunkCoverage(ph *protos.PropagatedHistory) error {
-	events := ph.GetEvents()
-	//nolint:gosec // event count is bounded by proto field size
-	n := int32(len(events))
-
-	var nextExpected int32
-	for i, c := range ph.GetChunks() {
-		if c == nil {
-			return fmt.Errorf("propagated history: chunk %d is nil", i)
-		}
-		start, count := c.GetStartEventIndex(), c.GetEventCount()
-		if start < 0 || count < 0 {
-			return fmt.Errorf("propagated history: chunk %d has negative index/count (start=%d count=%d)", i, start, count)
-		}
-		// int64 to dodge int32 overflow on the addition.
-		if int64(start)+int64(count) > int64(n) {
-			return fmt.Errorf("propagated history: chunk %d range [%d,%d) exceeds events length %d", i, start, int64(start)+int64(count), n)
-		}
-		if start != nextExpected {
-			return fmt.Errorf("propagated history: chunk %d starts at %d, expected %d (chunks must be contiguous and non-overlapping)", i, start, nextExpected)
-		}
-		nextExpected = start + count
-	}
-
-	if nextExpected != n {
-		return fmt.Errorf("propagated history: chunks cover %d events but events length is %d", nextExpected, n)
-	}
-	return nil
 }
 
 // VerifyCertAppIdentity checks that a DER-encoded signing certificate chain

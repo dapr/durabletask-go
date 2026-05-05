@@ -338,61 +338,62 @@ func (wr WorkflowResult) GetChildWorkflowsByName(name string) []*ChildWorkflowRe
 }
 
   // PropagatedHistoryFromProto converts a proto PropagatedHistory to the Go
-  // type. Returns an error if the payload is structurally inconsistent, for
-  // example, chunks that overlap, run past the end of the events slice, or
-  // fail to cover every event.
+  // type. Each chunk owns its raw event bytes; this decodes them into typed
+  // HistoryEvents once and concatenates the per-chunk events into a single
+  // ordered slice for SDK consumption. Returns an error if any chunk's
+  // rawEvents cannot be decoded.
   func PropagatedHistoryFromProto(ph *protos.PropagatedHistory) (*PropagatedHistory, error) {
         if ph == nil {
                 return nil, nil
         }
-        if err := validatePropagatedHistory(ph); err != nil {
-                return nil, err
+
+        var totalEvents int
+        for _, c := range ph.GetChunks() {
+                totalEvents += len(c.GetRawEvents())
         }
 
+        events := make([]*protos.HistoryEvent, 0, totalEvents)
         chunks := make([]historyChunk, len(ph.GetChunks()))
         for i, c := range ph.GetChunks() {
+                start := len(events)
+                for j, raw := range c.GetRawEvents() {
+                        var e protos.HistoryEvent
+                        if err := proto.Unmarshal(raw, &e); err != nil {
+                                return nil, fmt.Errorf("propagated history: chunk %d (app %q): failed to decode rawEvent %d: %w", i, c.GetAppId(), j, err)
+                        }
+                        events = append(events, &e)
+                }
                 chunks[i] = historyChunk{
                         appID:           c.GetAppId(),
-                        startEventIndex: int(c.GetStartEventIndex()),
-                        eventCount:      int(c.GetEventCount()),
+                        startEventIndex: start,
+                        eventCount:      len(events) - start,
                         instanceID:      c.GetInstanceId(),
                         workflowName:    c.GetWorkflowName(),
                 }
         }
         return &PropagatedHistory{
-                events: ph.GetEvents(),
+                events: events,
                 scope:  ph.GetScope(),
                 chunks: chunks,
         }, nil
   }
-  
-  // validatePropagatedHistory enforces the structural contract documented on
-  // the PropagatedHistory proto: chunks are ordered, non-overlapping, in-bounds,
-  // and together cover every event. A malformed payload is rejected at the
-  // trust boundary so it never reaches the query helpers or the state store.
-  func validatePropagatedHistory(ph *protos.PropagatedHistory) error {
-        events := ph.GetEvents()
-        n := int32(len(events))
 
-        var nextExpected int32
+  // ValidatePropagatedHistory checks per-chunk shape on the wire form: each
+  // chunk must have a non-empty appId, and (when signed) rawSignatures /
+  // signingCertChains aligned with rawEvents. Cross-chunk ordering and
+  // contiguity are no longer required - each chunk is self-contained, so
+  // the only structural invariant is that rawEvents is well-formed.
+  // Receivers that also verify signatures should use
+  // historysigning.VerifyPropagatedHistory.
+  func ValidatePropagatedHistory(ph *protos.PropagatedHistory) error {
         for i, c := range ph.GetChunks() {
-                start, count := c.GetStartEventIndex(), c.GetEventCount()
-
-                if start < 0 || count < 0 {
-                        return fmt.Errorf("propagated history: chunk %d has negative index/count (start=%d count=%d)", i, start, count)
+                if c == nil {
+                        return fmt.Errorf("propagated history: chunk %d is nil", i)
                 }
-                // Use int64 arithmetic to dodge int32 overflow on the addition.
-                if int64(start)+int64(count) > int64(n) {
-                        return fmt.Errorf("propagated history: chunk %d range [%d,%d) exceeds events length %d", i, start, int64(start)+int64(count), n)
+                if c.GetAppId() == "" {
+                        return fmt.Errorf("propagated history: chunk %d has empty appId", i)
                 }
-                if start != nextExpected {
-                        return fmt.Errorf("propagated history: chunk %d starts at %d, expected %d (chunks must be contiguous and non-overlapping)", i, start, nextExpected)
-                }
-                nextExpected = start + count
-        }
-
-        if nextExpected != n {
-                return fmt.Errorf("propagated history: chunks cover %d events but events length is %d", nextExpected, n)
         }
         return nil
   }
+
