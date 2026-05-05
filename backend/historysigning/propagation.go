@@ -14,12 +14,12 @@ limitations under the License.
 package historysigning
 
 import (
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/kit/crypto/spiffe/signer"
@@ -48,38 +48,28 @@ type VerifyPropagationOptions struct {
 	// Signer provides cryptographic verification and certificate
 	// chain-of-trust checking against Sentry trust anchors.
 	Signer *signer.Signer
-
-	// SkipChainOfTrustCertDigests is the set of cert digests
-	// (sha256(certChainDER)) for which the caller has already verified
-	// chain-of-trust this lifetime. When a chunk's leaf cert digest hits this
-	// set, chain-of-trust is skipped (signature, digest, and identity checks
-	// still run). Keys are the raw 32-byte sha256 digest as a string. Mirrors
-	// the per-orchestrator cert cache used by inbox attestation verification on
-	// the dapr side.
-	SkipChainOfTrustCertDigests map[string]struct{}
 }
 
 // PropagationVerifyResult is the outcome of a successful
-// VerifyPropagatedHistory call. It surfaces the certs that passed chain-of-
-// trust verification this call, so the caller can absorb them into a
-// content-addressed foreign-cert table (ext-sigcert) and update its skip
-// cache.
+// VerifyPropagatedHistory call. It surfaces the certs that were referenced by
+// verified signatures so the caller can absorb them into a content-addressed
+// foreign-cert table (ext-sigcert).
 type PropagationVerifyResult struct {
-	// VerifiedCerts maps sha256(certChainDER) -> certChainDER for every signing
-	// cert that passed chain-of-trust verification during this call. Certs whose
-	// chain-of-trust was skipped via SkipChainOfTrustCertDigests do not appear
-	// here. The digest is the raw 32-byte sha256 as a string key.
+	// VerifiedCerts maps sha256(certChainDER) -> certChainDER for every
+	// signing cert that (a) was referenced by at least one verified
+	// HistorySignature.certificateIndex and (b) passed chain-of-trust during
+	// this call. Unreferenced cert chains attached to a chunk are not
+	// included. The digest is the raw 32-byte sha256 as a string key.
 	VerifiedCerts map[string][]byte
 }
 
 // VerifyPropagatedHistory verifies every chunk in a PropagatedHistory:
-//   - chunk event range bounds are valid against ph.events
+//   - chunks form a contiguous, non-overlapping cover of [0, len(events))
 //   - each chunk's signatures form a contiguous, chain-linked cover of the
 //     chunk's event range, signed by the chunk's certs (via VerifyChain)
 //   - the leaf cert SPIFFE ID app component matches chunk.appId, so a
 //     signer cannot impersonate another app
-//   - chain-of-trust to a Sentry trust anchor (skipped per cert digest if
-//     listed in SkipChainOfTrustCertDigests)
+//   - chain-of-trust to a Sentry trust anchor
 //
 // Verification is independent per chunk: corruption in chunk N does not affect
 // verification of chunk M. Failure on any chunk returns an error and no
@@ -93,29 +83,22 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 	}
 
 	ph := opts.History
-	totalEvents := uint64(len(ph.GetEvents()))
+	if err := validateChunkCoverage(ph); err != nil {
+		return nil, err
+	}
 
 	res := &PropagationVerifyResult{
 		VerifiedCerts: make(map[string][]byte),
 	}
 
 	for i, chunk := range ph.GetChunks() {
-		if chunk == nil {
-			return nil, fmt.Errorf("chunk %d is nil", i)
-		}
 		if chunk.GetAppId() == "" {
 			return nil, fmt.Errorf("chunk %d: appId is empty", i)
-		}
-		if chunk.GetStartEventIndex() < 0 || chunk.GetEventCount() < 0 {
-			return nil, fmt.Errorf("chunk %d: negative bounds startEventIndex=%d eventCount=%d", i, chunk.GetStartEventIndex(), chunk.GetEventCount())
 		}
 
 		start := uint64(chunk.GetStartEventIndex())
 		count := uint64(chunk.GetEventCount())
 		end := start + count
-		if end > totalEvents {
-			return nil, fmt.Errorf("chunk %d (app %q): event range [%d, %d) exceeds events length %d", i, chunk.GetAppId(), start, end, totalEvents)
-		}
 
 		// Empty chunks have nothing to verify but must also have no
 		// signatures or certs (otherwise the producer is lying about
@@ -135,8 +118,8 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 		}
 
 		// Wrap raw cert chains in SigningCertificate so VerifyChain can
-		// consume them. This is the wire-only representation; the
-		// chunk carries raw bytes to avoid a circular proto import.
+		// consume them. The chunk carries raw bytes to avoid a circular
+		// proto import.
 		certs := make([]*protos.SigningCertificate, len(chunk.GetSigningCertChains()))
 		for j, der := range chunk.GetSigningCertChains() {
 			if len(der) == 0 {
@@ -145,9 +128,9 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 			certs[j] = &protos.SigningCertificate{Certificate: der}
 		}
 
-		// Identity check: each cert's leaf SPIFFE ID app component
-		// must match chunk.appId. Without this, a holder of any
-		// Sentry-issued SPIFFE cert could claim to be any app.
+		// Identity check: each cert's leaf SPIFFE ID app component must
+		// match chunk.appId. Without this, a holder of any Sentry-issued
+		// SPIFFE cert could claim to be any app.
 		for j, der := range chunk.GetSigningCertChains() {
 			if err := VerifyCertAppIdentity(der, chunk.GetAppId()); err != nil {
 				return nil, fmt.Errorf("chunk %d (app %q): cert chain %d identity mismatch: %w", i, chunk.GetAppId(), j, err)
@@ -167,24 +150,6 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 			rawEvents[j] = b
 		}
 
-		// Determine which certs in this chunk should skip chain-of- trust based on
-		// the caller's cache. We pass through the existing VerifyChain primitive,
-		// which does its own per-cert dedup of trust verification within the call.
-		// To plug the caller's cache in, we run a pre-pass: for each cert digest
-		// in the skip set, we mark the cert as already-verified by calling
-		// VerifyCertChainOfTrust ourselves with a sentinel? - we can't, because
-		// VerifyChain always calls VerifyCertChainOfTrust when the cert hasn't
-		// been verified within this call. The simplest and safe path: drop the
-		// skip optimization in the chunk-internal VerifyChain (it still amortizes
-		// within the chunk) and apply the skip cache at the absorb stage. The
-		// per-orchestrator cache will short-circuit subsequent chunks/calls
-		// because absorbed certs go into ext-sigcert and the caller's verification
-		// cycle is bounded by actor lifetime.
-		//
-		// Note: VerifyChain internally re-uses cert chain-of-trust across the same
-		// cert idx within a single call, so multiple signatures in this chunk
-		// pointing to the same cert pay chain-of-trust once.
-
 		if err := VerifyChain(VerifyChainOptions{
 			RawSignatures: chunk.GetRawSignatures(),
 			Certs:         certs,
@@ -194,22 +159,65 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 			return nil, fmt.Errorf("chunk %d (app %q): %w", i, chunk.GetAppId(), err)
 		}
 
-		// All signatures verified successfully; record certs whose chain-of-trust
-		// we just verified, minus those the caller already had cached (for which
-		// we still ran the call - but VerifyChain's internal verifier doesn't
-		// expose a skip hook). The caller absorbs the returned set into
-		// ext-sigcert to propagate trust forward.
-		for _, der := range chunk.GetSigningCertChains() {
-			digest := CertDigest(der)
-			key := string(digest)
-			if _, skipped := opts.SkipChainOfTrustCertDigests[key]; skipped {
+		// Collect cert indices actually referenced by verified
+		// signatures - VerifyChain only chain-of-trusts the certs that
+		// signatures pointed at; an unreferenced cert chain in
+		// chunk.signingCertChains never had its chain-of-trust checked
+		// and must not be reported as verified.
+		referenced := make(map[uint64]struct{}, len(chunk.GetRawSignatures()))
+		for _, raw := range chunk.GetRawSignatures() {
+			var sig protos.HistorySignature
+			if err := proto.Unmarshal(raw, &sig); err != nil {
+				// VerifyChain already parsed and validated these; a
+				// failure here is a logic error, not user input.
+				return nil, fmt.Errorf("chunk %d (app %q): failed to re-parse signature for cert tracking: %w", i, chunk.GetAppId(), err)
+			}
+			referenced[sig.GetCertificateIndex()] = struct{}{}
+		}
+		for idx := range referenced {
+			if idx >= uint64(len(chunk.GetSigningCertChains())) {
 				continue
 			}
-			res.VerifiedCerts[key] = der
+			der := chunk.GetSigningCertChains()[idx]
+			res.VerifiedCerts[string(CertDigest(der))] = der
 		}
 	}
 
 	return res, nil
+}
+
+// validateChunkCoverage enforces the structural contract on
+// PropagatedHistory.chunks: ordered, non-overlapping, and together covering
+// every event in PropagatedHistory.events. Without this, a payload with gaps
+// (or no chunks at all) would let unsigned events sneak through.
+func validateChunkCoverage(ph *protos.PropagatedHistory) error {
+	events := ph.GetEvents()
+	//nolint:gosec // event count is bounded by proto field size
+	n := int32(len(events))
+
+	var nextExpected int32
+	for i, c := range ph.GetChunks() {
+		if c == nil {
+			return fmt.Errorf("propagated history: chunk %d is nil", i)
+		}
+		start, count := c.GetStartEventIndex(), c.GetEventCount()
+		if start < 0 || count < 0 {
+			return fmt.Errorf("propagated history: chunk %d has negative index/count (start=%d count=%d)", i, start, count)
+		}
+		// int64 to dodge int32 overflow on the addition.
+		if int64(start)+int64(count) > int64(n) {
+			return fmt.Errorf("propagated history: chunk %d range [%d,%d) exceeds events length %d", i, start, int64(start)+int64(count), n)
+		}
+		if start != nextExpected {
+			return fmt.Errorf("propagated history: chunk %d starts at %d, expected %d (chunks must be contiguous and non-overlapping)", i, start, nextExpected)
+		}
+		nextExpected = start + count
+	}
+
+	if nextExpected != n {
+		return fmt.Errorf("propagated history: chunks cover %d events but events length is %d", nextExpected, n)
+	}
+	return nil
 }
 
 // VerifyCertAppIdentity checks that a DER-encoded signing certificate chain
@@ -220,19 +228,11 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 // own-history identity checks (in dapr's state.go verifySignatureChain) share
 // one implementation.
 func VerifyCertAppIdentity(certChainDER []byte, expectedAppID string) error {
-	if len(certChainDER) == 0 {
-		return errors.New("certificate chain is empty")
-	}
-
-	certs, err := x509.ParseCertificates(certChainDER)
+	leaf, err := parseCertificateChainDER(certChainDER)
 	if err != nil {
-		return fmt.Errorf("failed to parse certificate chain: %w", err)
-	}
-	if len(certs) == 0 {
-		return errors.New("no certificates in chain")
+		return err
 	}
 
-	leaf := certs[0]
 	spiffeID, err := x509svid.IDFromCert(leaf)
 	if err != nil {
 		return fmt.Errorf("failed to extract SPIFFE ID: %w", err)

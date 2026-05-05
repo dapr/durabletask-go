@@ -21,12 +21,9 @@ import (
 	"math/big"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/timestamppb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/kit/crypto/spiffe/signer"
@@ -231,24 +228,117 @@ func signChunkRange(t *testing.T, s *signer.Signer, events []*protos.HistoryEven
 	return [][]byte{res.RawSignature}, [][]byte{res.NewCert.GetCertificate()}
 }
 
-func TestVerifyPropagatedHistory_SkipChainOfTrustOmitsCertFromResult(t *testing.T) {
+// TestVerifyPropagatedHistory_NoChunksWithEvents covers the case where the
+// payload carries events but no chunks. Without coverage validation this
+// would slip through with no signature checks at all.
+func TestVerifyPropagatedHistory_NoChunksWithEvents(t *testing.T) {
 	certDER, priv := generateEd25519Cert(t)
 	events := testEvents()
 	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
-	rawSigs, certs := signChunk(t, s, events)
-	ph := makePropagatedHistory("app-a", "wf-1", events, rawSigs, certs)
 
-	skip := map[string]struct{}{
-		string(CertDigest(certs[0])): {},
+	ph := &protos.PropagatedHistory{Events: events, Chunks: nil}
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chunks cover")
+}
+
+// TestVerifyPropagatedHistory_GapBetweenChunks covers a gap in the chunk
+// cover - some events between two chunks have no signing claim.
+func TestVerifyPropagatedHistory_GapBetweenChunks(t *testing.T) {
+	certA, privA := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a")
+	certB, privB := generateEd25519CertWithSpiffePath(t, "/ns/default/app-b")
+	signerA := newTestSigner(t, certA, privA, parseCert(t, certA), parseCert(t, certB))
+
+	events := testEvents()
+	require.GreaterOrEqual(t, len(events), 3)
+	rawA, certsA := signChunkRange(t, signerA, events[:1])
+	signerB := newTestSigner(t, certB, privB, parseCert(t, certA), parseCert(t, certB))
+	rawB, certsB := signChunkRange(t, signerB, events[2:])
+
+	ph := &protos.PropagatedHistory{
+		Events: events,
+		Chunks: []*protos.PropagatedHistoryChunk{
+			{AppId: "app-a", StartEventIndex: 0, EventCount: 1, RawSignatures: rawA, SigningCertChains: certsA},
+			// Gap: event at index 1 is uncovered.
+			{AppId: "app-b", StartEventIndex: 2, EventCount: int32(len(events) - 2), RawSignatures: rawB, SigningCertChains: certsB},
+		},
 	}
-	res, err := VerifyPropagatedHistory(VerifyPropagationOptions{
-		History:                     ph,
-		Signer:                      s,
-		SkipChainOfTrustCertDigests: skip,
-	})
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: signerA})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "contiguous and non-overlapping")
+}
+
+// TestVerifyPropagatedHistory_OverlappingChunks covers two chunks whose
+// event ranges overlap.
+func TestVerifyPropagatedHistory_OverlappingChunks(t *testing.T) {
+	certA, privA := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a")
+	certB, privB := generateEd25519CertWithSpiffePath(t, "/ns/default/app-b")
+	signerA := newTestSigner(t, certA, privA, parseCert(t, certA), parseCert(t, certB))
+	signerB := newTestSigner(t, certB, privB, parseCert(t, certA), parseCert(t, certB))
+
+	events := testEvents()
+	rawA, certsA := signChunkRange(t, signerA, events[:2])
+	rawB, certsB := signChunkRange(t, signerB, events[1:])
+
+	ph := &protos.PropagatedHistory{
+		Events: events,
+		Chunks: []*protos.PropagatedHistoryChunk{
+			{AppId: "app-a", StartEventIndex: 0, EventCount: 2, RawSignatures: rawA, SigningCertChains: certsA},
+			{AppId: "app-b", StartEventIndex: 1, EventCount: int32(len(events) - 1), RawSignatures: rawB, SigningCertChains: certsB},
+		},
+	}
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: signerA})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "contiguous and non-overlapping")
+}
+
+// TestVerifyPropagatedHistory_PartialCoverage covers chunks that stop short
+// of the events length, leaving trailing events uncovered.
+func TestVerifyPropagatedHistory_PartialCoverage(t *testing.T) {
+	certDER, priv := generateEd25519Cert(t)
+	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
+
+	events := testEvents()
+	require.GreaterOrEqual(t, len(events), 2)
+	rawSigs, certs := signChunkRange(t, s, events[:1])
+
+	ph := &protos.PropagatedHistory{
+		Events: events,
+		Chunks: []*protos.PropagatedHistoryChunk{
+			{AppId: "app-a", StartEventIndex: 0, EventCount: 1, RawSignatures: rawSigs, SigningCertChains: certs},
+		},
+	}
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "events length")
+}
+
+// TestVerifyPropagatedHistory_UnreferencedCertOmittedFromResult ensures that
+// a cert chain attached to a chunk but not referenced by any signature's
+// certificateIndex is NOT reported as verified - VerifyChain only checks
+// chain-of-trust for certs that signatures actually point at.
+func TestVerifyPropagatedHistory_UnreferencedCertOmittedFromResult(t *testing.T) {
+	certA, privA := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a")
+	certB, _ := generateEd25519CertWithSpiffePath(t, "/ns/default/app-a") // same SPIFFE path so identity check passes
+	s := newTestSigner(t, certA, privA, parseCert(t, certA), parseCert(t, certB))
+
+	events := testEvents()
+	rawSigs, certs := signChunkRange(t, s, events)
+	require.Len(t, certs, 1)
+
+	// Append an extra cert chain at index 1; no signature references it.
+	certs = append(certs, certB)
+
+	ph := makePropagatedHistory("app-a", "wf-1", events, rawSigs, certs)
+	res, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
 	require.NoError(t, err)
 	require.NotNil(t, res)
-	assert.Empty(t, res.VerifiedCerts, "cert in skip set should not appear in VerifiedCerts")
+	require.Len(t, res.VerifiedCerts, 1,
+		"only certs referenced by verified signatures should appear in VerifiedCerts")
+	_, hasReferenced := res.VerifiedCerts[string(CertDigest(certs[0]))]
+	assert.True(t, hasReferenced, "the cert pointed at by certificateIndex=0 must be in VerifiedCerts")
+	_, hasUnreferenced := res.VerifiedCerts[string(CertDigest(certB))]
+	assert.False(t, hasUnreferenced, "the unreferenced cert at index 1 must not appear")
 }
 
 func TestVerifyCertAppIdentity(t *testing.T) {
@@ -276,8 +366,3 @@ func TestVerifyCertAppIdentity(t *testing.T) {
 		})
 	}
 }
-
-// silence unused-import warnings if/when test gets pruned
-var _ = timestamppb.Now
-var _ = wrapperspb.String
-var _ time.Time
