@@ -51,20 +51,6 @@ func (s Set) Add(kind Kind, id int32) bool {
 	return false
 }
 
-// Observe extracts the resolution key from e and records it. Returns true
-// if the key was already present. Returns false for events without
-// resolution semantics or when called on a nil Set.
-func (s Set) Observe(e *protos.HistoryEvent) (duplicate bool) {
-	if s == nil {
-		return false
-	}
-	k, id, ok := Of(e)
-	if !ok {
-		return false
-	}
-	return s.Add(k, id)
-}
-
 func (s Set) populate(events []*protos.HistoryEvent) {
 	for _, e := range events {
 		if k, id, ok := Of(e); ok {

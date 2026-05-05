@@ -52,13 +52,10 @@ func AddEvents(s *protos.OrchestrationRuntimeState, events []*protos.HistoryEven
 	return errs
 }
 
-func addEvent(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent, isNew bool) error {
-	return addEventWithDedup(s, e, isNew, nil)
-}
-
-// addEventWithDedup is the shared body of AddEvent / addEvent. When seen is
-// nil the resolution-key duplicate check scans OldEvents and NewEvents;
-// otherwise the set is consulted and updated.
+// addEventWithDedup is the shared body behind AddEvent / AddEvents and the
+// bulk loader in NewOrchestrationRuntimeState. When seen is nil the
+// resolution-key duplicate check scans OldEvents and NewEvents; otherwise the
+// set is consulted and updated.
 func addEventWithDedup(s *protos.OrchestrationRuntimeState, e *protos.HistoryEvent, isNew bool, seen dedup.Set) error {
 	if startEvent := e.GetExecutionStarted(); startEvent != nil {
 		if s.StartEvent != nil {

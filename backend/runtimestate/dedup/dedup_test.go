@@ -77,7 +77,7 @@ func TestOf(t *testing.T) {
 	}
 }
 
-func TestSet_AddObserve(t *testing.T) {
+func TestSet_Add(t *testing.T) {
 	t.Parallel()
 
 	s := dedup.New(0)
@@ -90,12 +90,6 @@ func TestSet_AddObserve(t *testing.T) {
 	// Same id under a different kind is independent.
 	assert.False(t, s.Add(dedup.KindTimer, 1))
 	assert.True(t, s.Has(dedup.KindTimer, 1))
-
-	// Observe is the event-shaped variant.
-	assert.False(t, s.Observe(taskCompleted(2)))
-	assert.True(t, s.Observe(taskCompleted(2)))
-	// TaskFailed for the same id collides via the shared Task kind.
-	assert.True(t, s.Observe(taskFailed(2)))
 }
 
 func TestSet_NilSentinel(t *testing.T) {
@@ -104,7 +98,6 @@ func TestSet_NilSentinel(t *testing.T) {
 	var s dedup.Set
 	assert.False(t, s.Has(dedup.KindTask, 1))
 	assert.False(t, s.Add(dedup.KindTask, 1))
-	assert.False(t, s.Observe(taskCompleted(1)))
 }
 
 func TestNewForState_PrePopulates(t *testing.T) {
