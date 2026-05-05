@@ -51,6 +51,12 @@ type VerifyPropagationOptions struct {
 	// Signer provides cryptographic verification and certificate
 	// chain-of-trust checking against Sentry trust anchors.
 	Signer *signer.Signer
+
+	// ExpectedNamespace is the namespace each chunk's signing cert must be
+	// scoped to. Without this, a holder of a Sentry-issued cert for the
+	// same app-id in a different namespace could forge propagation chunks.
+	// Must be non-empty.
+	ExpectedNamespace string
 }
 
 // PropagationVerifyResult is the outcome of a successful
@@ -75,8 +81,9 @@ type PropagationVerifyResult struct {
 //   - if chunk.rawEvents is empty, no signatures or cert chains are
 //     attached (otherwise the producer is lying about what they signed)
 //   - chunk.rawSignatures and chunk.signingCertChains are present
-//   - each cert chain's leaf SPIFFE ID app component matches chunk.appId,
-//     so a signer cannot impersonate another app
+//   - each cert chain's leaf SPIFFE ID app and namespace components match
+//     chunk.appId and opts.ExpectedNamespace, so a signer cannot
+//     impersonate another app or claim cross-namespace identity
 //   - the signatures form a chain-linked cover of chunk.rawEvents (via
 //     VerifyChain over the signed bytes; rawEvents are digested directly,
 //     never re-marshaled, so verification is independent of protobuf
@@ -94,6 +101,9 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 	}
 	if opts.Signer == nil {
 		return nil, errors.New("signer must not be nil")
+	}
+	if opts.ExpectedNamespace == "" {
+		return nil, errors.New("expectedNamespace must not be empty")
 	}
 
 	ph := opts.History
@@ -138,11 +148,13 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 			certs[j] = &protos.SigningCertificate{Certificate: der}
 		}
 
-		// Identity check: each cert's leaf SPIFFE ID app component must
-		// match chunk.appId. Without this, a holder of any Sentry-issued
-		// SPIFFE cert could claim to be any app.
+		// Identity check: each cert's leaf SPIFFE ID app and namespace
+		// components must match chunk.appId and opts.ExpectedNamespace.
+		// Without the namespace check, a holder of a Sentry-issued cert
+		// for the same app-id in another namespace could claim to be the
+		// expected producer.
 		for j, der := range chunk.GetSigningCertChains() {
-			if err := VerifyCertAppIdentity(der, chunk.GetAppId()); err != nil {
+			if err := VerifyCertAppIdentity(der, chunk.GetAppId(), opts.ExpectedNamespace); err != nil {
 				return nil, fmt.Errorf("chunk %d (app %q): cert chain %d identity mismatch: %w", i, chunk.GetAppId(), j, err)
 			}
 		}
@@ -193,13 +205,23 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 }
 
 // VerifyCertAppIdentity checks that a DER-encoded signing certificate chain
-// has a leaf SPIFFE ID whose app component matches expectedAppID. SPIFFE IDs
-// follow spiffe://<trust-domain>/ns/<namespace>/<app-id>; this validates the
-// full path structure rather than just the trailing segment. Lifted into
-// historysigning so chunk identity checks (in VerifyPropagatedHistory) and
-// own-history identity checks (in dapr's state.go verifySignatureChain) share
-// one implementation.
-func VerifyCertAppIdentity(certChainDER []byte, expectedAppID string) error {
+// has a leaf SPIFFE ID whose namespace and app components match
+// expectedNamespace and expectedAppID. SPIFFE IDs follow
+// spiffe://<trust-domain>/ns/<namespace>/<app-id>; this validates the full
+// path structure rather than just the trailing segment. Both expected
+// values must be non-empty - the namespace check stops a holder of a
+// Sentry-issued cert for the same app-id in a different namespace from
+// claiming to be the expected producer. Lifted into historysigning so chunk
+// identity checks (in VerifyPropagatedHistory) and own-history identity
+// checks (in dapr's state.go verifySignatureChain) share one implementation.
+func VerifyCertAppIdentity(certChainDER []byte, expectedAppID, expectedNamespace string) error {
+	if expectedAppID == "" {
+		return errors.New("expectedAppID must not be empty")
+	}
+	if expectedNamespace == "" {
+		return errors.New("expectedNamespace must not be empty")
+	}
+
 	leaf, err := parseCertificateChainDER(certChainDER)
 	if err != nil {
 		return err
@@ -214,8 +236,12 @@ func VerifyCertAppIdentity(certChainDER []byte, expectedAppID string) error {
 	if len(segments) != 4 || segments[0] != "" || segments[1] != "ns" || segments[2] == "" || segments[3] == "" {
 		return fmt.Errorf("SPIFFE ID %q does not match expected path format /ns/<namespace>/<app-id>", spiffeID)
 	}
+	certNamespace := segments[2]
 	certAppID := segments[3]
 
+	if certNamespace != expectedNamespace {
+		return fmt.Errorf("certificate SPIFFE ID namespace %q does not match expected namespace %q", certNamespace, expectedNamespace)
+	}
 	if certAppID != expectedAppID {
 		return fmt.Errorf("certificate SPIFFE ID app %q does not match expected app %q", certAppID, expectedAppID)
 	}

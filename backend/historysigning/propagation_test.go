@@ -88,8 +88,9 @@ func TestVerifyPropagatedHistory_HappyPath(t *testing.T) {
 	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, certs)
 
 	res, err := VerifyPropagatedHistory(VerifyPropagationOptions{
-		History: ph,
-		Signer:  s,
+		History:           ph,
+		Signer:            s,
+		ExpectedNamespace: "default",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, res)
@@ -105,7 +106,7 @@ func TestVerifyPropagatedHistory_WrongAppID(t *testing.T) {
 	// Producer's cert SPIFFE ID says app-a, but the chunk claims app-b.
 	ph := makePropagatedHistory("app-b", "wf-1", rawEvents, rawSigs, certs)
 
-	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s, ExpectedNamespace: "default"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "identity mismatch")
 }
@@ -122,7 +123,7 @@ func TestVerifyPropagatedHistory_TamperedRawEvents(t *testing.T) {
 	rawEvents[0][0] ^= 0xFF
 	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, certs)
 
-	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s, ExpectedNamespace: "default"})
 	require.Error(t, err)
 }
 
@@ -134,7 +135,7 @@ func TestVerifyPropagatedHistory_MissingSignatures(t *testing.T) {
 
 	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, nil /* missing */, certs)
 
-	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s, ExpectedNamespace: "default"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing rawSignatures")
 }
@@ -147,7 +148,7 @@ func TestVerifyPropagatedHistory_MissingCerts(t *testing.T) {
 
 	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, nil)
 
-	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s, ExpectedNamespace: "default"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing signingCertChains")
 }
@@ -187,7 +188,7 @@ func TestVerifyPropagatedHistory_TwoChunksLineage(t *testing.T) {
 		},
 	}
 
-	res, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: signerA})
+	res, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: signerA, ExpectedNamespace: "default"})
 	require.NoError(t, err)
 	assert.Len(t, res.VerifiedCerts, 2)
 }
@@ -201,7 +202,7 @@ func TestVerifyPropagatedHistory_EmptyChunkWithSigs(t *testing.T) {
 	// Zero rawEvents but signatures attached - the verifier must reject.
 	ph := makePropagatedHistory("app-a", "wf-1", nil, rawSigs, certs)
 
-	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s, ExpectedNamespace: "default"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty rawEvents but")
 }
@@ -219,7 +220,7 @@ func TestVerifyPropagatedHistory_UnreferencedCertOmittedFromResult(t *testing.T)
 	certs = append(certs, certB)
 
 	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, certs)
-	res, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s})
+	res, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s, ExpectedNamespace: "default"})
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	require.Len(t, res.VerifiedCerts, 1,
@@ -232,26 +233,52 @@ func TestVerifyPropagatedHistory_UnreferencedCertOmittedFromResult(t *testing.T)
 
 func TestVerifyCertAppIdentity(t *testing.T) {
 	tests := []struct {
-		name    string
-		path    string
-		appID   string
-		wantErr bool
+		name      string
+		path      string
+		appID     string
+		namespace string
+		wantErr   string // substring; empty means expect no error
 	}{
-		{"matches", "/ns/default/my-app", "my-app", false},
-		{"mismatched-app", "/ns/default/other", "my-app", true},
-		{"missing-ns-prefix", "/default/my-app", "my-app", true},
-		{"empty-namespace", "/ns//my-app", "my-app", true},
-		{"empty-app", "/ns/default/", "my-app", true},
+		{"matches", "/ns/default/my-app", "my-app", "default", ""},
+		{"mismatched-app", "/ns/default/other", "my-app", "default", "does not match expected app"},
+		{"mismatched-namespace", "/ns/staging/my-app", "my-app", "prod", "does not match expected namespace"},
+		{"missing-ns-prefix", "/default/my-app", "my-app", "default", "does not match expected path format"},
+		{"empty-namespace", "/ns//my-app", "my-app", "default", "failed to extract SPIFFE ID"},
+		{"empty-app", "/ns/default/", "my-app", "default", "failed to extract SPIFFE ID"},
+		{"empty-expected-app", "/ns/default/my-app", "", "default", "expectedAppID must not be empty"},
+		{"empty-expected-namespace", "/ns/default/my-app", "my-app", "", "expectedNamespace must not be empty"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			der, _ := generateEd25519CertWithSpiffePath(t, tc.path)
-			err := VerifyCertAppIdentity(der, tc.appID)
-			if tc.wantErr {
-				require.Error(t, err)
-			} else {
+			err := VerifyCertAppIdentity(der, tc.appID, tc.namespace)
+			if tc.wantErr == "" {
 				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
 			}
 		})
 	}
+}
+
+// TestVerifyPropagatedHistory_WrongNamespace verifies that a chunk whose
+// signing cert lives in a different namespace than the receiver expects is
+// rejected, even when the cert's app component matches. This stops a holder
+// of a Sentry-issued cert for the same app-id in another namespace from
+// claiming to be the expected producer.
+func TestVerifyPropagatedHistory_WrongNamespace(t *testing.T) {
+	certDER, priv := generateEd25519CertWithSpiffePath(t, "/ns/staging/app-a")
+	events := testEvents()
+	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
+	rawEvents, rawSigs, certs := signChunk(t, s, events)
+
+	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, certs)
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{
+		History:           ph,
+		Signer:            s,
+		ExpectedNamespace: "prod",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match expected namespace")
 }
