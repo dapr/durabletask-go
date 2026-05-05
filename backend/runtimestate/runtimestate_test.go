@@ -327,17 +327,54 @@ func TestAddEvent_DistinctIDsAndKindsAreNotDuplicates(t *testing.T) {
 func TestAddEvent_DuplicateAgainstOldEvents(t *testing.T) {
 	t.Parallel()
 
-	// Existing history (OldEvents) already contains a TaskCompleted for id=1.
-	s := NewWorkflowRuntimeState("test-instance", nil, []*protos.HistoryEvent{
-		startedEvent(),
-		taskCompletedEvent(1),
-	})
+	tests := []struct {
+		name      string
+		committed *protos.HistoryEvent
+		duplicate *protos.HistoryEvent
+	}{
+		{
+			name:      "TaskCompleted committed, TaskCompleted redelivered",
+			committed: taskCompletedEvent(1),
+			duplicate: taskCompletedEvent(1),
+		},
+		{
+			name:      "TaskCompleted committed, TaskFailed redelivered for same id",
+			committed: taskCompletedEvent(1),
+			duplicate: taskFailedEvent(1),
+		},
+		{
+			name:      "TaskFailed committed, TaskCompleted redelivered for same id",
+			committed: taskFailedEvent(1),
+			duplicate: taskCompletedEvent(1),
+		},
+		{
+			name:      "TimerFired committed, TimerFired redelivered",
+			committed: timerFiredEvent(2),
+			duplicate: timerFiredEvent(2),
+		},
+		{
+			name:      "ChildWorkflowInstanceCompleted committed, ChildWorkflowInstanceFailed redelivered for same id",
+			committed: childWorkflowCompletedEvent(3),
+			duplicate: childWorkflowFailedEvent(3),
+		},
+	}
 
-	// Redelivery of TaskCompleted#1 as a NewEvent must be detected.
-	err := AddEvent(s, taskCompletedEvent(1))
-	require.ErrorIs(t, err, ErrDuplicateEvent)
-	assert.Len(t, s.NewEvents, 0, "duplicate event must not be appended to NewEvents")
-	assert.Len(t, s.OldEvents, 2, "OldEvents unchanged")
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := NewWorkflowRuntimeState("test-instance", nil, []*protos.HistoryEvent{
+				startedEvent(),
+				tt.committed,
+			})
+
+			err := AddEvent(s, tt.duplicate)
+			require.ErrorIs(t, err, ErrDuplicateEvent)
+			assert.Empty(t, s.NewEvents, "duplicate event must not be appended to NewEvents")
+			assert.Len(t, s.OldEvents, 2, "OldEvents unchanged")
+		})
+	}
 }
 
 func TestAddEvent_StalledPreservedOnDuplicateCompletion(t *testing.T) {
