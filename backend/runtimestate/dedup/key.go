@@ -1,6 +1,6 @@
 // Package dedup detects duplicate task-resolution events
-// (TaskCompleted/TaskFailed/TimerFired/ChildWorkflowInstance{Completed,Failed})
-// inside a workflow's runtime state.
+// (TaskCompleted/TaskFailed/TimerFired/SubOrchestrationInstance{Completed,Failed})
+// inside an orchestration's runtime state.
 package dedup
 
 import "github.com/dapr/durabletask-go/api/protos"
@@ -16,8 +16,8 @@ const (
 	// the same id is still a duplicate.
 	KindTask
 	KindTimer
-	// KindChild covers ChildWorkflowInstanceCompleted and
-	// ChildWorkflowInstanceFailed, correlated by TaskScheduledId.
+	// KindChild covers SubOrchestrationInstanceCompleted and
+	// SubOrchestrationInstanceFailed, correlated by TaskScheduledId.
 	KindChild
 )
 

@@ -221,7 +221,7 @@ func timerFiredEvent(timerID int32) *protos.HistoryEvent {
 	}
 }
 
-func childWorkflowCompletedEvent(taskScheduledID int32) *protos.HistoryEvent {
+func subOrchestrationCompletedEvent(taskScheduledID int32) *protos.HistoryEvent {
 	return &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
@@ -233,7 +233,7 @@ func childWorkflowCompletedEvent(taskScheduledID int32) *protos.HistoryEvent {
 	}
 }
 
-func childWorkflowFailedEvent(taskScheduledID int32) *protos.HistoryEvent {
+func subOrchestrationFailedEvent(taskScheduledID int32) *protos.HistoryEvent {
 	return &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
@@ -275,13 +275,13 @@ func TestAddEvent_DuplicateTaskCompleted(t *testing.T) {
 		},
 		{
 			name:      "SubOrchestrationInstanceCompleted then SubOrchestrationInstanceCompleted",
-			first:     childWorkflowCompletedEvent(4),
-			duplicate: childWorkflowCompletedEvent(4),
+			first:     subOrchestrationCompletedEvent(4),
+			duplicate: subOrchestrationCompletedEvent(4),
 		},
 		{
 			name:      "SubOrchestrationInstanceCompleted then SubOrchestrationInstanceFailed for same id",
-			first:     childWorkflowCompletedEvent(5),
-			duplicate: childWorkflowFailedEvent(5),
+			first:     subOrchestrationCompletedEvent(5),
+			duplicate: subOrchestrationFailedEvent(5),
 		},
 	}
 
@@ -318,8 +318,8 @@ func TestAddEvent_DistinctIDsAndKindsAreNotDuplicates(t *testing.T) {
 	require.NoError(t, AddEvent(s, timerFiredEvent(2)))
 
 	// Same id under the "child" kind likewise distinct from "task".
-	require.NoError(t, AddEvent(s, childWorkflowCompletedEvent(1)))
-	require.NoError(t, AddEvent(s, childWorkflowCompletedEvent(2)))
+	require.NoError(t, AddEvent(s, subOrchestrationCompletedEvent(1)))
+	require.NoError(t, AddEvent(s, subOrchestrationCompletedEvent(2)))
 
 	assert.Len(t, s.NewEvents, 7, "started + 2 task + 2 timer + 2 child = 7 events")
 }
