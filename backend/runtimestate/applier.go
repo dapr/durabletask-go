@@ -253,10 +253,10 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				// consume OutgoingHistory, so chunks built here are
 				// effectively no-ops on those backends.
 				ph, err := AssembleProtoPropagatedHistory(s, scheduleTask.GetHistoryPropagationScope(), receivedHistory, a.appID)
-					if err != nil {
-						return result, fmt.Errorf("failed to assemble propagated history for activity: %w", err)
-					}
-					result.OutgoingHistory[action.Id] = ph
+				if err != nil {
+					return result, fmt.Errorf("failed to assemble propagated history for activity: %w", err)
+				}
+				result.OutgoingHistory[action.Id] = ph
 			}
 		} else if createSO := action.GetCreateChildWorkflow(); createSO != nil {
 			// Autogenerate an instance ID for the child workflow if none is provided, using a

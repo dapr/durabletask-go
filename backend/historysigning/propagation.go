@@ -66,23 +66,28 @@ type PropagationVerifyResult struct {
 	VerifiedCerts map[string][]byte
 }
 
-// VerifyPropagatedHistory verifies every chunk in a PropagatedHistory:
-//   - chunks form a contiguous, non-overlapping cover of [0, len(events))
-//   - each chunk's rawEvents has length == eventCount and is the exact byte
-//     sequence the producer signed (digested directly, never re-marshaled,
-//     so chunk verification is independent of protobuf marshaler version)
-//   - each chunk's signatures form a contiguous, chain-linked cover of the
-//     chunk's event range, signed by the chunk's certs (via VerifyChain)
-//   - the leaf cert SPIFFE ID app component matches chunk.appId, so a
-//     signer cannot impersonate another app
-//   - chain-of-trust to a Sentry trust anchor
-//   - top-level events[start:end] proto-decode-equals chunk.rawEvents, so
-//     a tamperer who edits the unsigned top-level events array but leaves
-//     rawEvents+signatures intact cannot leak forged messages to the SDK
+// VerifyPropagatedHistory verifies every chunk in a PropagatedHistory.
+// Each chunk is self-contained - it carries its own rawEvents along with
+// rawSignatures and signingCertChains - so chunks are verified
+// independently of one another. For each chunk the function checks:
 //
-// Verification is independent per chunk: corruption in chunk N does not affect
-// verification of chunk M. Failure on any chunk returns an error and no
-// partial result; receivers must reject the whole payload.
+//   - chunk is non-nil and chunk.appId is non-empty
+//   - if chunk.rawEvents is empty, no signatures or cert chains are
+//     attached (otherwise the producer is lying about what they signed)
+//   - chunk.rawSignatures and chunk.signingCertChains are present
+//   - each cert chain's leaf SPIFFE ID app component matches chunk.appId,
+//     so a signer cannot impersonate another app
+//   - the signatures form a chain-linked cover of chunk.rawEvents (via
+//     VerifyChain over the signed bytes; rawEvents are digested directly,
+//     never re-marshaled, so verification is independent of protobuf
+//     marshaler-version stability across producer and receiver)
+//   - chain-of-trust to a Sentry trust anchor
+//
+// On success, VerifiedCerts contains every cert that was referenced by a
+// verified signature (by certificateIndex), so callers can absorb them
+// into a content-addressed foreign-cert table. Failure on any chunk
+// returns an error and no partial result; receivers must reject the
+// whole payload.
 func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyResult, error) {
 	if opts.History == nil {
 		return nil, errors.New("history must not be nil")

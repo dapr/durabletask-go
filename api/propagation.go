@@ -337,63 +337,67 @@ func (wr WorkflowResult) GetChildWorkflowsByName(name string) []*ChildWorkflowRe
 	return results
 }
 
-  // PropagatedHistoryFromProto converts a proto PropagatedHistory to the Go
-  // type. Each chunk owns its raw event bytes; this decodes them into typed
-  // HistoryEvents once and concatenates the per-chunk events into a single
-  // ordered slice for SDK consumption. Returns an error if any chunk's
-  // rawEvents cannot be decoded.
-  func PropagatedHistoryFromProto(ph *protos.PropagatedHistory) (*PropagatedHistory, error) {
-        if ph == nil {
-                return nil, nil
-        }
+// PropagatedHistoryFromProto converts a proto PropagatedHistory to the Go
+// type. Each chunk owns its raw event bytes; this decodes them into typed
+// HistoryEvents once and concatenates the per-chunk events into a single
+// ordered slice for SDK consumption. This runs at the trust boundary
+// (task/executor parsing inbound propagated history), so structural
+// validation runs first via ValidatePropagatedHistory and the function
+// returns a structured error rather than panicking on malformed input.
+func PropagatedHistoryFromProto(ph *protos.PropagatedHistory) (*PropagatedHistory, error) {
+	if ph == nil {
+		return nil, nil
+	}
+	if err := ValidatePropagatedHistory(ph); err != nil {
+		return nil, err
+	}
 
-        var totalEvents int
-        for _, c := range ph.GetChunks() {
-                totalEvents += len(c.GetRawEvents())
-        }
+	var totalEvents int
+	for _, c := range ph.GetChunks() {
+		totalEvents += len(c.GetRawEvents())
+	}
 
-        events := make([]*protos.HistoryEvent, 0, totalEvents)
-        chunks := make([]historyChunk, len(ph.GetChunks()))
-        for i, c := range ph.GetChunks() {
-                start := len(events)
-                for j, raw := range c.GetRawEvents() {
-                        var e protos.HistoryEvent
-                        if err := proto.Unmarshal(raw, &e); err != nil {
-                                return nil, fmt.Errorf("propagated history: chunk %d (app %q): failed to decode rawEvent %d: %w", i, c.GetAppId(), j, err)
-                        }
-                        events = append(events, &e)
-                }
-                chunks[i] = historyChunk{
-                        appID:           c.GetAppId(),
-                        startEventIndex: start,
-                        eventCount:      len(events) - start,
-                        instanceID:      c.GetInstanceId(),
-                        workflowName:    c.GetWorkflowName(),
-                }
-        }
-        return &PropagatedHistory{
-                events: events,
-                scope:  ph.GetScope(),
-                chunks: chunks,
-        }, nil
-  }
+	events := make([]*protos.HistoryEvent, 0, totalEvents)
+	chunks := make([]historyChunk, len(ph.GetChunks()))
+	for i, c := range ph.GetChunks() {
+		start := len(events)
+		for j, raw := range c.GetRawEvents() {
+			var e protos.HistoryEvent
+			if err := proto.Unmarshal(raw, &e); err != nil {
+				return nil, fmt.Errorf("propagated history: chunk %d (app %q): failed to decode rawEvent %d: %w", i, c.GetAppId(), j, err)
+			}
+			events = append(events, &e)
+		}
+		chunks[i] = historyChunk{
+			appID:           c.GetAppId(),
+			startEventIndex: start,
+			eventCount:      len(events) - start,
+			instanceID:      c.GetInstanceId(),
+			workflowName:    c.GetWorkflowName(),
+		}
+	}
+	return &PropagatedHistory{
+		events: events,
+		scope:  ph.GetScope(),
+		chunks: chunks,
+	}, nil
+}
 
-  // ValidatePropagatedHistory checks per-chunk shape on the wire form: each
-  // chunk must have a non-empty appId, and (when signed) rawSignatures /
-  // signingCertChains aligned with rawEvents. Cross-chunk ordering and
-  // contiguity are no longer required - each chunk is self-contained, so
-  // the only structural invariant is that rawEvents is well-formed.
-  // Receivers that also verify signatures should use
-  // historysigning.VerifyPropagatedHistory.
-  func ValidatePropagatedHistory(ph *protos.PropagatedHistory) error {
-        for i, c := range ph.GetChunks() {
-                if c == nil {
-                        return fmt.Errorf("propagated history: chunk %d is nil", i)
-                }
-                if c.GetAppId() == "" {
-                        return fmt.Errorf("propagated history: chunk %d has empty appId", i)
-                }
-        }
-        return nil
-  }
+// ValidatePropagatedHistory checks the structural shape of a wire-form
+// PropagatedHistory before any decoding or trust decisions: each chunk must
+// be non-nil and carry a non-empty appId. Signing-material checks
+// (rawSignatures / signingCertChains alignment, cert chain-of-trust,
+// signature verification) live in historysigning.VerifyPropagatedHistory,
+// not here - this function is the lightweight structural gate.
+func ValidatePropagatedHistory(ph *protos.PropagatedHistory) error {
+	for i, c := range ph.GetChunks() {
+		if c == nil {
+			return fmt.Errorf("propagated history: chunk %d is nil", i)
+		}
+		if c.GetAppId() == "" {
+			return fmt.Errorf("propagated history: chunk %d has empty appId", i)
+		}
+	}
+	return nil
+}
 
