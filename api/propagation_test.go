@@ -20,9 +20,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api/protos"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func makeTestHistory() *PropagatedHistory {
@@ -401,18 +402,23 @@ func TestGetEventsByWorkflowName(t *testing.T) {
 }
 
 func TestPropagatedHistoryFromProto(t *testing.T) {
-	proto := &protos.PropagatedHistory{
-		Events: []*protos.HistoryEvent{
-			{EventId: 1},
-			{EventId: 2},
-		},
+	// Each chunk carries its own raw event bytes; FromProto decodes them
+	// into typed events for SDK consumption.
+	rawEvents := make([][]byte, 2)
+	for i, e := range []*protos.HistoryEvent{{EventId: 1}, {EventId: 2}} {
+		b, err := proto.MarshalOptions{Deterministic: true}.Marshal(e)
+		require.NoError(t, err)
+		rawEvents[i] = b
+	}
+
+	wireProto := &protos.PropagatedHistory{
 		Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
 		Chunks: []*protos.PropagatedHistoryChunk{
-			{AppId: "app1", StartEventIndex: 0, EventCount: 2, InstanceId: "wf-1", WorkflowName: "MyWf"},
+			{AppId: "app1", InstanceId: "wf-1", WorkflowName: "MyWf", RawEvents: rawEvents},
 		},
 	}
 
-	ph, err := PropagatedHistoryFromProto(proto)
+	ph, err := PropagatedHistoryFromProto(wireProto)
 	require.NoError(t, err)
 	require.NotNil(t, ph)
 	assert.Len(t, ph.Events(), 2)
@@ -429,6 +435,64 @@ func TestPropagatedHistoryFromProto_Nil(t *testing.T) {
 	ph, err := PropagatedHistoryFromProto(nil)
 	require.NoError(t, err)
 	assert.Nil(t, ph)
+}
+
+// TestPropagatedHistoryFromProto_NilChunk verifies that a nil chunk entry
+// in the wire-form Chunks slice is rejected with a structured error rather
+// than panicking - this function runs at the trust boundary on inbound
+// payloads, so it must not panic on malformed input.
+func TestPropagatedHistoryFromProto_NilChunk(t *testing.T) {
+	wireProto := &protos.PropagatedHistory{
+		Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
+		Chunks: []*protos.PropagatedHistoryChunk{
+			{AppId: "app1", RawEvents: [][]byte{}},
+			nil,
+		},
+	}
+
+	assert.NotPanics(t, func() {
+		ph, err := PropagatedHistoryFromProto(wireProto)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "chunk 1 is nil")
+		assert.Nil(t, ph)
+	})
+}
+
+// TestPropagatedHistoryFromProto_EmptyAppID verifies that a chunk with an
+// empty appId is rejected by ValidatePropagatedHistory before any decoding.
+func TestPropagatedHistoryFromProto_EmptyAppID(t *testing.T) {
+	wireProto := &protos.PropagatedHistory{
+		Chunks: []*protos.PropagatedHistoryChunk{
+			{AppId: "", RawEvents: [][]byte{}},
+		},
+	}
+
+	ph, err := PropagatedHistoryFromProto(wireProto)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty appId")
+	assert.Nil(t, ph)
+}
+
+// TestPropagatedHistoryFromProto_InvalidRawEvent verifies that a malformed
+// rawEvent (not a valid HistoryEvent wire encoding) yields a structured
+// error - the function must not panic even though proto.Unmarshal is the
+// one rejecting the bytes.
+func TestPropagatedHistoryFromProto_InvalidRawEvent(t *testing.T) {
+	wireProto := &protos.PropagatedHistory{
+		Chunks: []*protos.PropagatedHistoryChunk{
+			{
+				AppId:     "app1",
+				RawEvents: [][]byte{[]byte("not-a-valid-protobuf-payload")},
+			},
+		},
+	}
+
+	assert.NotPanics(t, func() {
+		ph, err := PropagatedHistoryFromProto(wireProto)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to decode rawEvent 0")
+		assert.Nil(t, ph)
+	})
 }
 
 func TestNewHistoryPropagationScope_Nil(t *testing.T) {

@@ -78,7 +78,11 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				// Capture a propagated chunk from the prior generation BEFORE we
 				// wipe state, so the new generation can continue the chain
 				if scope := canForwardScope(receivedHistory); scope != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
-					result.NewIncomingHistory = AssembleProtoPropagatedHistory(s, scope, receivedHistory, a.appID)
+					ph, err := AssembleProtoPropagatedHistory(s, scope, receivedHistory, a.appID)
+					if err != nil {
+						return result, fmt.Errorf("failed to assemble propagated history for ContinueAsNew: %w", err)
+					}
+					result.NewIncomingHistory = ph
 				}
 
 				newState := NewWorkflowRuntimeState(s.InstanceId, customStatus, []*protos.HistoryEvent{})
@@ -248,7 +252,11 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				// In-process sqlite/postgres backends in this repo do not
 				// consume OutgoingHistory, so chunks built here are
 				// effectively no-ops on those backends.
-				result.OutgoingHistory[action.Id] = AssembleProtoPropagatedHistory(s, scheduleTask.GetHistoryPropagationScope(), receivedHistory, a.appID)
+				ph, err := AssembleProtoPropagatedHistory(s, scheduleTask.GetHistoryPropagationScope(), receivedHistory, a.appID)
+				if err != nil {
+					return result, fmt.Errorf("failed to assemble propagated history for activity: %w", err)
+				}
+				result.OutgoingHistory[action.Id] = ph
 			}
 		} else if createSO := action.GetCreateChildWorkflow(); createSO != nil {
 			// Autogenerate an instance ID for the child workflow if none is provided, using a
@@ -300,7 +308,11 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				// sqlite/postgres backends in this repo do not consume
 				// PendingMessages.PropagatedHistory, so chunks built here
 				// are effectively no-ops on those backends.
-				msg.PropagatedHistory = AssembleProtoPropagatedHistory(s, createSO.GetHistoryPropagationScope(), receivedHistory, a.appID)
+				ph, err := AssembleProtoPropagatedHistory(s, createSO.GetHistoryPropagationScope(), receivedHistory, a.appID)
+				if err != nil {
+					return result, fmt.Errorf("failed to assemble propagated history for child workflow: %w", err)
+				}
+				msg.PropagatedHistory = ph
 			}
 			s.PendingMessages = append(s.PendingMessages, msg)
 		} else if sendEvent := action.GetSendEvent(); sendEvent != nil {

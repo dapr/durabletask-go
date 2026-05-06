@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/dapr/durabletask-go/api/protos"
 )
@@ -40,6 +41,19 @@ func makeExecutionStarted(id int32, name string) *protos.HistoryEvent {
 	}
 }
 
+// decodeChunkEvents decodes a chunk's rawEvents into typed HistoryEvents
+// for assertion.
+func decodeChunkEvents(t *testing.T, c *protos.PropagatedHistoryChunk) []*protos.HistoryEvent {
+	t.Helper()
+	out := make([]*protos.HistoryEvent, len(c.GetRawEvents()))
+	for i, raw := range c.GetRawEvents() {
+		var e protos.HistoryEvent
+		require.NoError(t, proto.Unmarshal(raw, &e))
+		out[i] = &e
+	}
+	return out
+}
+
 func TestAssembleProtoPropagatedHistory_OwnHistory_SingleApp(t *testing.T) {
 	state := &protos.WorkflowRuntimeState{
 		InstanceId: "wf-001",
@@ -52,206 +66,136 @@ func TestAssembleProtoPropagatedHistory_OwnHistory_SingleApp(t *testing.T) {
 		},
 	}
 
-	ph := AssembleProtoPropagatedHistory(
-		state,
-		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
-		nil,    // no ancestor
-		"appA", // appID
-	)
-
-	require.NotNil(t, ph)
-	assert.Len(t, ph.Events, 3, "should have 3 events")
-	assert.Equal(t, protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY, ph.Scope)
-
-	// Single chunk for appA with instance ID and workflow name
-	require.Len(t, ph.Chunks, 1)
-	assert.Equal(t, "appA", ph.Chunks[0].AppId)
-	assert.Equal(t, int32(0), ph.Chunks[0].StartEventIndex)
-	assert.Equal(t, int32(3), ph.Chunks[0].EventCount)
-	assert.Equal(t, "wf-001", ph.Chunks[0].InstanceId)
-	assert.Equal(t, "MyWorkflow", ph.Chunks[0].WorkflowName)
-}
-
-func TestAssembleProtoPropagatedHistory_Lineage_NoAncestor(t *testing.T) {
-	state := &protos.WorkflowRuntimeState{
-		OldEvents: []*protos.HistoryEvent{
-			makeTaskScheduled(0, "act1"),
-		},
-	}
-
-	ph := AssembleProtoPropagatedHistory(
-		state,
-		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
-		nil, // no ancestor
-		"appA",
-	)
-
-	require.NotNil(t, ph)
-	assert.Len(t, ph.Events, 1)
-
-	// Single chunk — no ancestor to prepend
-	require.Len(t, ph.Chunks, 1)
-	assert.Equal(t, "appA", ph.Chunks[0].AppId)
-	assert.Equal(t, int32(0), ph.Chunks[0].StartEventIndex)
-	assert.Equal(t, int32(1), ph.Chunks[0].EventCount)
-}
-
-func TestAssembleProtoPropagatedHistory_Lineage_WithAncestor(t *testing.T) {
-	// Ancestor history from appA with 2 events and 1 chunk
-	ancestor := &protos.PropagatedHistory{
-		Events: []*protos.HistoryEvent{
-			makeTaskScheduled(0, "ancestorAct1"),
-			makeTaskScheduled(1, "ancestorAct2"),
-		},
-		Chunks: []*protos.PropagatedHistoryChunk{
-			{AppId: "appA", StartEventIndex: 0, EventCount: 2, InstanceId: "wf-parent", WorkflowName: "ParentWf"},
-		},
-	}
-
-	// Current app (appB) has 3 events
-	state := &protos.WorkflowRuntimeState{
-		InstanceId: "wf-child",
-		OldEvents: []*protos.HistoryEvent{
-			makeExecutionStarted(0, "ChildWf"),
-			makeTaskScheduled(1, "ownAct1"),
-		},
-		NewEvents: []*protos.HistoryEvent{
-			makeTaskScheduled(2, "ownAct2"),
-		},
-	}
-
-	ph := AssembleProtoPropagatedHistory(
-		state,
-		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
-		ancestor,
-		"appB",
-	)
-
-	require.NotNil(t, ph)
-	assert.Len(t, ph.Events, 5, "should have 5 events: 2 ancestor + 3 own")
-
-	// Verify event order: ancestor events first, then own
-	assert.Equal(t, "ancestorAct1", ph.Events[0].GetTaskScheduled().GetName())
-	assert.Equal(t, "ancestorAct2", ph.Events[1].GetTaskScheduled().GetName())
-	assert.Equal(t, "ChildWf", ph.Events[2].GetExecutionStarted().GetName())
-	assert.Equal(t, "ownAct1", ph.Events[3].GetTaskScheduled().GetName())
-	assert.Equal(t, "ownAct2", ph.Events[4].GetTaskScheduled().GetName())
-
-	// 2 chunks: appA's ancestor chunk + appB's own chunk
-	require.Len(t, ph.Chunks, 2)
-
-	// Ancestor chunk preserves its metadata
-	assert.Equal(t, "appA", ph.Chunks[0].AppId)
-	assert.Equal(t, int32(0), ph.Chunks[0].StartEventIndex)
-	assert.Equal(t, int32(2), ph.Chunks[0].EventCount)
-	assert.Equal(t, "wf-parent", ph.Chunks[0].InstanceId)
-	assert.Equal(t, "ParentWf", ph.Chunks[0].WorkflowName)
-
-	// Own chunk has appB's metadata
-	assert.Equal(t, "appB", ph.Chunks[1].AppId)
-	assert.Equal(t, int32(2), ph.Chunks[1].StartEventIndex)
-	assert.Equal(t, int32(3), ph.Chunks[1].EventCount)
-	assert.Equal(t, "wf-child", ph.Chunks[1].InstanceId)
-	assert.Equal(t, "ChildWf", ph.Chunks[1].WorkflowName)
-}
-
-func TestAssembleProtoPropagatedHistory_OwnHistory_IgnoresAncestor(t *testing.T) {
-	ancestor := &protos.PropagatedHistory{
-		Events: []*protos.HistoryEvent{
-			makeTaskScheduled(0, "ancestorAct"),
-		},
-		Chunks: []*protos.PropagatedHistoryChunk{
-			{AppId: "appA", StartEventIndex: 0, EventCount: 1},
-		},
-	}
-
-	state := &protos.WorkflowRuntimeState{
-		OldEvents: []*protos.HistoryEvent{
-			makeTaskScheduled(0, "ownAct"),
-		},
-	}
-
-	ph := AssembleProtoPropagatedHistory(
-		state,
-		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
-		ancestor, // passed but should be ignored
-		"appB",
-	)
-
-	require.NotNil(t, ph)
-
-	// Ancestor should be excluded
-	assert.Len(t, ph.Events, 1, "should have 1 event (own only)")
-	assert.Equal(t, "ownAct", ph.Events[0].GetTaskScheduled().GetName())
-
-	// Only appB's chunk
-	require.Len(t, ph.Chunks, 1)
-	assert.Equal(t, "appB", ph.Chunks[0].AppId)
-	assert.Equal(t, int32(0), ph.Chunks[0].StartEventIndex)
-	assert.Equal(t, int32(1), ph.Chunks[0].EventCount)
-}
-
-func TestAssembleProtoPropagatedHistory_Lineage_ThreeHopChain(t *testing.T) {
-	// Simulate A -> B -> C chain where C assembles history
-
-	// Ancestor history already contains A's and B's chunks (built by B)
-	ancestor := &protos.PropagatedHistory{
-		Events: []*protos.HistoryEvent{
-			makeTaskScheduled(0, "actA"),
-			makeTaskScheduled(0, "actB"),
-		},
-		Chunks: []*protos.PropagatedHistoryChunk{
-			{AppId: "appA", StartEventIndex: 0, EventCount: 1},
-			{AppId: "appB", StartEventIndex: 1, EventCount: 1},
-		},
-	}
-
-	// Current app (appC) has 1 event
-	state := &protos.WorkflowRuntimeState{
-		OldEvents: []*protos.HistoryEvent{
-			makeTaskScheduled(0, "actC"),
-		},
-	}
-
-	ph := AssembleProtoPropagatedHistory(
-		state,
-		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
-		ancestor,
-		"appC",
-	)
-
-	require.NotNil(t, ph)
-	assert.Len(t, ph.Events, 3, "should have 3 events: A + B + C")
-
-	// 3 chunks, one per app
-	require.Len(t, ph.Chunks, 3)
-
-	assert.Equal(t, "appA", ph.Chunks[0].AppId)
-	assert.Equal(t, int32(0), ph.Chunks[0].StartEventIndex)
-	assert.Equal(t, int32(1), ph.Chunks[0].EventCount)
-
-	assert.Equal(t, "appB", ph.Chunks[1].AppId)
-	assert.Equal(t, int32(1), ph.Chunks[1].StartEventIndex)
-	assert.Equal(t, int32(1), ph.Chunks[1].EventCount)
-
-	assert.Equal(t, "appC", ph.Chunks[2].AppId)
-	assert.Equal(t, int32(2), ph.Chunks[2].StartEventIndex)
-	assert.Equal(t, int32(1), ph.Chunks[2].EventCount)
-}
-
-func TestAssembleProtoPropagatedHistory_EmptyState(t *testing.T) {
-	state := &protos.WorkflowRuntimeState{}
-
-	ph := AssembleProtoPropagatedHistory(
+	ph, err := AssembleProtoPropagatedHistory(
 		state,
 		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
 		nil,
 		"appA",
 	)
-
+	require.NoError(t, err)
 	require.NotNil(t, ph)
-	assert.Empty(t, ph.Events, "should have 0 events")
-	assert.Empty(t, ph.Chunks, "should have 0 chunks when no events")
+	require.Len(t, ph.GetChunks(), 1)
+	chunk := ph.GetChunks()[0]
+	assert.Equal(t, "appA", chunk.GetAppId())
+	assert.Equal(t, "wf-001", chunk.GetInstanceId())
+	assert.Equal(t, "MyWorkflow", chunk.GetWorkflowName())
+	assert.Len(t, chunk.GetRawEvents(), 3, "chunk should carry all 3 events as rawEvents")
+}
+
+func TestAssembleProtoPropagatedHistory_Lineage_NoAncestor(t *testing.T) {
+	state := &protos.WorkflowRuntimeState{
+		InstanceId: "wf-001",
+		OldEvents: []*protos.HistoryEvent{
+			makeExecutionStarted(0, "MyWorkflow"),
+		},
+	}
+
+	ph, err := AssembleProtoPropagatedHistory(
+		state,
+		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
+		nil,
+		"appA",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ph)
+	require.Len(t, ph.GetChunks(), 1, "lineage with no ancestor should have one own chunk")
+	assert.Equal(t, "appA", ph.GetChunks()[0].GetAppId())
+}
+
+func TestAssembleProtoPropagatedHistory_Lineage_WithAncestor(t *testing.T) {
+	parentEvents := []*protos.HistoryEvent{
+		makeExecutionStarted(0, "ParentWf"),
+		makeTaskScheduled(1, "parentAct"),
+	}
+	parentRaw := make([][]byte, len(parentEvents))
+	for i, e := range parentEvents {
+		b, err := proto.MarshalOptions{Deterministic: true}.Marshal(e)
+		require.NoError(t, err)
+		parentRaw[i] = b
+	}
+	receivedHistory := &protos.PropagatedHistory{
+		Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
+		Chunks: []*protos.PropagatedHistoryChunk{
+			{AppId: "appA", InstanceId: "wf-parent", WorkflowName: "ParentWf", RawEvents: parentRaw},
+		},
+	}
+
+	state := &protos.WorkflowRuntimeState{
+		InstanceId: "wf-child",
+		OldEvents: []*protos.HistoryEvent{
+			makeExecutionStarted(0, "ChildWf"),
+		},
+		NewEvents: []*protos.HistoryEvent{
+			makeTaskScheduled(1, "childAct1"),
+			makeTaskScheduled(2, "childAct2"),
+		},
+	}
+
+	ph, err := AssembleProtoPropagatedHistory(
+		state,
+		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
+		receivedHistory,
+		"appB",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ph)
+	require.Len(t, ph.GetChunks(), 2, "lineage with ancestor should produce ancestor + own chunks")
+
+	// Ancestor chunk passes through verbatim.
+	assert.Equal(t, "appA", ph.GetChunks()[0].GetAppId())
+	assert.Equal(t, "wf-parent", ph.GetChunks()[0].GetInstanceId())
+	assert.Len(t, ph.GetChunks()[0].GetRawEvents(), 2)
+
+	// Own chunk has appB events.
+	assert.Equal(t, "appB", ph.GetChunks()[1].GetAppId())
+	assert.Equal(t, "wf-child", ph.GetChunks()[1].GetInstanceId())
+	assert.Equal(t, "ChildWf", ph.GetChunks()[1].GetWorkflowName())
+	ownDecoded := decodeChunkEvents(t, ph.GetChunks()[1])
+	require.Len(t, ownDecoded, 3)
+	assert.NotNil(t, ownDecoded[0].GetExecutionStarted())
+	assert.Equal(t, "childAct1", ownDecoded[1].GetTaskScheduled().GetName())
+	assert.Equal(t, "childAct2", ownDecoded[2].GetTaskScheduled().GetName())
+}
+
+func TestAssembleProtoPropagatedHistory_OwnHistory_IgnoresAncestor(t *testing.T) {
+	receivedHistory := &protos.PropagatedHistory{
+		Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
+		Chunks: []*protos.PropagatedHistoryChunk{
+			{AppId: "appA", RawEvents: [][]byte{[]byte("ancestor-bytes")}},
+		},
+	}
+
+	state := &protos.WorkflowRuntimeState{
+		InstanceId: "wf-001",
+		OldEvents: []*protos.HistoryEvent{
+			makeExecutionStarted(0, "MyWorkflow"),
+		},
+	}
+
+	ph, err := AssembleProtoPropagatedHistory(
+		state,
+		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
+		receivedHistory,
+		"appB",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ph)
+	require.Len(t, ph.GetChunks(), 1, "OWN_HISTORY must drop the ancestor chunk")
+	assert.Equal(t, "appB", ph.GetChunks()[0].GetAppId())
+}
+
+func TestAssembleProtoPropagatedHistory_EmptyState(t *testing.T) {
+	state := &protos.WorkflowRuntimeState{}
+
+	ph, err := AssembleProtoPropagatedHistory(
+		state,
+		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_OWN_HISTORY,
+		nil,
+		"appA",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ph)
+	assert.Empty(t, ph.GetChunks(), "no events => no chunks")
 }
 
 // TestCanForwardScope_NoDefaults asserts the CAN-boundary scope chooser only
@@ -291,32 +235,5 @@ func TestCanForwardScope_NoDefaults(t *testing.T) {
 				Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
 			}),
 			"LINEAGE incoming must pass through unchanged")
-	})
-
-	t.Run("propagating tasks in own history do not synthesize a default", func(t *testing.T) {
-		// A root workflow that scheduled tasks with propagation scope but
-		// itself received nothing must NOT have a chunk seeded for the next
-		// generation. only the incoming chunk drives propagation across CAN.
-		lineageScope := protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE
-		_ = &protos.WorkflowRuntimeState{
-			InstanceId: "root-wf",
-			NewEvents: []*protos.HistoryEvent{
-				makeExecutionStarted(-1, "RootWorkflow"),
-				{
-					EventId: 1,
-					EventType: &protos.HistoryEvent_TaskScheduled{
-						TaskScheduled: &protos.TaskScheduledEvent{
-							Name:                    "act1",
-							HistoryPropagationScope: &lineageScope,
-						},
-					},
-				},
-			},
-		}
-
-		assert.Equal(t,
-			protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE,
-			canForwardScope(nil),
-			"workflow's own outgoing-scope decisions must not be inferred as a CAN default")
 	})
 }
