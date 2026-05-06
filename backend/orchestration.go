@@ -192,8 +192,9 @@ func (w *orchestratorProcessor) applyWorkItem(ctx context.Context, wi *Orchestra
 	// New events from the work item are appended to the orchestration state, with duplicates automatically
 	// filtered out. If all events are filtered out, return false so that the caller knows not to execute
 	// the orchestration logic for an empty set of events.
-	for _, e := range wi.NewEvents {
-		if err := runtimestate.AddEvent(wi.State, e); err != nil {
+	errs := runtimestate.AddEvents(wi.State, wi.NewEvents)
+	for i, e := range wi.NewEvents {
+		if err := errs[i]; err != nil {
 			if err == runtimestate.ErrDuplicateEvent {
 				w.logger.Warnf("%v: dropping duplicate event: %v", wi.InstanceID, e)
 			} else {

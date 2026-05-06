@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend/runtimestate/dedup"
 )
 
 func startedEvent() *protos.HistoryEvent {
@@ -182,4 +183,234 @@ func TestAddEvent_StalledReplacedByNewStalled(t *testing.T) {
 	require.NotNil(t, s.Stalled)
 	assert.Equal(t, protos.StalledReason_VERSION_NOT_AVAILABLE, s.Stalled.Reason)
 	assert.Equal(t, "second stall", s.Stalled.GetDescription())
+}
+
+func taskCompletedEvent(taskScheduledID int32) *protos.HistoryEvent {
+	return &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_TaskCompleted{
+			TaskCompleted: &protos.TaskCompletedEvent{
+				TaskScheduledId: taskScheduledID,
+			},
+		},
+	}
+}
+
+func taskFailedEvent(taskScheduledID int32) *protos.HistoryEvent {
+	return &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_TaskFailed{
+			TaskFailed: &protos.TaskFailedEvent{
+				TaskScheduledId: taskScheduledID,
+			},
+		},
+	}
+}
+
+func timerFiredEvent(timerID int32) *protos.HistoryEvent {
+	return &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_TimerFired{
+			TimerFired: &protos.TimerFiredEvent{
+				TimerId: timerID,
+			},
+		},
+	}
+}
+
+func subOrchestrationCompletedEvent(taskScheduledID int32) *protos.HistoryEvent {
+	return &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_SubOrchestrationInstanceCompleted{
+			SubOrchestrationInstanceCompleted: &protos.SubOrchestrationInstanceCompletedEvent{
+				TaskScheduledId: taskScheduledID,
+			},
+		},
+	}
+}
+
+func subOrchestrationFailedEvent(taskScheduledID int32) *protos.HistoryEvent {
+	return &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_SubOrchestrationInstanceFailed{
+			SubOrchestrationInstanceFailed: &protos.SubOrchestrationInstanceFailedEvent{
+				TaskScheduledId: taskScheduledID,
+			},
+		},
+	}
+}
+
+func TestAddEvent_DuplicateTaskCompleted(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		first     *protos.HistoryEvent
+		duplicate *protos.HistoryEvent
+	}{
+		{
+			name:      "TaskCompleted then TaskCompleted",
+			first:     taskCompletedEvent(1),
+			duplicate: taskCompletedEvent(1),
+		},
+		{
+			name:      "TaskCompleted then TaskFailed for same id",
+			first:     taskCompletedEvent(2),
+			duplicate: taskFailedEvent(2),
+		},
+		{
+			name:      "TaskFailed then TaskCompleted for same id",
+			first:     taskFailedEvent(3),
+			duplicate: taskCompletedEvent(3),
+		},
+		{
+			name:      "TimerFired then TimerFired",
+			first:     timerFiredEvent(7),
+			duplicate: timerFiredEvent(7),
+		},
+		{
+			name:      "SubOrchestrationInstanceCompleted then SubOrchestrationInstanceCompleted",
+			first:     subOrchestrationCompletedEvent(4),
+			duplicate: subOrchestrationCompletedEvent(4),
+		},
+		{
+			name:      "SubOrchestrationInstanceCompleted then SubOrchestrationInstanceFailed for same id",
+			first:     subOrchestrationCompletedEvent(5),
+			duplicate: subOrchestrationFailedEvent(5),
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := NewOrchestrationRuntimeState("test-instance", nil, nil)
+			require.NoError(t, AddEvent(s, startedEvent()))
+			require.NoError(t, AddEvent(s, tt.first))
+
+			before := len(s.NewEvents)
+			err := AddEvent(s, tt.duplicate)
+			require.ErrorIs(t, err, ErrDuplicateEvent)
+			assert.Len(t, s.NewEvents, before, "duplicate event must not be appended")
+		})
+	}
+}
+
+func TestAddEvent_DistinctIDsAndKindsAreNotDuplicates(t *testing.T) {
+	t.Parallel()
+
+	s := NewOrchestrationRuntimeState("test-instance", nil, nil)
+	require.NoError(t, AddEvent(s, startedEvent()))
+
+	// Different task ids must each be accepted.
+	require.NoError(t, AddEvent(s, taskCompletedEvent(1)))
+	require.NoError(t, AddEvent(s, taskCompletedEvent(2)))
+
+	// Same id under a different kind is not a duplicate: the "task" and
+	// "timer" namespaces are independent.
+	require.NoError(t, AddEvent(s, timerFiredEvent(1)))
+	require.NoError(t, AddEvent(s, timerFiredEvent(2)))
+
+	// Same id under the "child" kind likewise distinct from "task".
+	require.NoError(t, AddEvent(s, subOrchestrationCompletedEvent(1)))
+	require.NoError(t, AddEvent(s, subOrchestrationCompletedEvent(2)))
+
+	assert.Len(t, s.NewEvents, 7, "started + 2 task + 2 timer + 2 child = 7 events")
+}
+
+func TestAddEvent_DuplicateAgainstOldEvents(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		committed *protos.HistoryEvent
+		duplicate *protos.HistoryEvent
+	}{
+		{
+			name:      "TaskCompleted committed, TaskCompleted redelivered",
+			committed: taskCompletedEvent(1),
+			duplicate: taskCompletedEvent(1),
+		},
+		{
+			name:      "TaskCompleted committed, TaskFailed redelivered for same id",
+			committed: taskCompletedEvent(1),
+			duplicate: taskFailedEvent(1),
+		},
+		{
+			name:      "TaskFailed committed, TaskCompleted redelivered for same id",
+			committed: taskFailedEvent(1),
+			duplicate: taskCompletedEvent(1),
+		},
+		{
+			name:      "TimerFired committed, TimerFired redelivered",
+			committed: timerFiredEvent(2),
+			duplicate: timerFiredEvent(2),
+		},
+		{
+			name:      "SubOrchestrationInstanceCompleted committed, SubOrchestrationInstanceFailed redelivered for same id",
+			committed: subOrchestrationCompletedEvent(3),
+			duplicate: subOrchestrationFailedEvent(3),
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := NewOrchestrationRuntimeState("test-instance", nil, []*protos.HistoryEvent{
+				startedEvent(),
+				tt.committed,
+			})
+
+			err := AddEvent(s, tt.duplicate)
+			require.ErrorIs(t, err, ErrDuplicateEvent)
+			assert.Empty(t, s.NewEvents, "duplicate event must not be appended to NewEvents")
+			assert.Len(t, s.OldEvents, 2, "OldEvents unchanged")
+		})
+	}
+}
+
+func TestAddEvent_StalledPreservedOnDuplicateCompletion(t *testing.T) {
+	t.Parallel()
+
+	s := NewOrchestrationRuntimeState("test-instance", nil, nil)
+	require.NoError(t, AddEvent(s, startedEvent()))
+	require.NoError(t, AddEvent(s, taskCompletedEvent(1)))
+	require.NoError(t, AddEvent(s, stalledEvent(protos.StalledReason_PATCH_MISMATCH, "stalled")))
+	require.NotNil(t, s.Stalled)
+
+	// A duplicate completion must NOT clear the stalled state, mirroring
+	// the behaviour for duplicate ExecutionStarted.
+	err := AddEvent(s, taskCompletedEvent(1))
+	require.ErrorIs(t, err, ErrDuplicateEvent)
+	assert.NotNil(t, s.Stalled, "Stalled must be preserved across a duplicate-completion error")
+	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_STALLED, RuntimeStatus(s))
+}
+
+func TestAddEvent_NewOrchestrationRuntimeStateDropsHistoryDuplicates(t *testing.T) {
+	t.Parallel()
+
+	// If existing history somehow contains duplicates (e.g. written by a
+	// previous version that didn't dedup), NewOrchestrationRuntimeState must not
+	// surface them: it ignores AddEvent errors and the duplicate is simply
+	// not re-added to OldEvents. Without this property, upgrading would
+	// regress workflows that already accumulated duplicate history.
+	history := []*protos.HistoryEvent{
+		startedEvent(),
+		taskCompletedEvent(1),
+		taskCompletedEvent(1), // duplicate that NewOrchestrationRuntimeState should silently drop
+		taskCompletedEvent(2),
+	}
+	s := NewOrchestrationRuntimeState("test-instance", nil, history)
+
+	assert.Len(t, s.OldEvents, 3, "duplicate must not be re-added to OldEvents")
+	assert.True(t, dedup.IsPresent(s.OldEvents, dedup.KindTask, 1))
+	assert.True(t, dedup.IsPresent(s.OldEvents, dedup.KindTask, 2))
 }
