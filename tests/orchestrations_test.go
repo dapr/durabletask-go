@@ -583,6 +583,170 @@ func Test_SingleChildWorkflow_Failed_Retries_AutoInstanceID(t *testing.T) {
 	)
 }
 
+// Test_DetachedWorkflow_HappyPath verifies that a workflow can spawn a
+// fully decoupled child via ScheduleNewWorkflow, the parent completes
+// independently of the spawned instance, and the spawned instance runs
+// to completion under the requested instance ID.
+func Test_DetachedWorkflow_HappyPath(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Caller", func(ctx *task.WorkflowContext) (any, error) {
+		spawnedID, err := ctx.ScheduleNewWorkflow("Spawned",
+			task.WithDetachedWorkflowInstanceID(string(ctx.ID)+"_spawned"),
+			task.WithDetachedWorkflowInput("payload"),
+		)
+		if err != nil {
+			return nil, err
+		}
+		return string(spawnedID), nil
+	})
+	r.AddWorkflowN("Spawned", func(ctx *task.WorkflowContext) (any, error) {
+		var input string
+		if err := ctx.GetInput(&input); err != nil {
+			return "", err
+		}
+		return "spawned-saw:" + input, nil
+	})
+
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewWorkflow(ctx, "Caller")
+	require.NoError(t, err)
+	parentMeta, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, parentMeta.RuntimeStatus)
+
+	spawnedID := api.InstanceID(string(id) + "_spawned")
+	spawnedMeta, err := client.WaitForWorkflowCompletion(ctx, spawnedID)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, spawnedMeta.RuntimeStatus)
+	require.Contains(t, spawnedMeta.Output.GetValue(), "spawned-saw:")
+}
+
+// Test_DetachedWorkflow_DefaultInstanceID verifies that omitting
+// WithDetachedWorkflowInstanceID yields a deterministic default ID of
+// the form "<callerInstanceID>-<n>" and that the spawned instance is
+// reachable under that ID.
+func Test_DetachedWorkflow_DefaultInstanceID(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Caller", func(ctx *task.WorkflowContext) (any, error) {
+		// First default-ID spawn → "<caller>/0".
+		spawnedID, err := ctx.ScheduleNewWorkflow("Spawned")
+		if err != nil {
+			return nil, err
+		}
+		return string(spawnedID), nil
+	})
+	r.AddWorkflowN("Spawned", func(ctx *task.WorkflowContext) (any, error) {
+		return "ok", nil
+	})
+
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewWorkflow(ctx, "Caller")
+	require.NoError(t, err)
+	parentMeta, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, parentMeta.RuntimeStatus)
+
+	expectedSpawnedID := api.InstanceID(string(id) + "-0")
+	require.Contains(t, parentMeta.Output.GetValue(), string(expectedSpawnedID))
+	spawnedMeta, err := client.WaitForWorkflowCompletion(ctx, expectedSpawnedID)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, spawnedMeta.RuntimeStatus)
+}
+
+// Test_DetachedWorkflow_NoCompletionFlowsBack verifies that when a
+// detached child fails, the parent is NOT failed and the parent's
+// terminal state does not depend on the child's outcome.
+func Test_DetachedWorkflow_NoCompletionFlowsBack(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Caller", func(ctx *task.WorkflowContext) (any, error) {
+		_, err := ctx.ScheduleNewWorkflow("FailingSpawned",
+			task.WithDetachedWorkflowInstanceID(string(ctx.ID)+"_spawned"),
+		)
+		if err != nil {
+			return nil, err
+		}
+		// Caller completes immediately. If completion or failure of the
+		// detached child were routed back, the parent's terminal state
+		// would reflect that — it must not.
+		return "caller-done", nil
+	})
+	r.AddWorkflowN("FailingSpawned", func(ctx *task.WorkflowContext) (any, error) {
+		return nil, errors.New("spawned failure should NOT propagate")
+	})
+
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewWorkflow(ctx, "Caller")
+	require.NoError(t, err)
+
+	parentMeta, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, parentMeta.RuntimeStatus,
+		"parent must complete independently of the detached child's outcome")
+	require.Nil(t, parentMeta.FailureDetails,
+		"detached child's failure must not surface as parent failure")
+
+	spawnedID := api.InstanceID(string(id) + "_spawned")
+	spawnedMeta, err := client.WaitForWorkflowCompletion(ctx, spawnedID)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, spawnedMeta.RuntimeStatus)
+}
+
+// Test_DetachedWorkflow_ReplayDeterminism forces the parent through a
+// replay (suspend → resume) and verifies the spawned instance is created
+// exactly once with a stable ID, even though the orchestrator function
+// re-executes from the start of history each replay.
+func Test_DetachedWorkflow_ReplayDeterminism(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Caller", func(ctx *task.WorkflowContext) (any, error) {
+		spawnedID, err := ctx.ScheduleNewWorkflow("Spawned",
+			task.WithDetachedWorkflowInstanceID(string(ctx.ID)+"_spawned"),
+		)
+		if err != nil {
+			return nil, err
+		}
+		// Wait for an external event so the workflow yields and forces a
+		// replay when it resumes.
+		if err := ctx.WaitForSingleEvent("Continue", 30*time.Second).Await(nil); err != nil {
+			return nil, err
+		}
+		return string(spawnedID), nil
+	})
+	r.AddWorkflowN("Spawned", func(ctx *task.WorkflowContext) (any, error) {
+		return "ok", nil
+	})
+
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewWorkflow(ctx, "Caller")
+	require.NoError(t, err)
+
+	// Wait for the spawned workflow to complete to confirm it was created
+	// before we send the resume signal.
+	spawnedID := api.InstanceID(string(id) + "_spawned")
+	_, err = client.WaitForWorkflowCompletion(ctx, spawnedID)
+	require.NoError(t, err)
+
+	// Resume the parent. After replay, ScheduleNewWorkflow should match
+	// the existing DetachedWorkflowInstanceCreated event in history and
+	// NOT spawn a second instance.
+	require.NoError(t, client.RaiseEvent(ctx, id, "Continue"))
+
+	parentMeta, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, parentMeta.RuntimeStatus)
+}
+
 func Test_ContinueAsNew(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()

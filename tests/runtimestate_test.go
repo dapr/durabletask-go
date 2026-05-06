@@ -934,6 +934,366 @@ func Test_CreateChildWorkflow(t *testing.T) {
 	}
 }
 
+func Test_CreateDetachedWorkflow(t *testing.T) {
+	const callerID = "caller"
+	const expectedTaskID = int32(7)
+	const expectedInstanceID = "spawned"
+	const expectedName = "MyDetachedWorkflow"
+	const expectedExecID = "exec-fixed"
+	const expectedTraceParent = "trace-detached"
+	const expectedTraceState = "trace_state_detached"
+
+	expectedInput := wrapperspb.String(`{"hello":"world"}`)
+	expectedTags := map[string]string{"team": "growth"}
+	expectedStart := timestamppb.New(time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC))
+
+	state := runtimestate.NewWorkflowRuntimeState(callerID, nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Caller",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  callerID,
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	actions := []*protos.WorkflowAction{
+		{
+			Id: expectedTaskID,
+			WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
+				CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
+					InstanceId:              expectedInstanceID,
+					Name:                    expectedName,
+					Input:                   expectedInput,
+					Tags:                    expectedTags,
+					ScheduledStartTimestamp: expectedStart,
+					ExecutionId:             wrapperspb.String(expectedExecID),
+				},
+			},
+		},
+	}
+
+	tc := &protos.TraceContext{
+		TraceParent: expectedTraceParent,
+		TraceState:  wrapperspb.String(expectedTraceState),
+	}
+	applier := runtimestate.NewApplier("caller-app", "")
+	result, err := applier.Actions(state, nil, actions, tc, nil)
+	require.NoError(t, err)
+	assert.False(t, result.ContinuedAsNew)
+
+	// Caller history records exactly one DetachedWorkflowInstanceCreated event
+	// — and crucially no ChildWorkflowInstanceCreated, so recursive purge /
+	// terminate cannot accidentally chase the spawned instance.
+	require.Len(t, state.NewEvents, 1)
+	created := state.NewEvents[0].GetDetachedWorkflowInstanceCreated()
+	require.NotNil(t, created)
+	assert.Equal(t, expectedTaskID, state.NewEvents[0].EventId)
+	assert.Equal(t, expectedInstanceID, created.InstanceId)
+	assert.Nil(t, state.NewEvents[0].GetChildWorkflowInstanceCreated())
+
+	// The spawned instance is delivered as a pending message carrying an
+	// ExecutionStartedEvent with no ParentInstanceInfo (this is the
+	// load-bearing distinction from CallChildWorkflow).
+	require.Len(t, state.PendingMessages, 1)
+	msg := state.PendingMessages[0]
+	assert.Equal(t, expectedInstanceID, msg.TargetInstanceId)
+	startEvent := msg.HistoryEvent.GetExecutionStarted()
+	require.NotNil(t, startEvent)
+	assert.Equal(t, expectedName, startEvent.Name)
+	assert.Equal(t, expectedInput.GetValue(), startEvent.Input.GetValue())
+	assert.Equal(t, expectedInstanceID, startEvent.WorkflowInstance.InstanceId)
+	assert.Equal(t, expectedExecID, startEvent.WorkflowInstance.ExecutionId.GetValue())
+	assert.Equal(t, expectedTags, startEvent.Tags)
+	assert.Equal(t, expectedStart.AsTime(), startEvent.ScheduledStartTimestamp.AsTime())
+	assert.Nil(t, startEvent.ParentInstance, "detached workflow must have no parent linkage")
+	require.NotNil(t, startEvent.ParentTraceContext)
+	assert.Equal(t, expectedTraceParent, startEvent.ParentTraceContext.TraceParent)
+	assert.Equal(t, expectedTraceState, startEvent.ParentTraceContext.TraceState.GetValue())
+}
+
+func Test_CreateDetachedWorkflow_MintsExecutionIDWhenAbsent(t *testing.T) {
+	state := runtimestate.NewWorkflowRuntimeState("caller", nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Caller",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  "caller",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	actions := []*protos.WorkflowAction{
+		{
+			Id: 1,
+			WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
+				CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
+					InstanceId: "spawned-no-exec",
+					Name:       "Spawned",
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("caller-app", "")
+	_, err := applier.Actions(state, nil, actions, nil, nil)
+	require.NoError(t, err)
+
+	require.Len(t, state.PendingMessages, 1)
+	startEvent := state.PendingMessages[0].HistoryEvent.GetExecutionStarted()
+	require.NotNil(t, startEvent)
+	assert.NotEmpty(t, startEvent.WorkflowInstance.ExecutionId.GetValue(),
+		"applier must mint an execution ID when the action does not supply one")
+}
+
+func Test_CreateDetachedWorkflow_RouterPropagated(t *testing.T) {
+	state := runtimestate.NewWorkflowRuntimeState("caller", nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Caller",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  "caller",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	targetAppID := "target-app"
+	actions := []*protos.WorkflowAction{
+		{
+			Id:     2,
+			Router: &protos.TaskRouter{TargetAppID: &targetAppID},
+			WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
+				CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
+					InstanceId: "spawned-cross-app",
+					Name:       "Spawned",
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("caller-app", "")
+	_, err := applier.Actions(state, nil, actions, nil, nil)
+	require.NoError(t, err)
+
+	require.Len(t, state.PendingMessages, 1)
+	router := state.PendingMessages[0].HistoryEvent.GetRouter()
+	require.NotNil(t, router)
+	assert.Equal(t, targetAppID, router.GetTargetAppID())
+	assert.Empty(t, router.GetSourceAppID(),
+		"detached workflows must not carry a SourceAppID back-reference to the caller")
+	assert.Empty(t, router.GetTargetAppNamespace(),
+		"no namespace was requested, so it should not be set")
+
+	// The caller's history event still records the full action.Router as
+	// audit trail (caller's own record of where it scheduled the workflow).
+	require.Len(t, state.NewEvents, 1)
+	historyRouter := state.NewEvents[0].GetRouter()
+	require.NotNil(t, historyRouter)
+	assert.Equal(t, targetAppID, historyRouter.GetTargetAppID())
+	assert.Equal(t, "caller-app", historyRouter.GetSourceAppID(),
+		"caller's audit-trail event records the SourceAppID as expected")
+}
+
+// Test_CreateDetachedWorkflow_DispatcherCorrelationInvariant locks in
+// the contract dispatchers (e.g. dapr) rely on to correlate a transient
+// send failure back to the matching DetachedWorkflowInstanceCreatedEvent
+// in NewEvents — so the event can be filtered out before partial-save
+// and the action retried on the next reminder fire.
+//
+// Detached spawns drop ParentInstanceInfo and the dispatched StartEvent
+// has EventId = -1, so neither of the existing correlation handles
+// (TaskScheduled.EventId == action.Id, ParentInstance.TaskScheduledId)
+// is available. The structural invariant the dispatcher must rely on:
+//
+//	For each PendingMessage emitted by a CreateDetachedWorkflowAction,
+//	there is exactly one DetachedWorkflowInstanceCreatedEvent in the
+//	same NewEvents batch whose InstanceId equals the message's
+//	TargetInstanceId, and that event's EventId equals the originating
+//	action.Id.
+//
+// Multiple detached spawns in the same batch each get a unique
+// InstanceId (auto-generated IDs use a per-execution counter; explicit
+// IDs are the workflow author's responsibility), so the mapping is 1:1.
+func Test_CreateDetachedWorkflow_DispatcherCorrelationInvariant(t *testing.T) {
+	state := runtimestate.NewWorkflowRuntimeState("caller", nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Caller",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  "caller",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	// Three detached spawns in a single applier batch, with distinct
+	// instance IDs and non-contiguous action IDs (mimics a real batch
+	// that interleaves other actions).
+	actions := []*protos.WorkflowAction{
+		{
+			Id: 2,
+			WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
+				CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
+					InstanceId: "spawned-a",
+					Name:       "A",
+				},
+			},
+		},
+		{
+			Id: 5,
+			WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
+				CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
+					InstanceId: "spawned-b",
+					Name:       "B",
+				},
+			},
+		},
+		{
+			Id: 9,
+			WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
+				CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
+					InstanceId: "spawned-c",
+					Name:       "C",
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("caller-app", "")
+	_, err := applier.Actions(state, nil, actions, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, state.NewEvents, 3)
+	require.Len(t, state.PendingMessages, 3)
+
+	// Build the same correlation map a dispatcher would, then assert
+	// every PendingMessage resolves to exactly one matching event whose
+	// EventId equals the originating action.Id.
+	createdByInstanceID := make(map[string]int32, len(state.NewEvents))
+	for _, e := range state.NewEvents {
+		dw := e.GetDetachedWorkflowInstanceCreated()
+		require.NotNil(t, dw, "every NewEvent in this batch must be a DetachedWorkflowInstanceCreatedEvent")
+		_, dup := createdByInstanceID[dw.InstanceId]
+		require.False(t, dup, "InstanceId %q appears twice — invariant requires uniqueness within a batch", dw.InstanceId)
+		createdByInstanceID[dw.InstanceId] = e.EventId
+	}
+
+	expected := map[string]int32{
+		"spawned-a": 2,
+		"spawned-b": 5,
+		"spawned-c": 9,
+	}
+	for _, msg := range state.PendingMessages {
+		require.NotEmpty(t, msg.TargetInstanceId)
+		eventID, ok := createdByInstanceID[msg.TargetInstanceId]
+		require.True(t, ok,
+			"PendingMessage with TargetInstanceId %q has no matching DetachedWorkflowInstanceCreatedEvent in NewEvents — dispatchers cannot correlate this message",
+			msg.TargetInstanceId)
+		assert.Equal(t, expected[msg.TargetInstanceId], eventID,
+			"event id for %q must equal the originating action.Id", msg.TargetInstanceId)
+	}
+}
+
+func Test_CreateDetachedWorkflow_LocalSpawn_NoRouter(t *testing.T) {
+	state := runtimestate.NewWorkflowRuntimeState("caller", nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Caller",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  "caller",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	// No Router on the action — purely in-app spawn.
+	actions := []*protos.WorkflowAction{
+		{
+			Id: 4,
+			WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
+				CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
+					InstanceId: "spawned-local",
+					Name:       "Spawned",
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("caller-app", "")
+	_, err := applier.Actions(state, nil, actions, nil, nil)
+	require.NoError(t, err)
+
+	require.Len(t, state.PendingMessages, 1)
+	assert.Nil(t, state.PendingMessages[0].HistoryEvent.GetRouter(),
+		"local spawn must produce no router on the spawned StartEvent")
+}
+
+func Test_CreateDetachedWorkflow_MissingInstanceID_Errors(t *testing.T) {
+	state := runtimestate.NewWorkflowRuntimeState("caller", nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Caller",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  "caller",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	actions := []*protos.WorkflowAction{
+		{
+			Id: 3,
+			WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
+				CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
+					Name: "Spawned",
+					// InstanceId intentionally empty — the orchestrator
+					// context layer rejects this earlier, but the applier
+					// also defends against malformed inputs.
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("caller-app", "")
+	_, err := applier.Actions(state, nil, actions, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "instance ID")
+	assert.Empty(t, state.NewEvents)
+	assert.Empty(t, state.PendingMessages)
+}
+
 func Test_SendEvent(t *testing.T) {
 	expectedInstanceID := "xyz"
 	expectedEventName := "MyEvent"
