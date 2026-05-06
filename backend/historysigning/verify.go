@@ -138,16 +138,22 @@ type VerifyChainOptions struct {
 // ranges, and certificate chain-of-trust against trust anchors.
 // The allRawEvents slice must contain the raw marshaled bytes as stored in the
 // state store.
-func VerifyChain(opts VerifyChainOptions) error {
+//
+// On success, the returned set contains the indices into opts.Certs that
+// were referenced by at least one successfully verified signature. Callers
+// that need to surface verified certs (e.g. propagation chunk verification
+// absorbing foreign certs) can use this directly instead of re-parsing
+// signatures.
+func VerifyChain(opts VerifyChainOptions) (map[uint64]struct{}, error) {
 	if len(opts.RawSignatures) == 0 {
 		if len(opts.AllRawEvents) == 0 {
-			return nil
+			return nil, nil
 		}
-		return fmt.Errorf("no signatures but %d events exist", len(opts.AllRawEvents))
+		return nil, fmt.Errorf("no signatures but %d events exist", len(opts.AllRawEvents))
 	}
 
 	if opts.Signer == nil {
-		return errors.New("signer is required")
+		return nil, errors.New("signer is required")
 	}
 
 	// Parse all signatures from raw bytes up front.
@@ -155,7 +161,7 @@ func VerifyChain(opts VerifyChainOptions) error {
 	for i, raw := range opts.RawSignatures {
 		var sig protos.HistorySignature
 		if err := proto.Unmarshal(raw, &sig); err != nil {
-			return fmt.Errorf("failed to unmarshal signature %d: %w", i, err)
+			return nil, fmt.Errorf("failed to unmarshal signature %d: %w", i, err)
 		}
 		sigs[i] = &sig
 	}
@@ -167,29 +173,30 @@ func VerifyChain(opts VerifyChainOptions) error {
 	// time falls outside the cached window.
 	type verifiedWindow struct{ min, max time.Time }
 	certTrustVerified := make(map[uint64]verifiedWindow)
+	referenced := make(map[uint64]struct{}, len(opts.Certs))
 
 	var expectedStart uint64
 	for i, sig := range sigs {
 		// Verify chain linkage using raw bytes for digest computation.
 		if i == 0 {
 			if sig.GetPreviousSignatureDigest() != nil {
-				return fmt.Errorf("root signature (index 0) must have nil previousSignatureDigest")
+				return nil, fmt.Errorf("root signature (index 0) must have nil previousSignatureDigest")
 			}
 		} else {
 			expectedPrevDigest := SignatureDigest(opts.RawSignatures[i-1])
 			if !bytes.Equal(sig.GetPreviousSignatureDigest(), expectedPrevDigest) {
-				return fmt.Errorf("signature %d: previousSignatureDigest does not match digest of signature %d", i, i-1)
+				return nil, fmt.Errorf("signature %d: previousSignatureDigest does not match digest of signature %d", i, i-1)
 			}
 		}
 
 		// Verify contiguity
 		if sig.GetStartEventIndex() != expectedStart {
-			return fmt.Errorf("signature %d: expected start event index %d, got %d", i, expectedStart, sig.GetStartEventIndex())
+			return nil, fmt.Errorf("signature %d: expected start event index %d, got %d", i, expectedStart, sig.GetStartEventIndex())
 		}
 
 		eventTime, err := verifySignature(opts.Signer, sig, opts.Certs, opts.AllRawEvents)
 		if err != nil {
-			return fmt.Errorf("signature %d: %w", i, err)
+			return nil, fmt.Errorf("signature %d: %w", i, err)
 		}
 
 		expectedStart = sig.GetStartEventIndex() + sig.GetEventCount()
@@ -198,10 +205,11 @@ func VerifyChain(opts VerifyChainOptions) error {
 		// time. Skip if the event time falls within the already-verified
 		// [min, max] window for this cert.
 		certIdx := sig.GetCertificateIndex()
+		referenced[certIdx] = struct{}{}
 		w, ok := certTrustVerified[certIdx]
 		if !ok || eventTime.Before(w.min) || eventTime.After(w.max) {
 			if err := opts.Signer.VerifyCertChainOfTrust(opts.Certs[certIdx].GetCertificate(), eventTime); err != nil {
-				return fmt.Errorf("signature %d: chain-of-trust verification failed for certificate index %d: %w", i, certIdx, err)
+				return nil, fmt.Errorf("signature %d: chain-of-trust verification failed for certificate index %d: %w", i, certIdx, err)
 			}
 			if !ok {
 				certTrustVerified[certIdx] = verifiedWindow{min: eventTime, max: eventTime}
@@ -219,10 +227,10 @@ func VerifyChain(opts VerifyChainOptions) error {
 
 	// Verify full coverage
 	if expectedStart != uint64(len(opts.AllRawEvents)) {
-		return fmt.Errorf("signatures cover events [0, %d) but %d events exist", expectedStart, len(opts.AllRawEvents))
+		return nil, fmt.Errorf("signatures cover events [0, %d) but %d events exist", expectedStart, len(opts.AllRawEvents))
 	}
 
-	return nil
+	return referenced, nil
 }
 
 // parseCertificateChainDER parses the leaf (first) certificate from a

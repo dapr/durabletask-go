@@ -204,7 +204,22 @@ func TestVerifyPropagatedHistory_EmptyChunkWithSigs(t *testing.T) {
 
 	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s, ExpectedNamespace: "default"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "empty rawEvents but")
+	assert.Contains(t, err.Error(), "empty rawEvents")
+}
+
+// TestVerifyPropagatedHistory_EmptyChunkRejected verifies that any chunk
+// with empty rawEvents is rejected, even when no signing material is
+// attached. Producers never emit empty chunks, so an empty chunk on the
+// wire is necessarily injected; accepting it would let an unauthenticated
+// caller list arbitrary AppIds in lineage with nothing actually signed.
+func TestVerifyPropagatedHistory_EmptyChunkRejected(t *testing.T) {
+	certDER, priv := generateEd25519Cert(t)
+	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
+
+	ph := makePropagatedHistory("app-a", "wf-1", nil, nil, nil)
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s, ExpectedNamespace: "default"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty rawEvents")
 }
 
 func TestVerifyPropagatedHistory_UnreferencedCertOmittedFromResult(t *testing.T) {

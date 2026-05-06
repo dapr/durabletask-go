@@ -284,7 +284,7 @@ func TestSignChainAndVerify(t *testing.T) {
 
 	// Verify chain
 	rawSigs := [][]byte{result1.RawSignature, result2.RawSignature}
-	err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
+	_, err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
 	require.NoError(t, err)
 }
 
@@ -326,7 +326,7 @@ func TestCertificateRotation(t *testing.T) {
 
 	// Verify chain — use tc2 which has both CAs in its trust bundle.
 	rawSigs := [][]byte{result1.RawSignature, result2.RawSignature}
-	err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc2})
+	_, err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc2})
 	require.NoError(t, err)
 }
 
@@ -383,7 +383,7 @@ func TestTruncatedChainDetection(t *testing.T) {
 	// Try to verify chain with first signature removed — fails because
 	// the second signature has a non-nil previousSignatureDigest at index 0.
 	rawSigs := [][]byte{result2.RawSignature}
-	err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
+	_, err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "root signature")
 }
@@ -710,7 +710,7 @@ func TestSignChainVerifyWithCertChain(t *testing.T) {
 	assert.Equal(t, uint64(0), result2.CertificateIndex)
 
 	rawSigs := [][]byte{result1.RawSignature, result2.RawSignature}
-	err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
+	_, err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
 	require.NoError(t, err)
 }
 
@@ -754,7 +754,7 @@ func TestCertificateRotationWithChains(t *testing.T) {
 	certs = append(certs, result2.NewCert)
 
 	rawSigs := [][]byte{result1.RawSignature, result2.RawSignature}
-	err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc2})
+	_, err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc2})
 	require.NoError(t, err)
 }
 
@@ -855,7 +855,7 @@ func TestVerifyChainContiguityGap(t *testing.T) {
 	require.NoError(t, err)
 
 	rawSigs := [][]byte{result1.RawSignature, result2.RawSignature}
-	err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
+	_, err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "expected start event index")
 }
@@ -876,18 +876,18 @@ func TestVerifyChainCoverageShort(t *testing.T) {
 
 	certs := []*protos.SigningCertificate{result.NewCert}
 	rawSigs := [][]byte{result.RawSignature}
-	err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
+	_, err = VerifyChain(VerifyChainOptions{RawSignatures: rawSigs, Certs: certs, AllRawEvents: raw, Signer: tc})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "signatures cover events")
 }
 
 func TestVerifyChainEmptyNoEvents(t *testing.T) {
-	err := VerifyChain(VerifyChainOptions{})
+	_, err := VerifyChain(VerifyChainOptions{})
 	require.NoError(t, err)
 }
 
 func TestVerifyChainEmptyWithEvents(t *testing.T) {
-	err := VerifyChain(VerifyChainOptions{AllRawEvents: [][]byte{{1}}})
+	_, err := VerifyChain(VerifyChainOptions{AllRawEvents: [][]byte{{1}}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no signatures but")
 }
@@ -912,7 +912,7 @@ func TestVerifyChainWithTrustAnchors(t *testing.T) {
 	rawSigs := [][]byte{result.RawSignature}
 
 	// Verify with the correct CA as trust anchor — should pass.
-	err = VerifyChain(VerifyChainOptions{
+	_, err = VerifyChain(VerifyChainOptions{
 		RawSignatures: rawSigs,
 		Certs:        certs,
 		AllRawEvents: raw,
@@ -946,7 +946,7 @@ func TestVerifyChainWithWrongTrustAnchor(t *testing.T) {
 
 	// Verify with the wrong CA — should fail.
 	tcVerify := newTestSigner(t, chainDER, leafPriv, wrongCA)
-	err = VerifyChain(VerifyChainOptions{
+	_, err = VerifyChain(VerifyChainOptions{
 		RawSignatures: rawSigs,
 		Certs:        certs,
 		AllRawEvents: raw,
@@ -1024,7 +1024,7 @@ func TestVerifyChainWithIntermediateAndTrustAnchor(t *testing.T) {
 	rawSigs := [][]byte{result.RawSignature}
 
 	// Verify with root as trust anchor — should pass via intermediate chain.
-	err = VerifyChain(VerifyChainOptions{
+	_, err = VerifyChain(VerifyChainOptions{
 		RawSignatures: rawSigs,
 		Certs:        certs,
 		AllRawEvents: raw,
@@ -1130,7 +1130,7 @@ func TestVerifyChainCertTrustCacheWindow(t *testing.T) {
 	}
 
 	// Full chain verification should succeed.
-	err := VerifyChain(VerifyChainOptions{
+	_, err := VerifyChain(VerifyChainOptions{
 		RawSignatures: rawSigs,
 		Certs:        certs,
 		AllRawEvents: raw,
@@ -1188,7 +1188,7 @@ func TestVerifyChainCertTrustCacheWindowExpiredBefore(t *testing.T) {
 	rawSigs := [][]byte{result1.RawSignature, result2.RawSignature}
 
 	// Should fail — the second event's timestamp is before the cert's NotBefore.
-	err = VerifyChain(VerifyChainOptions{
+	_, err = VerifyChain(VerifyChainOptions{
 		RawSignatures: rawSigs,
 		Certs:        certs,
 		AllRawEvents: raw,

@@ -19,7 +19,6 @@ import (
 	"strings"
 
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/kit/crypto/spiffe/signer"
@@ -120,14 +119,15 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 			return nil, fmt.Errorf("chunk %d: appId is empty", i)
 		}
 
-		// An empty chunk (no rawEvents) must also have no signatures or
-		// certs. The producer signed nothing, so receivers should reject
-		// any attached signing material as a mismatch.
+		// Producers never emit a chunk with empty rawEvents
+		// (AssembleProtoPropagatedHistory only appends a chunk when its
+		// app has events to claim). A chunk that arrives empty therefore
+		// has no signed content at all - whether or not signing material
+		// is attached, accepting it would let an unauthenticated injector
+		// list arbitrary appIds in lineage with nothing actually signed.
+		// Reject.
 		if len(chunk.GetRawEvents()) == 0 {
-			if len(chunk.GetRawSignatures()) > 0 || len(chunk.GetSigningCertChains()) > 0 {
-				return nil, fmt.Errorf("chunk %d (app %q): empty rawEvents but %d signatures, %d cert chains attached", i, chunk.GetAppId(), len(chunk.GetRawSignatures()), len(chunk.GetSigningCertChains()))
-			}
-			continue
+			return nil, fmt.Errorf("chunk %d (app %q): empty rawEvents", i, chunk.GetAppId())
 		}
 
 		if len(chunk.GetRawSignatures()) == 0 {
@@ -164,30 +164,20 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 		// not produce the same deterministic output as the producer's,
 		// and the whole point of carrying rawEvents per chunk is to
 		// make verification independent of marshaler stability.
-		if err := VerifyChain(VerifyChainOptions{
+		referenced, err := VerifyChain(VerifyChainOptions{
 			RawSignatures: chunk.GetRawSignatures(),
 			Certs:         certs,
 			AllRawEvents:  chunk.GetRawEvents(),
 			Signer:        opts.Signer,
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, fmt.Errorf("chunk %d (app %q): %w", i, chunk.GetAppId(), err)
 		}
 
-		// Collect cert indices actually referenced by verified
-		// signatures - VerifyChain only chain-of-trusts the certs that
-		// signatures pointed at; an unreferenced cert chain in
-		// chunk.signingCertChains never had its chain-of-trust checked
-		// and must not be reported as verified.
-		referenced := make(map[uint64]struct{}, len(chunk.GetRawSignatures()))
-		for _, raw := range chunk.GetRawSignatures() {
-			var sig protos.HistorySignature
-			if err := proto.Unmarshal(raw, &sig); err != nil {
-				// VerifyChain already parsed and validated these; a
-				// failure here is a logic error, not user input.
-				return nil, fmt.Errorf("chunk %d (app %q): failed to re-parse signature for cert tracking: %w", i, chunk.GetAppId(), err)
-			}
-			referenced[sig.GetCertificateIndex()] = struct{}{}
-		}
+		// Only report certs that were referenced by at least one verified
+		// signature. An unreferenced cert chain in chunk.signingCertChains
+		// never had its chain-of-trust checked, so it must not be surfaced
+		// as verified to the caller.
 		for idx := range referenced {
 			if idx >= uint64(len(chunk.GetSigningCertChains())) {
 				// Should be unreachable: VerifyChain rejects
