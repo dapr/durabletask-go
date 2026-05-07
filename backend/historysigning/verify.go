@@ -32,15 +32,18 @@ import (
 // raw bytes as stored in the state store for every history event, in order.
 // Never re-marshal events from Go structs for verification, as protobuf
 // deterministic marshaling is not stable across binary versions.
-func VerifySignature(s *signer.Signer, sig *protos.HistorySignature, certs []*protos.SigningCertificate, allRawEvents [][]byte) error {
-	_, err := verifySignature(s, sig, certs, allRawEvents)
+//
+// Pass nil for ctx when verifying own-history signatures. Propagation
+// chunks must pass the same *PropagationContext the signer used.
+func VerifySignature(s *signer.Signer, sig *protos.HistorySignature, certs []*protos.SigningCertificate, allRawEvents [][]byte, ctx *PropagationContext) error {
+	_, err := verifySignature(s, sig, certs, allRawEvents, ctx)
 	return err
 }
 
 // verifySignature is the internal implementation that also returns the event
 // time of the last event in the signed range, for use in chain-of-trust
 // verification.
-func verifySignature(s *signer.Signer, sig *protos.HistorySignature, certs []*protos.SigningCertificate, allRawEvents [][]byte) (time.Time, error) {
+func verifySignature(s *signer.Signer, sig *protos.HistorySignature, certs []*protos.SigningCertificate, allRawEvents [][]byte, ctx *PropagationContext) (time.Time, error) {
 	var zero time.Time
 
 	if s == nil {
@@ -107,7 +110,7 @@ func verifySignature(s *signer.Signer, sig *protos.HistorySignature, certs []*pr
 	}
 
 	// Verify the cryptographic signature
-	sigInput := SignatureInput(sig.GetPreviousSignatureDigest(), sig.GetEventsDigest())
+	sigInput := SignatureInput(sig.GetPreviousSignatureDigest(), sig.GetEventsDigest(), ctx)
 
 	if err := s.VerifySignature(sigInput, sig.GetSignature(), certDER); err != nil {
 		return zero, fmt.Errorf("signature verification failed: %w", err)
@@ -120,7 +123,7 @@ func verifySignature(s *signer.Signer, sig *protos.HistorySignature, certs []*pr
 type VerifyChainOptions struct {
 	// RawSignatures is the raw serialized bytes of each HistorySignature,
 	// as stored in the state store or from SignResult.RawSignature. These
-	// are the single source of truth — they are both parsed into
+	// are the single source of truth - they are both parsed into
 	// HistorySignature structs and used for digest computation in chain
 	// linking.
 	RawSignatures [][]byte
@@ -131,6 +134,10 @@ type VerifyChainOptions struct {
 	// Signer provides cryptographic verification and certificate chain-of-trust
 	// checking.
 	Signer *signer.Signer
+	// PropagationContext is the optional binding fed into SignatureInput
+	// at sign time (see SignOptions.PropagationContext). Nil for
+	// own-history chains, non-nil for propagation chunks.
+	PropagationContext *PropagationContext
 }
 
 // VerifyChain walks the full signature chain and verifies each signature,
@@ -194,7 +201,7 @@ func VerifyChain(opts VerifyChainOptions) (map[uint64]struct{}, error) {
 			return nil, fmt.Errorf("signature %d: expected start event index %d, got %d", i, expectedStart, sig.GetStartEventIndex())
 		}
 
-		eventTime, err := verifySignature(opts.Signer, sig, opts.Certs, opts.AllRawEvents)
+		eventTime, err := verifySignature(opts.Signer, sig, opts.Certs, opts.AllRawEvents, opts.PropagationContext)
 		if err != nil {
 			return nil, fmt.Errorf("signature %d: %w", i, err)
 		}

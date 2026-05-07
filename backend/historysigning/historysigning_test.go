@@ -212,7 +212,7 @@ func TestSignAndVerifyEd25519(t *testing.T) {
 
 	// Verify
 	certs := []*protos.SigningCertificate{result.NewCert}
-	err = VerifySignature(tc, result.Signature, certs, raw)
+	err = VerifySignature(tc, result.Signature, certs, raw, nil)
 	require.NoError(t, err)
 }
 
@@ -231,7 +231,7 @@ func TestSignAndVerifyECDSA(t *testing.T) {
 	require.NoError(t, err)
 
 	certs := []*protos.SigningCertificate{result.NewCert}
-	err = VerifySignature(tc, result.Signature, certs, raw)
+	err = VerifySignature(tc, result.Signature, certs, raw, nil)
 	require.NoError(t, err)
 }
 
@@ -250,7 +250,7 @@ func TestSignAndVerifyRSA(t *testing.T) {
 	require.NoError(t, err)
 
 	certs := []*protos.SigningCertificate{result.NewCert}
-	err = VerifySignature(tc, result.Signature, certs, raw)
+	err = VerifySignature(tc, result.Signature, certs, raw, nil)
 	require.NoError(t, err)
 }
 
@@ -351,7 +351,7 @@ func TestTamperedHistoryDetection(t *testing.T) {
 	raw[1], err = MarshalEvent(events[1])
 	require.NoError(t, err)
 
-	err = VerifySignature(tc, result.Signature, certs, raw)
+	err = VerifySignature(tc, result.Signature, certs, raw, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "events digest mismatch")
 }
@@ -413,7 +413,7 @@ func TestWrongCertificateIndex(t *testing.T) {
 	// The signature was produced with cert1's key, but we tell the verifier
 	// that the cert at index 0 is cert2.
 	wrongCerts := []*protos.SigningCertificate{{Certificate: certDER2}}
-	err = VerifySignature(tc, result.Signature, wrongCerts, raw)
+	err = VerifySignature(tc, result.Signature, wrongCerts, raw, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "signature verification failed")
 }
@@ -456,7 +456,7 @@ func TestCertificateExpiredAtEventTime(t *testing.T) {
 	require.NoError(t, err)
 
 	certs := []*protos.SigningCertificate{result.NewCert}
-	err = VerifySignature(tc, result.Signature, certs, raw)
+	err = VerifySignature(tc, result.Signature, certs, raw, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "certificate not valid at event time")
 }
@@ -480,7 +480,7 @@ func TestCertificateNotYetValidAtEventTime(t *testing.T) {
 	require.NoError(t, err)
 
 	certs := []*protos.SigningCertificate{result.NewCert}
-	err = VerifySignature(tc, result.Signature, certs, raw)
+	err = VerifySignature(tc, result.Signature, certs, raw, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "certificate not valid at event time")
 }
@@ -504,7 +504,7 @@ func TestCertificateValidAtEventTime(t *testing.T) {
 	require.NoError(t, err)
 
 	certs := []*protos.SigningCertificate{result.NewCert}
-	err = VerifySignature(tc, result.Signature, certs, raw)
+	err = VerifySignature(tc, result.Signature, certs, raw, nil)
 	require.NoError(t, err)
 }
 
@@ -597,7 +597,7 @@ func TestRawBytesRoundTrip(t *testing.T) {
 	}
 
 	certs := []*protos.SigningCertificate{result.NewCert}
-	err = VerifySignature(tc, result.Signature, certs, roundTripped)
+	err = VerifySignature(tc, result.Signature, certs, roundTripped, nil)
 	require.NoError(t, err)
 }
 
@@ -674,7 +674,7 @@ func TestSignAndVerifyWithCertChain(t *testing.T) {
 
 	// Verification should succeed — parseCertificateChainDER extracts the leaf.
 	certs := []*protos.SigningCertificate{result.NewCert}
-	err = VerifySignature(tc, result.Signature, certs, raw)
+	err = VerifySignature(tc, result.Signature, certs, raw, nil)
 	require.NoError(t, err)
 }
 
@@ -826,7 +826,7 @@ func TestSignWithIntermediateCertChain(t *testing.T) {
 
 	// Verify — the leaf's public key should be used for verification.
 	certs := []*protos.SigningCertificate{result.NewCert}
-	err = VerifySignature(tc, result.Signature, certs, raw)
+	err = VerifySignature(tc, result.Signature, certs, raw, nil)
 	require.NoError(t, err)
 }
 
