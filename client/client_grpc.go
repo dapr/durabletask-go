@@ -318,6 +318,7 @@ func makeWorkflowMetadata(resp *protos.GetInstanceResponse) (*backend.WorkflowMe
 		LastUpdatedAt:  resp.WorkflowState.LastUpdatedTimestamp,
 		FailureDetails: resp.WorkflowState.FailureDetails,
 		Version:        resp.WorkflowState.Version,
+		StartedAt:      resp.WorkflowState.ScheduledStartTimestamp,
 	}
 	return metadata, nil
 }
