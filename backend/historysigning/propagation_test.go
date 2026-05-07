@@ -29,15 +29,30 @@ import (
 	"github.com/dapr/kit/crypto/spiffe/signer"
 )
 
-// signChunk marshals events, signs them, and returns the (rawEvents, rawSigs,
-// certChains) triple a producer would attach to a PropagatedHistoryChunk.
+// signChunk marshals events, signs them with the chunk's identity binding,
+// and returns the (rawEvents, rawSigs, certChains) triple a producer would
+// attach to a PropagatedHistoryChunk built by makePropagatedHistory. The
+// binding matches the instanceId / workflowName used in
+// makePropagatedHistory so the resulting chunk verifies cleanly.
 func signChunk(t *testing.T, s *signer.Signer, events []*protos.HistoryEvent) (rawEvents, rawSigs, certs [][]byte) {
+	return signChunkWithBinding(t, s, events, "wf-1", "TestWorkflow")
+}
+
+// signChunkWithBinding is signChunk's variant that lets the caller pin the
+// chunk identity used for the context binding - needed for tests that
+// build chunks under a different instanceId or workflowName than the
+// helper's defaults (e.g. the two-chunk lineage test).
+func signChunkWithBinding(t *testing.T, s *signer.Signer, events []*protos.HistoryEvent, instanceID, workflowName string) (rawEvents, rawSigs, certs [][]byte) {
 	t.Helper()
 	rawEvents = marshalEvents(t, events)
 	res, err := Sign(s, SignOptions{
 		RawEvents:       rawEvents,
 		StartEventIndex: 0,
 		ExistingCerts:   nil,
+		PropagationContext: &PropagationContext{
+			InstanceID:   instanceID,
+			WorkflowName: workflowName,
+		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, res.NewCert)
@@ -163,8 +178,8 @@ func TestVerifyPropagatedHistory_TwoChunksLineage(t *testing.T) {
 	events := testEvents()
 	require.GreaterOrEqual(t, len(events), 3)
 
-	rawA, rawSigsA, certsA := signChunk(t, signerA, events[:2])
-	rawB, rawSigsB, certsB := signChunk(t, signerB, events[2:])
+	rawA, rawSigsA, certsA := signChunkWithBinding(t, signerA, events[:2], "wf-a", "A")
+	rawB, rawSigsB, certsB := signChunkWithBinding(t, signerB, events[2:], "wf-b", "B")
 
 	ph := &protos.PropagatedHistory{
 		Scope: protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
@@ -205,6 +220,33 @@ func TestVerifyPropagatedHistory_EmptyChunkWithSigs(t *testing.T) {
 	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{History: ph, Signer: s, ExpectedNamespace: "default"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty rawEvents")
+}
+
+// TestVerifyPropagatedHistory_RelabeledChunkRejected verifies that the
+// chunk's identity (appId/instanceId/workflowName) is bound into the
+// signature input. A chunk legitimately signed for one instance cannot be
+// lifted and relabeled to a different instance under the same app and
+// still verify.
+func TestVerifyPropagatedHistory_RelabeledChunkRejected(t *testing.T) {
+	certDER, priv := generateEd25519Cert(t) // /ns/default/app-a
+	events := testEvents()
+	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
+
+	// Sign for the legitimate (app-a, wf-1, TestWorkflow) identity.
+	rawEvents, rawSigs, certs := signChunk(t, s, events)
+	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, certs)
+
+	// Tamper: relabel the chunk's instanceId to something else. Cert
+	// SPIFFE check still passes (app component is app-a) but the
+	// signature input no longer matches because the binding shifted.
+	ph.GetChunks()[0].InstanceId = "wf-relabeled"
+
+	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{
+		History:           ph,
+		Signer:            s,
+		ExpectedNamespace: "default",
+	})
+	require.Error(t, err)
 }
 
 // TestVerifyPropagatedHistory_EmptyChunkRejected verifies that any chunk

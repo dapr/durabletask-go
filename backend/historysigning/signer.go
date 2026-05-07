@@ -55,6 +55,13 @@ type SignOptions struct {
 	PreviousSignatureRaw []byte
 	// ExistingCerts is the current certificate table.
 	ExistingCerts []*protos.SigningCertificate
+	// PropagationContext is the optional binding fed into SignatureInput
+	// so metadata that lives outside RawEvents (the chunk's declared
+	// identity) is part of what was signed. Nil for own-history
+	// signatures, populated for propagated-history chunks. Verifiers
+	// must reconstruct an equivalent context and supply it via
+	// VerifyChainOptions.PropagationContext.
+	PropagationContext *PropagationContext
 }
 
 // Sign creates a HistorySignature covering a range of events. The RawEvents
@@ -79,7 +86,7 @@ func Sign(s *signer.Signer, opts SignOptions) (*SignResult, error) {
 	}
 
 	// Compute the signature input
-	sigInput := SignatureInput(prevSigDigest, eventsDigest)
+	sigInput := SignatureInput(prevSigDigest, eventsDigest, opts.PropagationContext)
 
 	// Sign
 	sigBytes, certChainDER, err := s.Sign(sigInput)
