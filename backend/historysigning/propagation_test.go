@@ -223,22 +223,23 @@ func TestVerifyPropagatedHistory_EmptyChunkWithSigs(t *testing.T) {
 }
 
 // TestVerifyPropagatedHistory_RelabeledChunkRejected verifies that the
-// chunk's identity (appId/instanceId/workflowName) is bound into the
-// signature input. A chunk legitimately signed for one instance cannot be
-// lifted and relabeled to a different instance under the same app and
-// still verify.
+// chunk's instance and workflow name are bound into the signature input.
+// A chunk legitimately signed for one (instance, workflow) cannot be
+// lifted and relabeled to a different one under the same app and still
+// verify. AppID is not in the binding because VerifyCertAppIdentity
+// pins it to the cert's SPIFFE app component.
 func TestVerifyPropagatedHistory_RelabeledChunkRejected(t *testing.T) {
 	certDER, priv := generateEd25519Cert(t) // /ns/default/app-a
 	events := testEvents()
 	s := newTestSigner(t, certDER, priv, parseCert(t, certDER))
 
-	// Sign for the legitimate (app-a, wf-1, TestWorkflow) identity.
+	// Sign for the legitimate (wf-1, TestWorkflow) identity.
 	rawEvents, rawSigs, certs := signChunk(t, s, events)
 	ph := makePropagatedHistory("app-a", "wf-1", rawEvents, rawSigs, certs)
 
-	// Tamper: relabel the chunk's instanceId to something else. Cert
-	// SPIFFE check still passes (app component is app-a) but the
-	// signature input no longer matches because the binding shifted.
+	// Tamper: relabel the chunk's instanceId. Cert SPIFFE check still
+	// passes (app component is app-a, namespace is default) but the
+	// signature input shifts, so the cryptographic verification fails.
 	ph.GetChunks()[0].InstanceId = "wf-relabeled"
 
 	_, err := VerifyPropagatedHistory(VerifyPropagationOptions{
@@ -247,6 +248,9 @@ func TestVerifyPropagatedHistory_RelabeledChunkRejected(t *testing.T) {
 		ExpectedNamespace: "default",
 	})
 	require.Error(t, err)
+	// Pin the failure to the signature path so a future unrelated
+	// validation change can't quietly swallow this assertion.
+	assert.Contains(t, err.Error(), "signature verification failed")
 }
 
 // TestVerifyPropagatedHistory_EmptyChunkRejected verifies that any chunk
