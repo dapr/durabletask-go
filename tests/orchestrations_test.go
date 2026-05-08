@@ -631,7 +631,7 @@ func Test_DetachedWorkflow_HappyPath(t *testing.T) {
 func Test_DetachedWorkflow_DefaultInstanceID(t *testing.T) {
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("Caller", func(ctx *task.WorkflowContext) (any, error) {
-		// First default-ID spawn → "<caller>/0".
+		// First default-ID spawn → "<caller>-0".
 		spawnedID, err := ctx.ScheduleNewWorkflow("Spawned")
 		if err != nil {
 			return nil, err
