@@ -1868,7 +1868,6 @@ func Test_StartedAt_AfterExecution(t *testing.T) {
 
 
 func Test_StartedAt_WithScheduleTime(t *testing.T) {
-	t.Skip("fails due to prexisting bug: backends ignore start time")
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("StartedAtAfterExec", func(ctx *task.WorkflowContext) (any, error) {
 		return nil, nil
@@ -1893,6 +1892,7 @@ func Test_StartedAt_WithScheduleTime(t *testing.T) {
 	// StartedAt is the engine-injected WorkflowStartedEvent timestamp at first
 	// pickup. It must fall between the schedule call and the metadata read.
 	assert.False(t, startedAt.Before(startTime), "StartedAt %v should be >= start time %v", startedAt, startTime)
+	assert.False(t, startedAt.Before(metadata.CreatedAt.AsTime()), "StartedAt %v should be >= CreatedAt %v", startedAt, startTime)
 	assert.False(t, startedAt.After(afterCompletion), "StartedAt %v should be <= now %v", startedAt, afterCompletion)
 	// StartedAt must be at or after CreatedAt.
 	assert.False(t, startedAt.Before(metadata.CreatedAt.AsTime()),

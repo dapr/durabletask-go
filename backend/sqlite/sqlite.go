@@ -435,11 +435,19 @@ func (be *sqliteBackend) CreateWorkflowInstance(ctx context.Context, e *backend.
 		return err
 	}
 
+	// Honour ScheduledStartTimestamp by deferring the start event's
+	// visibility. NULL VisibleTime means immediately visible.
+	var visibleTime any
+	if ts := e.GetExecutionStarted().GetScheduledStartTimestamp(); ts != nil {
+		visibleTime = ts.AsTime()
+	}
+
 	_, err = tx.ExecContext(
 		ctx,
-		`INSERT INTO NewEvents ([InstanceID], [EventPayload]) VALUES (?, ?)`,
+		`INSERT INTO NewEvents ([InstanceID], [EventPayload], [VisibleTime]) VALUES (?, ?, ?)`,
 		instanceID,
 		eventPayload,
+		visibleTime,
 	)
 
 	if err != nil {

@@ -561,11 +561,19 @@ func (be *postgresBackend) CreateWorkflowInstance(ctx context.Context, e *backen
 		return err
 	}
 
+	// Honour ScheduledStartTimestamp by deferring the start event's
+	// visibility. NULL VisibleTime means immediately visible.
+	var visibleTime any
+	if ts := e.GetExecutionStarted().GetScheduledStartTimestamp(); ts != nil {
+		visibleTime = ts.AsTime()
+	}
+
 	_, err = tx.Exec(
 		ctx,
-		`INSERT INTO NewEvents (InstanceID, EventPayload) VALUES ($1, $2)`,
+		`INSERT INTO NewEvents (InstanceID, EventPayload, VisibleTime) VALUES ($1, $2, $3)`,
 		instanceID,
 		eventPayload,
+		visibleTime,
 	)
 
 	if err != nil {
