@@ -363,6 +363,57 @@ func Test_GetNonExistingMetadata(t *testing.T) {
 	}
 }
 
+// Test_GetWorkflowMetadata_ParentAppID asserts that ParentInstanceId and
+// ParentAppId on WorkflowMetadata are populated from the ExecutionStarted
+// event after the first work item has moved it into History.
+func Test_GetWorkflowMetadata_ParentAppID(t *testing.T) {
+	const (
+		instanceID  = "child-instance"
+		parentID    = "parent-instance"
+		parentAppID = "parent-app"
+	)
+
+	for i, be := range backends {
+		initTest(t, be, i, true)
+
+		if !createChildWorkflowInstance(t, be, instanceID, parentID, parentAppID) {
+			continue
+		}
+
+		if !processFirstWorkItem(t, be, instanceID) {
+			continue
+		}
+
+		metadata, ok := getWorkflowMetadata(t, be, api.InstanceID(instanceID))
+		if !ok {
+			continue
+		}
+		assert.Equal(t, parentID, metadata.GetParentInstanceId())
+		assert.Equal(t, parentAppID, metadata.GetParentAppId().GetValue())
+	}
+}
+
+
+// Test_GetWorkflowMetadata_NoParent asserts that a top-level workflow
+// produces a metadata with no parent fields set.
+func Test_GetWorkflowMetadata_NoParent(t *testing.T) {
+	for i, be := range backends {
+		initTest(t, be, i, true)
+
+		const instanceID = "top-level-instance"
+		if !createWorkflowInstance(t, be, instanceID) {
+			continue
+		}
+
+		metadata, ok := getWorkflowMetadata(t, be, api.InstanceID(instanceID))
+		if !ok {
+			continue
+		}
+		assert.Empty(t, metadata.GetParentInstanceId())
+		assert.Nil(t, metadata.GetParentAppId())
+	}
+}
+
 func Test_PurgeWorkflowState(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, true)
@@ -496,6 +547,25 @@ func createWorkflowInstance(t assert.TestingT, be backend.Backend, instanceID st
 	return assert.NoError(t, err)
 }
 
+func createChildWorkflowInstance(t assert.TestingT, be backend.Backend, instanceID, parentInstanceID, parentAppID string) bool {
+	e := &protos.HistoryEvent{
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ExecutionStarted{
+			ExecutionStarted: &protos.ExecutionStartedEvent{
+				Name:             defaultName,
+				WorkflowInstance: &protos.WorkflowInstance{InstanceId: instanceID},
+				Input:            wrapperspb.String(defaultInput),
+				ParentInstance: &protos.ParentInstanceInfo{
+					WorkflowInstance: &protos.WorkflowInstance{InstanceId: parentInstanceID},
+					AppID:            &parentAppID,
+				},
+			},
+		},
+	}
+	err := be.CreateWorkflowInstance(ctx, e)
+	return assert.NoError(t, err)
+}
+
 func getWorkflowWorkItem(t assert.TestingT, be backend.Backend, expectedInstanceID string) (*backend.WorkflowWorkItem, bool) {
 	wi, err := be.NextWorkflowWorkItem(ctx)
 	if assert.NoError(t, err) && assert.NotNil(t, wi) {
@@ -523,4 +593,26 @@ func getWorkflowMetadata(t assert.TestingT, be backend.Backend, iid api.Instance
 	}
 
 	return nil, false
+}
+
+// processFirstWorkItem fetches the first work item for the given instance,
+// applies its NewEvents to the runtime state, and completes the work item
+// without producing any additional workflow actions. The persistence side
+// effect is moving the freshly-created events (notably ExecutionStarted)
+// from NewEvents into History, so subsequent metadata/state queries hit
+// the History code path.
+func processFirstWorkItem(t assert.TestingT, be backend.Backend, instanceID string) bool {
+	wi, ok := getWorkflowWorkItem(t, be, instanceID)
+	if !ok {
+		return false
+	}
+	state, ok := getWorkflowRuntimeState(t, be, wi)
+	if !ok {
+		return false
+	}
+	for _, e := range wi.NewEvents {
+		runtimestate.AddEvent(state, e)
+	}
+	wi.State = state
+	return assert.NoError(t, be.CompleteWorkflowWorkItem(ctx, wi))
 }
