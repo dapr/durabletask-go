@@ -414,3 +414,68 @@ func TestAddEvent_NewOrchestrationRuntimeStateDropsHistoryDuplicates(t *testing.
 	assert.True(t, dedup.IsPresent(s.OldEvents, dedup.KindTask, 1))
 	assert.True(t, dedup.IsPresent(s.OldEvents, dedup.KindTask, 2))
 }
+
+func TestGetStartedTime(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors what the engine produces in applyWorkItem: a WorkflowStartedEvent
+	// is appended first (timestamp = first-execution time), then the work
+	// item's own events (the original ExecutionStartedEvent at creation time).
+	firstRun := timestamppb.New(timestamppb.Now().AsTime())
+	creation := timestamppb.New(firstRun.AsTime().Add(-1 * 1e9)) // 1 second earlier
+	history := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: firstRun,
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: creation,
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{Name: "wf"},
+			},
+		},
+	}
+	s := NewWorkflowRuntimeState("abc", nil, history)
+
+	got := GetStartedTime(s)
+	require.False(t, got.IsZero())
+	assert.Equal(t, firstRun.AsTime(), got, "must return first event's timestamp, not the ExecutionStarted's")
+}
+
+func TestGetStartedTime_EmptyState(t *testing.T) {
+	t.Parallel()
+
+	// Workflow created but not yet executed -> no events in either OldEvents
+	// or NewEvents. The dapr orchestrator's `if !t.IsZero()` guard depends on
+	// this returning a zero time so StartedAt stays nil.
+	s := NewWorkflowRuntimeState("abc", nil, nil)
+
+	got := GetStartedTime(s)
+	assert.True(t, got.IsZero(), "empty rstate must return zero time")
+}
+
+func TestGetStartedTime_NewEventsOnly(t *testing.T) {
+	t.Parallel()
+
+	// Mid-processing: events have been added via AddEvent but not yet moved
+	// to OldEvents (which happens when the runtime state is reloaded after a
+	// save). GetStartedTime must still return the first event's timestamp.
+	ts := timestamppb.Now()
+	s := NewWorkflowRuntimeState("abc", nil, nil)
+	require.NoError(t, AddEvent(s, &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: ts,
+		EventType: &protos.HistoryEvent_WorkflowStarted{
+			WorkflowStarted: &protos.WorkflowStartedEvent{},
+		},
+	}))
+	require.Empty(t, s.OldEvents)
+	require.Len(t, s.NewEvents, 1)
+
+	got := GetStartedTime(s)
+	assert.Equal(t, ts.AsTime(), got)
+}
