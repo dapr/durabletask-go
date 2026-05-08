@@ -695,6 +695,11 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 		}
 	}
 
+	startedAt, err := readStartedAt(ctx, be.db, string(iid))
+	if err != nil {
+		return nil, err
+	}
+
 	return &backend.WorkflowMetadata{
 		InstanceId:     string(iid),
 		Name:           *name,
@@ -706,7 +711,33 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 		CustomStatus:   customStatusw,
 		FailureDetails: failureDetails,
 		Version:        versionw,
+		StartedAt:      startedAt,
 	}, nil
+}
+
+// readStartedAt returns the timestamp of the first event in the workflow's
+// history, or nil if no history rows exist (workflow created but not yet
+// executed). The first event is the WorkflowStartedEvent injected by the
+// engine in applyWorkItem when the worker first picks up the instance, so
+// its timestamp marks when execution actually began.
+func readStartedAt(ctx context.Context, db *sql.DB, instanceID string) (*timestamppb.Timestamp, error) {
+	var payload []byte
+	err := db.QueryRowContext(
+		ctx,
+		"SELECT [EventPayload] FROM History WHERE [InstanceID] = ? ORDER BY [SequenceNumber] ASC LIMIT 1",
+		instanceID,
+	).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query first history event: %w", err)
+	}
+	var first protos.HistoryEvent
+	if err := proto.Unmarshal(payload, &first); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal first history event: %w", err)
+	}
+	return first.GetTimestamp(), nil
 }
 
 // GetWorkflowRuntimeState implements backend.Backend

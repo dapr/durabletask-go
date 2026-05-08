@@ -363,6 +363,68 @@ func Test_GetNonExistingMetadata(t *testing.T) {
 	}
 }
 
+func Test_GetWorkflowMetadata_StartedAt(t *testing.T) {
+	for i, be := range backends {
+		initTest(t, be, i, true)
+
+		const iid = "startedat-instance"
+
+		// Pin the start-event timestamp so we can assert exact equality
+		// after the round-trip through the backend's storage.
+		startTS := time.Now().UTC().Truncate(time.Microsecond)
+		e := &protos.HistoryEvent{
+			Timestamp: timestamppb.New(startTS),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name:             defaultName,
+					WorkflowInstance: &protos.WorkflowInstance{InstanceId: iid},
+					Input:            wrapperspb.String(defaultInput),
+				},
+			},
+		}
+		if !assert.NoError(t, be.CreateWorkflowInstance(ctx, e)) {
+			continue
+		}
+
+		// Pre-execution: instance row exists but History is empty. The
+		// readStartedAt helper must hit the no-rows branch and return nil.
+		md, err := be.GetWorkflowMetadata(ctx, api.InstanceID(iid))
+		if assert.NoError(t, err) {
+			assert.Nil(t, md.StartedAt, "StartedAt should be nil before the first work item is processed")
+		}
+
+		// Drive the work item through CompleteWorkflowWorkItem so the start
+		// event lands in the History table.
+		wi, ok := getWorkflowWorkItem(t, be, iid)
+		if !ok {
+			continue
+		}
+		state, ok := getWorkflowRuntimeState(t, be, wi)
+		if !ok {
+			continue
+		}
+		for _, ev := range wi.NewEvents {
+			runtimestate.AddEvent(state, ev)
+		}
+		wi.State = state
+		if !assert.NoError(t, be.CompleteWorkflowWorkItem(ctx, wi)) {
+			continue
+		}
+
+		// Post-execution: History row 0 is the start event we just wrote.
+		// readStartedAt must unmarshal it and return its timestamp.
+		md, err = be.GetWorkflowMetadata(ctx, api.InstanceID(iid))
+		if assert.NoError(t, err) {
+			if assert.NotNil(t, md.StartedAt, "StartedAt must be populated once History has a row") {
+				// Allow microsecond tolerance: postgres truncates to microsecond precision
+				assert.Less(t, md.StartedAt.AsTime().Sub(startTS).Abs(), time.Microsecond,
+					"StartedAt %v must equal first history event timestamp %v",
+					md.StartedAt.AsTime(), startTS)
+			}
+		}
+	}
+}
+
 func Test_PurgeWorkflowState(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, true)
