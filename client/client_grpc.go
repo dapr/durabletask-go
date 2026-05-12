@@ -307,17 +307,21 @@ func makeWorkflowMetadata(resp *protos.GetInstanceResponse) (*backend.WorkflowMe
 	if resp.WorkflowState == nil {
 		return nil, fmt.Errorf("workflow state is nil")
 	}
+
 	metadata := &backend.WorkflowMetadata{
-		InstanceId:     resp.WorkflowState.InstanceId,
-		Name:           resp.WorkflowState.Name,
-		RuntimeStatus:  resp.WorkflowState.WorkflowStatus,
-		Input:          resp.WorkflowState.Input,
-		CustomStatus:   resp.WorkflowState.CustomStatus,
-		Output:         resp.WorkflowState.Output,
-		CreatedAt:      resp.WorkflowState.CreatedTimestamp,
-		LastUpdatedAt:  resp.WorkflowState.LastUpdatedTimestamp,
-		FailureDetails: resp.WorkflowState.FailureDetails,
-		Version:        resp.WorkflowState.Version,
+		InstanceId:       resp.WorkflowState.InstanceId,
+		Name:             resp.WorkflowState.Name,
+		RuntimeStatus:    resp.WorkflowState.WorkflowStatus,
+		Input:            resp.WorkflowState.Input,
+		CustomStatus:     resp.WorkflowState.CustomStatus,
+		Output:           resp.WorkflowState.Output,
+		CreatedAt:        resp.WorkflowState.CreatedTimestamp,
+		LastUpdatedAt:    resp.WorkflowState.LastUpdatedTimestamp,
+		FailureDetails:   resp.WorkflowState.FailureDetails,
+		Version:          resp.WorkflowState.Version,
+		StartedAt:        resp.WorkflowState.StartedAt,
+		ParentInstanceId: resp.WorkflowState.ParentInstanceId.Value,
+		ParentAppId:      resp.WorkflowState.ParentAppId,
 	}
 	return metadata, nil
 }
