@@ -690,6 +690,11 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Workflo
 		StartedAt:            metadata.StartedAt,
 	}
 
+	if metadata.ParentInstanceId != "" {
+		state.ParentInstanceId = wrapperspb.String(metadata.ParentInstanceId)
+		state.ParentAppId = metadata.ParentAppId
+	}
+
 	if req.GetInputsAndOutputs {
 		state.Input = metadata.Input
 		state.CustomStatus = metadata.CustomStatus

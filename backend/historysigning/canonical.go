@@ -56,11 +56,31 @@ func SignatureDigest(rawSig []byte) []byte {
 	return d[:]
 }
 
-// SignatureInput computes the input to the cryptographic signing operation:
-// SHA-256(previousSignatureDigest || eventsDigest).
-func SignatureInput(previousSignatureDigest, eventsDigest []byte) []byte {
+// PropagationContext binds a propagated-history chunk's instance and
+// workflow name into the signature input so a legitimately signed chunk
+// can't be lifted from state and replayed under a different instanceId
+// or workflowName.
+type PropagationContext struct {
+	InstanceID   string
+	WorkflowName string
+}
+
+// SignatureInput computes the input to the cryptographic signing
+// operation: SHA-256(previousSignatureDigest || eventsDigest || ctxBytes),
+// where ctxBytes is the length-prefixed serialization of ctx's fields
+// when ctx is non-nil. Own-history signing passes nil; propagation
+// signing passes a fully populated *PropagationContext.
+func SignatureInput(previousSignatureDigest, eventsDigest []byte, ctx *PropagationContext) []byte {
 	h := sha256.New()
 	h.Write(previousSignatureDigest)
 	h.Write(eventsDigest)
+	if ctx != nil {
+		var lenBuf [8]byte
+		for _, s := range []string{ctx.InstanceID, ctx.WorkflowName} {
+			binary.BigEndian.PutUint64(lenBuf[:], uint64(len(s)))
+			h.Write(lenBuf[:])
+			h.Write([]byte(s))
+		}
+	}
 	return h.Sum(nil)
 }

@@ -800,21 +800,62 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 		return nil, err
 	}
 
+	startEvent, err := be.getStartEvent(ctx, iid)
+	if err != nil {
+		return nil, err
+	}
+
+	var parentInstanceID string
+	var parentAppIDw *wrapperspb.StringValue
+	if parent := startEvent.GetParentInstance(); parent != nil {
+		parentInstanceID = parent.GetWorkflowInstance().GetInstanceId()
+		if appID := parent.GetAppID(); appID != "" {
+			parentAppIDw = wrapperspb.String(appID)
+		}
+	}
+
 	return &backend.WorkflowMetadata{
-		InstanceId:     string(iid),
-		Name:           *name,
-		RuntimeStatus:  helpers.FromRuntimeStatusString(*runtimeStatus),
-		CreatedAt:      timestamppb.New(*createdAt),
-		LastUpdatedAt:  timestamppb.New(*lastUpdatedAt),
-		Input:          inputw,
-		Output:         outputw,
-		CustomStatus:   customStatusw,
-		FailureDetails: failureDetails,
-		Version:        versionw,
-		StartedAt:      startedAt,
+		InstanceId:       string(iid),
+		Name:             *name,
+		RuntimeStatus:    helpers.FromRuntimeStatusString(*runtimeStatus),
+		CreatedAt:        timestamppb.New(*createdAt),
+		LastUpdatedAt:    timestamppb.New(*lastUpdatedAt),
+		Input:            inputw,
+		Output:           outputw,
+		CustomStatus:     customStatusw,
+		FailureDetails:   failureDetails,
+		Version:          versionw,
+		ParentInstanceId: parentInstanceID,
+		ParentAppId:      parentAppIDw,
+		StartedAt:        startedAt,
 	}, nil
 }
 
+// getStartEvent loads the ExecutionStarted event for an instance, or nil
+// if the workflow has not yet been picked up by a worker.
+//
+// In History, row 0 is the WorkflowStartedEvent injected by the engine in
+// workflowProcessor.applyWorkItem; the ExecutionStartedEvent sits at row 1.
+func (be *postgresBackend) getStartEvent(ctx context.Context, iid api.InstanceID) (*protos.ExecutionStartedEvent, error) {
+	var payload []byte
+	err := be.db.QueryRow(
+		ctx,
+		"SELECT EventPayload FROM History WHERE InstanceID = $1 ORDER BY SequenceNumber ASC LIMIT 1 OFFSET 1",
+		iid,
+	).Scan(&payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query ExecutionStarted history event: %w", err)
+	}
+
+	e, err := backend.UnmarshalHistoryEvent(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal start event: %w", err)
+	}
+	return e.GetExecutionStarted(), nil
+}
 
 // getStartedAt returns the timestamp of the first history event for the
 // instance, or nil if the workflow has not yet been picked up by a worker
@@ -843,6 +884,7 @@ func (be *postgresBackend) getStartedAt(ctx context.Context, iid api.InstanceID)
 	}
 	return e.GetTimestamp(), nil
 }
+
 // GetWorkflowRuntimeState implements backend.Backend
 func (be *postgresBackend) GetWorkflowRuntimeState(ctx context.Context, wi *backend.WorkflowWorkItem) (*backend.WorkflowRuntimeState, error) {
 	if err := be.ensureDB(); err != nil {

@@ -164,11 +164,19 @@ func VerifyPropagatedHistory(opts VerifyPropagationOptions) (*PropagationVerifyR
 		// not produce the same deterministic output as the producer's,
 		// and the whole point of carrying rawEvents per chunk is to
 		// make verification independent of marshaler stability.
+		//
+		// Bind the chunk's instance and workflow name into the signature
+		// input so a chunk can't be lifted from one instance and
+		// relabeled as another.
 		referenced, err := VerifyChain(VerifyChainOptions{
 			RawSignatures: chunk.GetRawSignatures(),
 			Certs:         certs,
 			AllRawEvents:  chunk.GetRawEvents(),
 			Signer:        opts.Signer,
+			PropagationContext: &PropagationContext{
+				InstanceID:   chunk.GetInstanceId(),
+				WorkflowName: chunk.GetWorkflowName(),
+			},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("chunk %d (app %q): %w", i, chunk.GetAppId(), err)
