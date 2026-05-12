@@ -795,7 +795,7 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 		versionw = wrapperspb.String(*version)
 	}
 
-	startedAt, _, err := be.getStartEventForInstance(ctx, iid)
+	startedAt, err := be.getStartedAt(ctx, iid)
 	if err != nil {
 		return nil, err
 	}
@@ -816,8 +816,15 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 }
 
 
-// getStartEvent loads the ExecutionStarted event for an instance and returns its timestamp as the instance's start time
-func (be *postgresBackend) getStartEventForInstance(ctx context.Context, iid api.InstanceID) (*timestamppb.Timestamp, *protos.ExecutionStartedEvent, error) {
+// getStartedAt returns the timestamp of the first history event for the
+// instance, or nil if the workflow has not yet been picked up by a worker
+// (History is empty).
+//
+// In History, row 0 is the WorkflowStartedEvent injected by the engine in
+// workflowProcessor.applyWorkItem; its Timestamp is the moment the worker
+// first picked the workflow up — distinct from the ExecutionStartedEvent's
+// creation timestamp.
+func (be *postgresBackend) getStartedAt(ctx context.Context, iid api.InstanceID) (*timestamppb.Timestamp, error) {
 	var payload []byte
 	err := be.db.QueryRow(
 		ctx,
@@ -825,17 +832,16 @@ func (be *postgresBackend) getStartEventForInstance(ctx context.Context, iid api
 		iid,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to query first history event: %w", err)
+		return nil, fmt.Errorf("failed to query first history event: %w", err)
 	}
-
 	e, err := backend.UnmarshalHistoryEvent(payload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal start event: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal first history event: %w", err)
 	}
-	return e.GetTimestamp(), e.GetExecutionStarted(), nil
+	return e.GetTimestamp(), nil
 }
 // GetWorkflowRuntimeState implements backend.Backend
 func (be *postgresBackend) GetWorkflowRuntimeState(ctx context.Context, wi *backend.WorkflowWorkItem) (*backend.WorkflowRuntimeState, error) {

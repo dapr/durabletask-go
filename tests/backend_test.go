@@ -369,8 +369,9 @@ func Test_GetWorkflowMetadata_StartedAt(t *testing.T) {
 
 		const iid = "startedat-instance"
 
-		// Pin the start-event timestamp so we can assert exact equality
-		// after the round-trip through the backend's storage.
+		// ExecutionStartedEvent's timestamp — captured before CreateWorkflowInstance
+		// so we can later prove StartedAt is strictly later than this value
+		// (row-ordering check; see assertions below).
 		startTS := time.Now().UTC().Truncate(time.Microsecond)
 		e := &protos.HistoryEvent{
 			Timestamp: timestamppb.New(startTS),
@@ -386,40 +387,36 @@ func Test_GetWorkflowMetadata_StartedAt(t *testing.T) {
 			continue
 		}
 
-		// Pre-execution: instance row exists but History is empty. The
-		// readStartedAt helper must hit the no-rows branch and return nil.
+		// Pre-execution: instance row exists but History is empty.
+		// getStartedAt must hit the no-rows branch and StartedAt stays nil.
 		md, err := be.GetWorkflowMetadata(ctx, api.InstanceID(iid))
 		if assert.NoError(t, err) {
 			assert.Nil(t, md.StartedAt, "StartedAt should be nil before the first work item is processed")
 		}
 
-		// Drive the work item through CompleteWorkflowWorkItem so the start
-		// event lands in the History table.
-		wi, ok := getWorkflowWorkItem(t, be, iid)
-		if !ok {
+		// Drive the work item using the shared harness, which mirrors
+		// workflowProcessor.applyWorkItem by prepending a WorkflowStartedEvent
+		// to NewEvents. After this, History row 0 = WorkflowStarted (timestamp
+		// captured inside the helper), row 1 = ExecutionStarted (startTS).
+		beforeProcess := time.Now().UTC()
+		if !processFirstWorkItem(t, be, iid) {
 			continue
 		}
-		state, ok := getWorkflowRuntimeState(t, be, wi)
-		if !ok {
-			continue
-		}
-		for _, ev := range wi.NewEvents {
-			runtimestate.AddEvent(state, ev)
-		}
-		wi.State = state
-		if !assert.NoError(t, be.CompleteWorkflowWorkItem(ctx, wi)) {
-			continue
-		}
+		afterProcess := time.Now().UTC()
 
-		// Post-execution: History row 0 is the start event we just wrote.
-		// readStartedAt must unmarshal it and return its timestamp.
+
+		// after processing the work item startAt should return a non-nil value not earlier than the time the
+		// work item was processed and not earlier than the start time
 		md, err = be.GetWorkflowMetadata(ctx, api.InstanceID(iid))
 		if assert.NoError(t, err) {
 			if assert.NotNil(t, md.StartedAt, "StartedAt must be populated once History has a row") {
-				// Allow microsecond tolerance: postgres truncates to microsecond precision
-				assert.Less(t, md.StartedAt.AsTime().Sub(startTS).Abs(), time.Microsecond,
-					"StartedAt %v must equal first history event timestamp %v",
-					md.StartedAt.AsTime(), startTS)
+				started := md.StartedAt.AsTime()
+				assert.False(t, started.Before(beforeProcess),
+					"StartedAt %v should be >= %v (start of work-item processing)", started, beforeProcess)
+				assert.False(t, started.After(afterProcess),
+					"StartedAt %v should be <= %v (end of work-item processing)", started, afterProcess)
+				assert.False(t, started.Before(startTS),
+					"StartedAt %v should be >=  %v (ExecutionStarted timestamp)", started, startTS)
 			}
 		}
 	}
@@ -576,6 +573,35 @@ func getWorkflowRuntimeState(t assert.TestingT, be backend.Backend, wi *backend.
 	}
 
 	return nil, false
+}
+
+// processFirstWorkItem fetches the first work item for the given instance,
+// prepends a WorkflowStartedEvent to NewEvents before the work item's own events,
+// applies its NewEvents to the runtime state, and completes the work item
+// without producing any additional workflow actions. This mirrors what
+// workflowProcessor.applyWorkItem does in production, so the persisted
+// History layout matches: row 0 = WorkflowStarted, row 1 = ExecutionStarted.
+func processFirstWorkItem(t assert.TestingT, be backend.Backend, instanceID string) bool {
+	wi, ok := getWorkflowWorkItem(t, be, instanceID)
+	if !ok {
+		return false
+	}
+	state, ok := getWorkflowRuntimeState(t, be, wi)
+	if !ok {
+		return false
+	}
+	runtimestate.AddEvent(state, &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_WorkflowStarted{
+			WorkflowStarted: &protos.WorkflowStartedEvent{},
+		},
+	})
+	for _, e := range wi.NewEvents {
+		runtimestate.AddEvent(state, e)
+	}
+	wi.State = state
+	return assert.NoError(t, be.CompleteWorkflowWorkItem(ctx, wi))
 }
 
 func getWorkflowMetadata(t assert.TestingT, be backend.Backend, iid api.InstanceID) (*backend.WorkflowMetadata, bool) {

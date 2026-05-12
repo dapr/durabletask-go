@@ -703,7 +703,7 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 		}
 	}
 
-	startedAt, _, err := be.getStartEvent(ctx, iid)
+	startedAt, err := be.getStartedAt(ctx, iid)
 	if err != nil {
 		return nil, err
 	}
@@ -724,8 +724,15 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 }
 
 
-// getStartEvent loads the ExecutionStarted event for an instance and returns its timestamp as the instance's start time
-func (be *sqliteBackend) getStartEvent(ctx context.Context, iid api.InstanceID) (*timestamppb.Timestamp, *protos.ExecutionStartedEvent, error) {
+// getStartedAt returns the timestamp of the first history event for the
+// instance, or nil if the workflow has not yet been picked up by a worker
+// (History is empty).
+//
+// In History, row 0 is the WorkflowStartedEvent injected by the engine in
+// workflowProcessor.applyWorkItem; its Timestamp is the moment the worker
+// first picked the workflow up — distinct from the ExecutionStartedEvent's
+// creation timestamp.
+func (be *sqliteBackend) getStartedAt(ctx context.Context, iid api.InstanceID) (*timestamppb.Timestamp, error) {
 	var payload []byte
 	err := be.db.QueryRowContext(
 		ctx,
@@ -733,17 +740,16 @@ func (be *sqliteBackend) getStartEvent(ctx context.Context, iid api.InstanceID) 
 		iid,
 	).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, nil
+		return nil, nil
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to query first history event: %w", err)
+		return nil, fmt.Errorf("failed to query first history event: %w", err)
 	}
-
 	e, err := backend.UnmarshalHistoryEvent(payload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal start event: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal first history event: %w", err)
 	}
-	return e.GetTimestamp(), e.GetExecutionStarted(), nil
+	return e.GetTimestamp(), nil
 }
 
 // GetWorkflowRuntimeState implements backend.Backend
