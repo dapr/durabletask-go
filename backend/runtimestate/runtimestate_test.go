@@ -2,6 +2,7 @@ package runtimestate
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -422,7 +423,7 @@ func TestGetStartedTime(t *testing.T) {
 	// is appended first (timestamp = first-execution time), then the work
 	// item's own events (the original ExecutionStartedEvent at creation time).
 	firstRun := timestamppb.New(timestamppb.Now().AsTime())
-	creation := timestamppb.New(firstRun.AsTime().Add(-1 * 1e9)) // 1 second earlier
+	creation := timestamppb.New(firstRun.AsTime().Add(-time.Second))
 	history := []*protos.HistoryEvent{
 		{
 			EventId:   -1,
