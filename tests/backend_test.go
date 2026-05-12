@@ -596,11 +596,9 @@ func getWorkflowMetadata(t assert.TestingT, be backend.Backend, iid api.Instance
 }
 
 // processFirstWorkItem fetches the first work item for the given instance,
+// prepends a WorkflowStartedEvent to NewEvents before the work item's own events,
 // applies its NewEvents to the runtime state, and completes the work item
-// without producing any additional workflow actions. The persistence side
-// effect is moving the freshly-created events (notably ExecutionStarted)
-// from NewEvents into History, so subsequent metadata/state queries hit
-// the History code path.
+// without producing any additional workflow actions.
 func processFirstWorkItem(t assert.TestingT, be backend.Backend, instanceID string) bool {
 	wi, ok := getWorkflowWorkItem(t, be, instanceID)
 	if !ok {
@@ -610,6 +608,13 @@ func processFirstWorkItem(t assert.TestingT, be backend.Backend, instanceID stri
 	if !ok {
 		return false
 	}
+	runtimestate.AddEvent(state, &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_WorkflowStarted{
+			WorkflowStarted: &protos.WorkflowStartedEvent{},
+		},
+	})
 	for _, e := range wi.NewEvents {
 		runtimestate.AddEvent(state, e)
 	}

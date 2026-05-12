@@ -817,19 +817,23 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 	}, nil
 }
 
-// getStartEvent loads the ExecutionStarted event for an instance
+// getStartEvent loads the ExecutionStarted event for an instance, or nil
+// if the workflow has not yet been picked up by a worker.
+//
+// In History, row 0 is the WorkflowStartedEvent injected by the engine in
+// workflowProcessor.applyWorkItem; the ExecutionStartedEvent sits at row 1.
 func (be *postgresBackend) getStartEvent(ctx context.Context, iid api.InstanceID) (*protos.ExecutionStartedEvent, error) {
 	var payload []byte
 	err := be.db.QueryRow(
 		ctx,
-		"SELECT EventPayload FROM History WHERE InstanceID = $1 ORDER BY SequenceNumber ASC LIMIT 1",
+		"SELECT EventPayload FROM History WHERE InstanceID = $1 ORDER BY SequenceNumber ASC LIMIT 1 OFFSET 1",
 		iid,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to query first history event: %w", err)
+		return nil, fmt.Errorf("failed to query ExecutionStarted history event: %w", err)
 	}
 
 	e, err := backend.UnmarshalHistoryEvent(payload)
