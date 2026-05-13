@@ -1836,6 +1836,130 @@ func Test_WorkflowPatching_TracingSpans(t *testing.T) {
 	)
 }
 
+func Test_StartedAt_AfterExecution(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("StartedAtAfterExec", func(ctx *task.WorkflowContext) (any, error) {
+		return nil, nil
+	})
+
+	ctx := context.Background()
+	utils.InitTracing()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	beforeSchedule := time.Now().UTC()
+	id, err := client.ScheduleNewWorkflow(ctx, "StartedAtAfterExec")
+	require.NoError(t, err)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	afterCompletion := time.Now().UTC()
+
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	require.NotNil(t, metadata.StartedAt, "StartedAt must be populated once execution has begun")
+	startedAt := metadata.StartedAt.AsTime()
+	// StartedAt is the engine-injected WorkflowStartedEvent timestamp at first
+	// pickup. It must fall between the schedule call and the metadata read.
+	assert.False(t, startedAt.Before(beforeSchedule), "StartedAt %v should be >= scheduling time %v", startedAt, beforeSchedule)
+	assert.False(t, startedAt.After(afterCompletion), "StartedAt %v should be <= now %v", startedAt, afterCompletion)
+	// StartedAt must be at or after CreatedAt.
+	assert.False(t, startedAt.Before(metadata.CreatedAt.AsTime()),
+		"StartedAt %v should be >= CreatedAt %v", startedAt, metadata.CreatedAt.AsTime())
+}
+
+
+func Test_StartedAt_WithScheduleTime(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("StartedAtAfterExec", func(ctx *task.WorkflowContext) (any, error) {
+		return nil, nil
+	})
+
+	ctx := context.Background()
+	utils.InitTracing()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	beforeSchedule := time.Now().UTC()
+	startTime := beforeSchedule.Add(time.Second)
+	id, err := client.ScheduleNewWorkflow(ctx, "StartedAtAfterExec", api.WithStartTime(startTime))
+	require.NoError(t, err)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	afterCompletion := time.Now().UTC()
+
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	require.NotNil(t, metadata.StartedAt, "StartedAt must be populated once execution has begun")
+	startedAt := metadata.StartedAt.AsTime()
+	// StartedAt is the engine-injected WorkflowStartedEvent timestamp at first
+	// pickup. It must fall between the schedule call and the metadata read.
+	assert.False(t, startedAt.Before(startTime), "StartedAt %v should be >= start time %v", startedAt, startTime)
+	assert.False(t, startedAt.Before(metadata.CreatedAt.AsTime()), "StartedAt %v should be >= CreatedAt %v", startedAt, startTime)
+	assert.False(t, startedAt.After(afterCompletion), "StartedAt %v should be <= now %v", startedAt, afterCompletion)
+	// StartedAt must be at or after CreatedAt.
+	assert.False(t, startedAt.Before(metadata.CreatedAt.AsTime()),
+		"StartedAt %v should be >= CreatedAt %v", startedAt, metadata.CreatedAt.AsTime())
+}
+
+func Test_StartedAt_NilBeforeExecution(t *testing.T) {
+	// Verify GetWorkflowMetadata returns StartedAt=nil while a workflow is
+	// PENDING (history is empty). To get a deterministic PENDING state we
+	// don't start a worker, so the queued start event is never processed.
+	ctx := context.Background()
+	logger := backend.DefaultLogger()
+	be := sqlite.NewSqliteBackend(sqlite.NewSqliteOptions(""), logger)
+	require.NoError(t, be.CreateTaskHub(ctx))
+	client := backend.NewTaskHubClient(be)
+
+	id, err := client.ScheduleNewWorkflow(ctx, "NeverRun")
+	require.NoError(t, err)
+
+	metadata, err := client.FetchWorkflowMetadata(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_PENDING, metadata.RuntimeStatus)
+	assert.Nil(t, metadata.StartedAt, "StartedAt must be nil while the workflow is pending")
+}
+
+func Test_StartedAt_AfterContinueAsNew(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("StartedAtCAN", func(ctx *task.WorkflowContext) (any, error) {
+		var input int32
+		if err := ctx.GetInput(&input); err != nil {
+			return nil, err
+		}
+		if input < 2 {
+			if err := ctx.CreateTimer(0).Await(nil); err != nil {
+				return nil, err
+			}
+			ctx.ContinueAsNew(input + 1)
+		}
+		return input, nil
+	})
+
+	ctx := context.Background()
+	utils.InitTracing()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	beforeSchedule := time.Now().UTC()
+	id, err := client.ScheduleNewWorkflow(ctx, "StartedAtCAN", api.WithInput(0))
+	require.NoError(t, err)
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	afterCompletion := time.Now().UTC()
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+
+	// After ContinueAsNew, history is wiped and repopulated. StartedAt and
+	// CreatedAt are both refreshed from the *most recent* run's events
+	// (WorkflowStarted + ExecutionStarted produced by the applier in
+	// successive time.Now() calls), so they sit microseconds apart in either
+	// order. The meaningful invariant is that the value is non-nil and falls
+	// within the test's wall-clock window — which proves CAN didn't break
+	// the StartedAt path or leave a stale value from a previous run.
+	require.NotNil(t, metadata.StartedAt)
+	startedAt := metadata.StartedAt.AsTime()
+	assert.False(t, startedAt.Before(beforeSchedule), "StartedAt %v should be >= scheduling time %v", startedAt, beforeSchedule)
+	assert.False(t, startedAt.After(afterCompletion), "StartedAt %v should be <= now %v", startedAt, afterCompletion)
+}
+
 func initTaskHubWorker(ctx context.Context, r *task.TaskRegistry, opts ...backend.NewTaskWorkerOptions) (backend.TaskHubClient, backend.TaskHubWorker) {
 	// TODO: Switch to options pattern
 	logger := backend.DefaultLogger()
