@@ -308,7 +308,6 @@ func makeWorkflowMetadata(resp *protos.GetInstanceResponse) (*backend.WorkflowMe
 		return nil, fmt.Errorf("workflow state is nil")
 	}
 
-
 	metadata := &backend.WorkflowMetadata{
 		InstanceId:       resp.GetWorkflowState().GetInstanceId(),
 		Name:             resp.GetWorkflowState().GetName(),
