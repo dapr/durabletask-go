@@ -687,6 +687,7 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Workflo
 		CreatedTimestamp:     metadata.CreatedAt,
 		LastUpdatedTimestamp: metadata.LastUpdatedAt,
 		Version:              metadata.Version,
+		StartedAt:            metadata.StartedAt,
 	}
 
 	if metadata.ParentInstanceId != "" {

@@ -561,11 +561,19 @@ func (be *postgresBackend) CreateWorkflowInstance(ctx context.Context, e *backen
 		return err
 	}
 
+	// Honour ScheduledStartTimestamp by deferring the start event's
+	// visibility. NULL VisibleTime means immediately visible.
+	var visibleTime any
+	if ts := e.GetExecutionStarted().GetScheduledStartTimestamp(); ts != nil {
+		visibleTime = ts.AsTime()
+	}
+
 	_, err = tx.Exec(
 		ctx,
-		`INSERT INTO NewEvents (InstanceID, EventPayload) VALUES ($1, $2)`,
+		`INSERT INTO NewEvents (InstanceID, EventPayload, VisibleTime) VALUES ($1, $2, $3)`,
 		instanceID,
 		eventPayload,
+		visibleTime,
 	)
 
 	if err != nil {
@@ -787,6 +795,11 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 		versionw = wrapperspb.String(*version)
 	}
 
+	startedAt, err := be.getStartedAt(ctx, iid)
+	if err != nil {
+		return nil, err
+	}
+
 	startEvent, err := be.getStartEvent(ctx, iid)
 	if err != nil {
 		return nil, err
@@ -814,6 +827,7 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 		Version:          versionw,
 		ParentInstanceId: parentInstanceID,
 		ParentAppId:      parentAppIDw,
+		StartedAt:        startedAt,
 	}, nil
 }
 
@@ -841,6 +855,34 @@ func (be *postgresBackend) getStartEvent(ctx context.Context, iid api.InstanceID
 		return nil, fmt.Errorf("failed to unmarshal start event: %w", err)
 	}
 	return e.GetExecutionStarted(), nil
+}
+
+// getStartedAt returns the timestamp of the first history event for the
+// instance, or nil if the workflow has not yet been picked up by a worker
+// (History is empty).
+//
+// In History, row 0 is the WorkflowStartedEvent injected by the engine in
+// workflowProcessor.applyWorkItem; its Timestamp is the moment the worker
+// first picked the workflow up — distinct from the ExecutionStartedEvent's
+// creation timestamp.
+func (be *postgresBackend) getStartedAt(ctx context.Context, iid api.InstanceID) (*timestamppb.Timestamp, error) {
+	var payload []byte
+	err := be.db.QueryRow(
+		ctx,
+		"SELECT EventPayload FROM History WHERE InstanceID = $1 ORDER BY SequenceNumber ASC LIMIT 1",
+		iid,
+	).Scan(&payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query first history event: %w", err)
+	}
+	e, err := backend.UnmarshalHistoryEvent(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal first history event: %w", err)
+	}
+	return e.GetTimestamp(), nil
 }
 
 // GetWorkflowRuntimeState implements backend.Backend
