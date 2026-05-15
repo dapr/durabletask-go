@@ -198,8 +198,9 @@ func WithRerunInput(input any) RerunOptions {
 	}
 }
 
-// protoMarshaler uses UseProtoNames so JSON output uses snake_case field names.
-var protoMarshaler = protojson.MarshalOptions{UseProtoNames: true}
+// protoMarshaler uses default protojson options so JSON output uses camelCase
+// field names (the protojson default).
+var protoMarshaler = protojson.MarshalOptions{}
 
 // marshalData serializes v to JSON. Proto message types use protojson for
 // correct handling of well-known types (e.g. google.protobuf.Struct);
