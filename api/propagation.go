@@ -156,7 +156,7 @@ func (ph *PropagatedHistory) chunkEvents(chunk historyChunk) []*protos.HistoryEv
 }
 
 // WorkflowResult is a scoped view of a single workflow's chunk in propagated history.
-// Use GetActivityByName or GetChildWorkflowByName to query specific items.
+// Use GetLastActivityByName or GetLastChildWorkflowByName to query specific items.
 type WorkflowResult struct {
 	Found      bool
 	InstanceID string
@@ -207,13 +207,13 @@ func (ph *PropagatedHistory) GetWorkflows() []*WorkflowResult {
 	return results
 }
 
-// GetWorkflowByName returns the last workflow chunk in the propagated history
+// GetLastWorkflowByName returns the last workflow chunk in the propagated history
 // whose workflow name matches. When the chain contains the same workflow name
 // more than once (eg a workflow that does ContinueAsNew, or a recursive child
 // workflow) this returns the most-recent occurrence — equivalent to the last
 // element of GetWorkflowsByName. Returns ErrPropagationNotFound when no chunk
 // matches.
-func (ph *PropagatedHistory) GetWorkflowByName(name string) (*WorkflowResult, error) {
+func (ph *PropagatedHistory) GetLastWorkflowByName(name string) (*WorkflowResult, error) {
 	all := ph.GetWorkflowsByName(name)
 	if len(all) == 0 {
 		return nil, ErrPropagationNotFound
@@ -259,12 +259,12 @@ func resolveActivity(events []*protos.HistoryEvent, scheduleEvent *protos.Histor
 	return result
 }
 
-// GetActivityByName returns the last activity scheduled in this workflow's
+// GetLastActivityByName returns the last activity scheduled in this workflow's
 // chunk whose name matches. The returned result reflects the most recent
 // invocation; for SDK-driven retries (which reuse the activity name and
 // taskExecutionId) this is the final attempt. Returns ErrPropagationNotFound
 // when the workflow result is empty or no activity event matches.
-func (wr WorkflowResult) GetActivityByName(name string) (*ActivityResult, error) {
+func (wr WorkflowResult) GetLastActivityByName(name string) (*ActivityResult, error) {
 	all := wr.GetActivitiesByName(name)
 	if len(all) == 0 {
 		return nil, ErrPropagationNotFound
@@ -308,13 +308,13 @@ func resolveChildWorkflow(events []*protos.HistoryEvent, eventID int32) *ChildWo
 	return result
 }
 
-// GetChildWorkflowByName returns the last child workflow scheduled in this
+// GetLastChildWorkflowByName returns the last child workflow scheduled in this
 // workflow's chunk whose name matches. When the same child workflow name is
 // invoked more than once from this parent (in a loop), this returns the
 // most recent invocation — equivalent to the last element of
 // GetChildWorkflowsByName. Returns ErrPropagationNotFound when the workflow
 // result is empty or no child workflow event matches.
-func (wr WorkflowResult) GetChildWorkflowByName(name string) (*ChildWorkflowResult, error) {
+func (wr WorkflowResult) GetLastChildWorkflowByName(name string) (*ChildWorkflowResult, error) {
 	all := wr.GetChildWorkflowsByName(name)
 	if len(all) == 0 {
 		return nil, ErrPropagationNotFound
