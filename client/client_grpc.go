@@ -307,18 +307,21 @@ func makeWorkflowMetadata(resp *protos.GetInstanceResponse) (*backend.WorkflowMe
 	if resp.WorkflowState == nil {
 		return nil, fmt.Errorf("workflow state is nil")
 	}
+
 	metadata := &backend.WorkflowMetadata{
-		InstanceId:     resp.GetWorkflowState().GetInstanceId(),
-		Name:           resp.GetWorkflowState().GetName(),
-		RuntimeStatus:  resp.GetWorkflowState().GetWorkflowStatus(),
-		Input:          resp.GetWorkflowState().GetInput(),
-		CustomStatus:   resp.GetWorkflowState().GetCustomStatus(),
-		Output:         resp.GetWorkflowState().GetOutput(),
-		CreatedAt:      resp.GetWorkflowState().GetCreatedTimestamp(),
-		LastUpdatedAt:  resp.GetWorkflowState().GetLastUpdatedTimestamp(),
-		FailureDetails: resp.GetWorkflowState().GetFailureDetails(),
-		Version:        resp.GetWorkflowState().GetVersion(),
-		StartedAt:      resp.GetWorkflowState().GetStartedAt(),
+		InstanceId:       resp.GetWorkflowState().GetInstanceId(),
+		Name:             resp.GetWorkflowState().GetName(),
+		RuntimeStatus:    resp.GetWorkflowState().GetWorkflowStatus(),
+		Input:            resp.GetWorkflowState().GetInput(),
+		CustomStatus:     resp.GetWorkflowState().GetCustomStatus(),
+		Output:           resp.GetWorkflowState().GetOutput(),
+		CreatedAt:        resp.GetWorkflowState().GetCreatedTimestamp(),
+		LastUpdatedAt:    resp.GetWorkflowState().GetLastUpdatedTimestamp(),
+		FailureDetails:   resp.GetWorkflowState().GetFailureDetails(),
+		Version:          resp.GetWorkflowState().GetVersion(),
+		StartedAt:        resp.GetWorkflowState().GetStartedAt(),
+		ParentInstanceId: resp.GetWorkflowState().GetParentInstanceId().GetValue(),
+		ParentAppId:      resp.GetWorkflowState().GetParentAppId(),
 	}
 	return metadata, nil
 }
