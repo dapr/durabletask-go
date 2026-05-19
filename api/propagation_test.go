@@ -111,16 +111,16 @@ func TestGetWorkflows(t *testing.T) {
 	assert.True(t, wfs[1].Found)
 }
 
-func TestGetWorkflowByName(t *testing.T) {
+func TestGetLastWorkflowByName(t *testing.T) {
 	ph := makeTestHistory()
 
-	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetLastWorkflowByName("ProcessPayment")
 	require.NoError(t, err)
 	assert.True(t, wf.Found)
 	assert.Equal(t, "appB", wf.AppID)
 	assert.Equal(t, "wf-002", wf.InstanceID)
 
-	_, err = ph.GetWorkflowByName("NonExistent")
+	_, err = ph.GetLastWorkflowByName("NonExistent")
 	require.ErrorIs(t, err, ErrPropagationNotFound)
 }
 
@@ -153,7 +153,7 @@ func TestGetWorkflowsByName_Duplicates(t *testing.T) {
 	}
 
 	// Singular returns last (most recent)
-	wf, err := ph.GetWorkflowByName("Worker")
+	wf, err := ph.GetLastWorkflowByName("Worker")
 	require.NoError(t, err)
 	assert.Equal(t, "w-2", wf.InstanceID)
 	assert.Equal(t, "app2", wf.AppID)
@@ -165,13 +165,13 @@ func TestGetWorkflowsByName_Duplicates(t *testing.T) {
 	assert.Equal(t, "w-2", wfs[1].InstanceID)
 }
 
-func TestGetActivityByName(t *testing.T) {
+func TestGetLastActivityByName(t *testing.T) {
 	ph := makeTestHistory()
-	wf, err := ph.GetWorkflowByName("MerchantCheckout")
+	wf, err := ph.GetLastWorkflowByName("MerchantCheckout")
 	require.NoError(t, err)
 
 	// Activity that completed
-	act, err := wf.GetActivityByName("ValidateMerchant")
+	act, err := wf.GetLastActivityByName("ValidateMerchant")
 	require.NoError(t, err)
 	assert.True(t, act.Started)
 	assert.True(t, act.Completed)
@@ -181,17 +181,17 @@ func TestGetActivityByName(t *testing.T) {
 	assert.Nil(t, act.Error)
 
 	// Activity not found
-	_, err = wf.GetActivityByName("NonExistent")
+	_, err = wf.GetLastActivityByName("NonExistent")
 	require.ErrorIs(t, err, ErrPropagationNotFound)
 }
 
-func TestGetActivityByName_ReturnsLast(t *testing.T) {
+func TestGetLastActivityByName_ReturnsLast(t *testing.T) {
 	ph := makeTestHistory()
-	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetLastWorkflowByName("ProcessPayment")
 	require.NoError(t, err)
 
 	// ValidateCard was called twice — singular returns the LAST (failed retry)
-	act, err := wf.GetActivityByName("ValidateCard")
+	act, err := wf.GetLastActivityByName("ValidateCard")
 	require.NoError(t, err)
 	assert.True(t, act.Started)
 	assert.False(t, act.Completed)
@@ -202,7 +202,7 @@ func TestGetActivityByName_ReturnsLast(t *testing.T) {
 
 func TestGetActivitiesByName_Retries(t *testing.T) {
 	ph := makeTestHistory()
-	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetLastWorkflowByName("ProcessPayment")
 	require.NoError(t, err)
 
 	// ValidateCard was called twice (retry scenario)
@@ -226,7 +226,7 @@ func TestGetActivitiesByName_Retries(t *testing.T) {
 
 func TestGetActivitiesByName_NotFound(t *testing.T) {
 	ph := makeTestHistory()
-	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetLastWorkflowByName("ProcessPayment")
 	require.NoError(t, err)
 
 	acts := wf.GetActivitiesByName("NonExistent")
@@ -235,7 +235,7 @@ func TestGetActivitiesByName_NotFound(t *testing.T) {
 
 func TestGetActivitiesByName_WorkflowNotFound(t *testing.T) {
 	ph := makeTestHistory()
-	_, err := ph.GetWorkflowByName("NonExistent")
+	_, err := ph.GetLastWorkflowByName("NonExistent")
 	require.ErrorIs(t, err, ErrPropagationNotFound)
 
 	// A zero-valued WorkflowResult (not from the API) returns nil for plural lookups.
@@ -244,10 +244,10 @@ func TestGetActivitiesByName_WorkflowNotFound(t *testing.T) {
 	assert.Nil(t, acts)
 }
 
-// TestGetWorkflowByName_EqualsPluralLast verifies the contract that
-// GetWorkflowByName(name) returns the same result as
+// TestGetLastWorkflowByName_EqualsPluralLast verifies the contract that
+// GetLastWorkflowByName(name) returns the same result as
 // GetWorkflowsByName(name)[len-1] when multiple matches exist.
-func TestGetWorkflowByName_EqualsPluralLast(t *testing.T) {
+func TestGetLastWorkflowByName_EqualsPluralLast(t *testing.T) {
 	ph := &PropagatedHistory{
 		events: []*protos.HistoryEvent{
 			{EventId: 0, EventType: &protos.HistoryEvent_ExecutionStarted{
@@ -267,7 +267,7 @@ func TestGetWorkflowByName_EqualsPluralLast(t *testing.T) {
 		},
 	}
 
-	singular, err := ph.GetWorkflowByName("Worker")
+	singular, err := ph.GetLastWorkflowByName("Worker")
 	require.NoError(t, err)
 	plural := ph.GetWorkflowsByName("Worker")
 
@@ -285,17 +285,17 @@ func TestGetWorkflowByName_EqualsPluralLast(t *testing.T) {
 		"singular must differ from plural[0]")
 }
 
-// TestGetActivityByName_EqualsPluralLast verifies the contract that
-// GetActivityByName(name) returns the same result as
+// TestGetLastActivityByName_EqualsPluralLast verifies the contract that
+// GetLastActivityByName(name) returns the same result as
 // GetActivitiesByName(name)[len-1] when multiple matches exist.
-func TestGetActivityByName_EqualsPluralLast(t *testing.T) {
+func TestGetLastActivityByName_EqualsPluralLast(t *testing.T) {
 	// ValidateCard appears twice in the ProcessPayment chunk: once
 	// completed (first), once failed (retry).
 	ph := makeTestHistory()
-	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetLastWorkflowByName("ProcessPayment")
 	require.NoError(t, err)
 
-	singular, err := wf.GetActivityByName("ValidateCard")
+	singular, err := wf.GetLastActivityByName("ValidateCard")
 	require.NoError(t, err)
 	plural := wf.GetActivitiesByName("ValidateCard")
 
@@ -318,7 +318,7 @@ func TestGetActivityByName_EqualsPluralLast(t *testing.T) {
 
 func TestGetChildWorkflowByName(t *testing.T) {
 	ph := makeTestHistory()
-	wf, err := ph.GetWorkflowByName("MerchantCheckout")
+	wf, err := ph.GetLastWorkflowByName("MerchantCheckout")
 	require.NoError(t, err)
 
 	child, err := wf.GetChildWorkflowByName("ProcessPayment")
@@ -334,7 +334,7 @@ func TestGetChildWorkflowByName(t *testing.T) {
 
 func TestGetChildWorkflowsByName(t *testing.T) {
 	ph := makeTestHistory()
-	wf, err := ph.GetWorkflowByName("ProcessPayment")
+	wf, err := ph.GetLastWorkflowByName("ProcessPayment")
 	require.NoError(t, err)
 
 	children := wf.GetChildWorkflowsByName("FraudDetection")
