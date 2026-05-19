@@ -316,19 +316,19 @@ func TestGetLastActivityByName_EqualsPluralLast(t *testing.T) {
 		"singular must differ from plural[0]")
 }
 
-func TestGetChildWorkflowByName(t *testing.T) {
+func TestGetLastChildWorkflowByName(t *testing.T) {
 	ph := makeTestHistory()
 	wf, err := ph.GetLastWorkflowByName("MerchantCheckout")
 	require.NoError(t, err)
 
-	child, err := wf.GetChildWorkflowByName("ProcessPayment")
+	child, err := wf.GetLastChildWorkflowByName("ProcessPayment")
 	require.NoError(t, err)
 	assert.True(t, child.Started)
 	assert.Equal(t, "ProcessPayment", child.Name)
 	// Not completed in our test data (no ChildWorkflowInstanceCompleted event)
 	assert.False(t, child.Completed)
 
-	_, err = wf.GetChildWorkflowByName("NonExistent")
+	_, err = wf.GetLastChildWorkflowByName("NonExistent")
 	require.ErrorIs(t, err, ErrPropagationNotFound)
 }
 

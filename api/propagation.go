@@ -156,7 +156,7 @@ func (ph *PropagatedHistory) chunkEvents(chunk historyChunk) []*protos.HistoryEv
 }
 
 // WorkflowResult is a scoped view of a single workflow's chunk in propagated history.
-// Use GetLastActivityByName or GetChildWorkflowByName to query specific items.
+// Use GetLastActivityByName or GetLastChildWorkflowByName to query specific items.
 type WorkflowResult struct {
 	Found      bool
 	InstanceID string
@@ -308,13 +308,13 @@ func resolveChildWorkflow(events []*protos.HistoryEvent, eventID int32) *ChildWo
 	return result
 }
 
-// GetChildWorkflowByName returns the last child workflow scheduled in this
+// GetLastChildWorkflowByName returns the last child workflow scheduled in this
 // workflow's chunk whose name matches. When the same child workflow name is
 // invoked more than once from this parent (in a loop), this returns the
 // most recent invocation — equivalent to the last element of
 // GetChildWorkflowsByName. Returns ErrPropagationNotFound when the workflow
 // result is empty or no child workflow event matches.
-func (wr WorkflowResult) GetChildWorkflowByName(name string) (*ChildWorkflowResult, error) {
+func (wr WorkflowResult) GetLastChildWorkflowByName(name string) (*ChildWorkflowResult, error) {
 	all := wr.GetChildWorkflowsByName(name)
 	if len(all) == 0 {
 		return nil, ErrPropagationNotFound
