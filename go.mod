@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0
-	github.com/dapr/kit v0.17.1-0.20260501143900-6e5616aa395f
+	github.com/dapr/kit v0.18.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.4
 	github.com/spiffe/go-spiffe/v2 v2.6.0
