@@ -187,9 +187,9 @@ func (te taskExecutor) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// protoMarshaler uses UseProtoNames so JSON output uses snake_case field names
-// (matching the proto field names), which is the convention for workflow payloads.
-var protoMarshaler = protojson.MarshalOptions{UseProtoNames: true}
+// protoMarshaler uses default protojson options so JSON output uses camelCase
+// field names (the protojson default).
+var protoMarshaler = protojson.MarshalOptions{}
 
 func unmarshalData(data []byte, v any) error {
 	if v == nil {
