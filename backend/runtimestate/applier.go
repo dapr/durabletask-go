@@ -340,8 +340,11 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 			// Mint an execution ID if the action did not supply one,
 			// matching the client ScheduleNewWorkflow behavior so the new
 			// instance always has a stable executionId on its start event.
+			// An explicitly empty value is treated the same as absent so a
+			// malformed action cannot produce an instance with an empty
+			// execution ID.
 			executionID := createDetached.GetExecutionId()
-			if executionID == nil {
+			if executionID.GetValue() == "" {
 				executionID = wrapperspb.String(uuid.New().String())
 			}
 

@@ -50,12 +50,6 @@ func WithRawDetachedWorkflowInput(input *wrapperspb.StringValue) DetachedWorkflo
 	return DetachedWorkflowOptions(task.WithRawDetachedWorkflowInput(input))
 }
 
-// WithDetachedWorkflowVersion sets a version label on the detached
-// workflow.
-func WithDetachedWorkflowVersion(version string) DetachedWorkflowOptions {
-	return DetachedWorkflowOptions(task.WithDetachedWorkflowVersion(version))
-}
-
 // WithDetachedWorkflowExecutionID sets an explicit execution ID on the
 // detached workflow's first execution.
 func WithDetachedWorkflowExecutionID(executionID string) DetachedWorkflowOptions {

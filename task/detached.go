@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"time"
 
@@ -20,7 +21,6 @@ import (
 type scheduleNewWorkflowOptions struct {
 	instanceID              *string
 	rawInput                *wrapperspb.StringValue
-	version                 *wrapperspb.StringValue
 	executionID             *wrapperspb.StringValue
 	scheduledStartTimestamp *timestamppb.Timestamp
 	tags                    map[string]string
@@ -83,15 +83,6 @@ func WithRawDetachedWorkflowInput(input *wrapperspb.StringValue) DetachedWorkflo
 	}
 }
 
-// WithDetachedWorkflowVersion sets a version label on the detached
-// workflow. The semantics mirror CreateInstanceRequest.version.
-func WithDetachedWorkflowVersion(version string) DetachedWorkflowOptionsFunc {
-	return func(opts *scheduleNewWorkflowOptions) error {
-		opts.version = wrapperspb.String(version)
-		return nil
-	}
-}
-
 // WithDetachedWorkflowExecutionID sets an explicit execution ID on the
 // detached workflow's first execution. When unset, the runtime mints a
 // fresh UUID, matching the client ScheduleNewWorkflow behavior. Passing
@@ -117,9 +108,11 @@ func WithDetachedWorkflowStartTime(startTime time.Time) DetachedWorkflowOptionsF
 }
 
 // WithDetachedWorkflowTags sets the tag map on the detached workflow.
+// The map is copied, so later mutations by the caller do not affect the
+// scheduled action.
 func WithDetachedWorkflowTags(tags map[string]string) DetachedWorkflowOptionsFunc {
 	return func(opts *scheduleNewWorkflowOptions) error {
-		opts.tags = tags
+		opts.tags = maps.Clone(tags)
 		return nil
 	}
 }
@@ -191,7 +184,6 @@ func (ctx *WorkflowContext) ScheduleNewWorkflow(workflow any, opts ...DetachedWo
 			CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
 				InstanceId:              instanceID,
 				Name:                    workflowName,
-				Version:                 options.version,
 				Input:                   options.rawInput,
 				ScheduledStartTimestamp: options.scheduledStartTimestamp,
 				ExecutionId:             options.executionID,

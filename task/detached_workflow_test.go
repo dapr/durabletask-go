@@ -33,7 +33,6 @@ func TestScheduleNewWorkflow_EmitsAction(t *testing.T) {
 	id, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID("spawned-1"),
 		WithDetachedWorkflowInput(map[string]string{"hello": "world"}),
-		WithDetachedWorkflowVersion("v1.2.3"),
 		WithDetachedWorkflowExecutionID("exec-42"),
 		WithDetachedWorkflowStartTime(startTime),
 		WithDetachedWorkflowTags(map[string]string{"team": "growth"}),
@@ -50,11 +49,34 @@ func TestScheduleNewWorkflow_EmitsAction(t *testing.T) {
 		assert.Equal(t, "spawned-1", dw.InstanceId)
 		assert.Equal(t, "dummyWorkflow", dw.Name)
 		assert.Equal(t, `{"hello":"world"}`, dw.GetInput().GetValue())
-		assert.Equal(t, "v1.2.3", dw.GetVersion().GetValue())
 		assert.Equal(t, "exec-42", dw.GetExecutionId().GetValue())
 		assert.Equal(t, startTime, dw.GetScheduledStartTimestamp().AsTime())
 		assert.Equal(t, map[string]string{"team": "growth"}, dw.GetTags())
 		assert.Nil(t, a.Router, "no router envelope should be emitted when no app/namespace target is set")
+	}
+}
+
+func TestScheduleNewWorkflow_TagsAreCopied(t *testing.T) {
+	ctx := newTestContext(t)
+
+	tags := map[string]string{"team": "growth"}
+	_, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+		WithDetachedWorkflowInstanceID("spawned-tags"),
+		WithDetachedWorkflowTags(tags),
+	)
+	require.NoError(t, err)
+
+	// Mutating the caller's map after the call must not affect the
+	// scheduled action — maps are reference types, and a shared map
+	// would let workflow code change the action after emission.
+	tags["team"] = "mutated"
+	tags["extra"] = "added"
+
+	require.Len(t, ctx.pendingActions, 1)
+	for _, a := range ctx.pendingActions {
+		dw := a.GetCreateDetachedWorkflow()
+		require.NotNil(t, dw)
+		assert.Equal(t, map[string]string{"team": "growth"}, dw.GetTags())
 	}
 }
 

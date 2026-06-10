@@ -1019,43 +1019,59 @@ func Test_CreateDetachedWorkflow(t *testing.T) {
 }
 
 func Test_CreateDetachedWorkflow_MintsExecutionIDWhenAbsent(t *testing.T) {
-	state := runtimestate.NewWorkflowRuntimeState("caller", nil, []*protos.HistoryEvent{
-		{
-			EventId:   -1,
-			Timestamp: timestamppb.New(time.Now()),
-			EventType: &protos.HistoryEvent_ExecutionStarted{
-				ExecutionStarted: &protos.ExecutionStartedEvent{
-					Name: "Caller",
-					WorkflowInstance: &protos.WorkflowInstance{
-						InstanceId:  "caller",
-						ExecutionId: wrapperspb.String(uuid.New().String()),
-					},
-				},
-			},
-		},
-	})
-
-	actions := []*protos.WorkflowAction{
-		{
-			Id: 1,
-			WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
-				CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
-					InstanceId: "spawned-no-exec",
-					Name:       "Spawned",
-				},
-			},
-		},
+	tests := []struct {
+		name        string
+		executionID *wrapperspb.StringValue
+	}{
+		{name: "nil execution ID", executionID: nil},
+		// An explicitly empty value must be treated the same as absent so
+		// a malformed action cannot produce an instance with an empty
+		// execution ID.
+		{name: "empty execution ID", executionID: wrapperspb.String("")},
 	}
 
-	applier := runtimestate.NewApplier("caller-app", "")
-	_, err := applier.Actions(state, nil, actions, nil, nil)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := runtimestate.NewWorkflowRuntimeState("caller", nil, []*protos.HistoryEvent{
+				{
+					EventId:   -1,
+					Timestamp: timestamppb.New(time.Now()),
+					EventType: &protos.HistoryEvent_ExecutionStarted{
+						ExecutionStarted: &protos.ExecutionStartedEvent{
+							Name: "Caller",
+							WorkflowInstance: &protos.WorkflowInstance{
+								InstanceId:  "caller",
+								ExecutionId: wrapperspb.String(uuid.New().String()),
+							},
+						},
+					},
+				},
+			})
 
-	require.Len(t, state.PendingMessages, 1)
-	startEvent := state.PendingMessages[0].HistoryEvent.GetExecutionStarted()
-	require.NotNil(t, startEvent)
-	assert.NotEmpty(t, startEvent.WorkflowInstance.ExecutionId.GetValue(),
-		"applier must mint an execution ID when the action does not supply one")
+			actions := []*protos.WorkflowAction{
+				{
+					Id: 1,
+					WorkflowActionType: &protos.WorkflowAction_CreateDetachedWorkflow{
+						CreateDetachedWorkflow: &protos.CreateDetachedWorkflowAction{
+							InstanceId:  "spawned-no-exec",
+							Name:        "Spawned",
+							ExecutionId: tt.executionID,
+						},
+					},
+				},
+			}
+
+			applier := runtimestate.NewApplier("caller-app", "")
+			_, err := applier.Actions(state, nil, actions, nil, nil)
+			require.NoError(t, err)
+
+			require.Len(t, state.PendingMessages, 1)
+			startEvent := state.PendingMessages[0].HistoryEvent.GetExecutionStarted()
+			require.NotNil(t, startEvent)
+			assert.NotEmpty(t, startEvent.WorkflowInstance.ExecutionId.GetValue(),
+				"applier must mint an execution ID when the action does not supply a usable one")
+		})
+	}
 }
 
 func Test_CreateDetachedWorkflow_RouterPropagated(t *testing.T) {
