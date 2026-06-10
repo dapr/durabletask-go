@@ -234,6 +234,40 @@ func TestOnDetachedWorkflowCreated_RetiresPendingAction(t *testing.T) {
 	assert.Empty(t, ctx.pendingActions, "matching event should retire the pending action")
 }
 
+func TestOnDetachedWorkflowCreated_InstanceIDMismatch_Errors(t *testing.T) {
+	ctx := newTestContext(t)
+
+	// Current execution schedules "spawned-new" at sequence 0...
+	_, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+		WithDetachedWorkflowInstanceID("spawned-new"),
+	)
+	require.NoError(t, err)
+
+	var actionID int32
+	for id := range ctx.pendingActions {
+		actionID = id
+	}
+
+	// ...but history records that the previous execution spawned
+	// "spawned-old" at that position. The current execution's code has
+	// already received "spawned-new" from ScheduleNewWorkflow, so
+	// accepting this history would leave the workflow referencing an
+	// instance that was never started.
+	err = ctx.processEvent(&protos.HistoryEvent{
+		EventId:   actionID,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_DetachedWorkflowInstanceCreated{
+			DetachedWorkflowInstanceCreated: &protos.DetachedWorkflowInstanceCreatedEvent{
+				InstanceId: "spawned-old",
+			},
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "spawned-old")
+	assert.Contains(t, err.Error(), "spawned-new")
+	assert.Len(t, ctx.pendingActions, 1, "mismatched action must not be retired")
+}
+
 func TestOnDetachedWorkflowCreated_NondeterministicReplay_Errors(t *testing.T) {
 	ctx := newTestContext(t)
 

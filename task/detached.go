@@ -219,6 +219,18 @@ func (ctx *WorkflowContext) onDetachedWorkflowCreated(taskID int32, dw *protos.D
 			taskID,
 		)
 	}
+	// The instance ID is the value ScheduleNewWorkflow returned to the
+	// workflow code, so a mismatch means the current execution is
+	// referencing an instance that was never started. Fail rather than
+	// silently accepting the old history.
+	if scheduled := a.GetCreateDetachedWorkflow().GetInstanceId(); scheduled != dw.InstanceId {
+		return fmt.Errorf(
+			"a previous execution called ScheduleNewWorkflow for instance ID '%s' and sequence number %d at this point in the workflow logic, but the current execution scheduled instance ID '%s'",
+			dw.InstanceId,
+			taskID,
+			scheduled,
+		)
+	}
 	delete(ctx.pendingActions, taskID)
 	return nil
 }
