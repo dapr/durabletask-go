@@ -2,7 +2,6 @@ package task
 
 import (
 	"fmt"
-	"maps"
 	"strconv"
 	"time"
 
@@ -21,9 +20,7 @@ import (
 type scheduleNewWorkflowOptions struct {
 	instanceID              *string
 	rawInput                *wrapperspb.StringValue
-	executionID             *wrapperspb.StringValue
 	scheduledStartTimestamp *timestamppb.Timestamp
-	tags                    map[string]string
 	parentTraceContext      *protos.TraceContext
 	targetAppID             *string
 	targetAppNamespace      *string
@@ -83,36 +80,11 @@ func WithRawDetachedWorkflowInput(input *wrapperspb.StringValue) DetachedWorkflo
 	}
 }
 
-// WithDetachedWorkflowExecutionID sets an explicit execution ID on the
-// detached workflow's first execution. When unset, the runtime mints a
-// fresh UUID, matching the client ScheduleNewWorkflow behavior. Passing
-// an empty string is rejected as an error: callers either set a
-// non-empty execution ID or omit the option to opt into UUID minting.
-func WithDetachedWorkflowExecutionID(executionID string) DetachedWorkflowOptionsFunc {
-	return func(opts *scheduleNewWorkflowOptions) error {
-		if executionID == "" {
-			return fmt.Errorf("WithDetachedWorkflowExecutionID was passed an empty string; omit the option to let the runtime mint a UUID")
-		}
-		opts.executionID = wrapperspb.String(executionID)
-		return nil
-	}
-}
-
 // WithDetachedWorkflowStartTime defers the start of the detached workflow
 // until the given time. Mirrors api.WithStartTime on the client API.
 func WithDetachedWorkflowStartTime(startTime time.Time) DetachedWorkflowOptionsFunc {
 	return func(opts *scheduleNewWorkflowOptions) error {
 		opts.scheduledStartTimestamp = timestamppb.New(startTime)
-		return nil
-	}
-}
-
-// WithDetachedWorkflowTags sets the tag map on the detached workflow.
-// The map is copied, so later mutations by the caller do not affect the
-// scheduled action.
-func WithDetachedWorkflowTags(tags map[string]string) DetachedWorkflowOptionsFunc {
-	return func(opts *scheduleNewWorkflowOptions) error {
-		opts.tags = maps.Clone(tags)
 		return nil
 	}
 }
@@ -186,8 +158,6 @@ func (ctx *WorkflowContext) ScheduleNewWorkflow(workflow any, opts ...DetachedWo
 				Name:                    workflowName,
 				Input:                   options.rawInput,
 				ScheduledStartTimestamp: options.scheduledStartTimestamp,
-				ExecutionId:             options.executionID,
-				Tags:                    options.tags,
 				ParentTraceContext:      options.parentTraceContext,
 			},
 		},

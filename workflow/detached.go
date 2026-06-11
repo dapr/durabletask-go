@@ -50,21 +50,10 @@ func WithRawDetachedWorkflowInput(input *wrapperspb.StringValue) DetachedWorkflo
 	return DetachedWorkflowOptions(task.WithRawDetachedWorkflowInput(input))
 }
 
-// WithDetachedWorkflowExecutionID sets an explicit execution ID on the
-// detached workflow's first execution.
-func WithDetachedWorkflowExecutionID(executionID string) DetachedWorkflowOptions {
-	return DetachedWorkflowOptions(task.WithDetachedWorkflowExecutionID(executionID))
-}
-
 // WithDetachedWorkflowStartTime defers the start of the detached workflow
 // until the given time.
 func WithDetachedWorkflowStartTime(startTime time.Time) DetachedWorkflowOptions {
 	return DetachedWorkflowOptions(task.WithDetachedWorkflowStartTime(startTime))
-}
-
-// WithDetachedWorkflowTags sets the tag map on the detached workflow.
-func WithDetachedWorkflowTags(tags map[string]string) DetachedWorkflowOptions {
-	return DetachedWorkflowOptions(task.WithDetachedWorkflowTags(tags))
 }
 
 // WithDetachedWorkflowAppID specifies the app ID hosting the detached
