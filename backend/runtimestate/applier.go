@@ -315,6 +315,90 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				msg.PropagatedHistory = ph
 			}
 			s.PendingMessages = append(s.PendingMessages, msg)
+		} else if createDetached := action.GetCreateDetachedWorkflow(); createDetached != nil {
+			// Detached workflows are fully decoupled from the caller: the
+			// spawned ExecutionStartedEvent carries no ParentInstanceInfo,
+			// so completion and failure do not flow back to the caller's
+			// history. Recursive purge / terminate enumerate only
+			// ChildWorkflowInstanceCreated events, so detached spawns are
+			// correctly excluded from those traversals.
+			if createDetached.InstanceId == "" {
+				return result, fmt.Errorf("CreateDetachedWorkflowAction requires an instance ID")
+			}
+
+			_ = AddEvent(s, &protos.HistoryEvent{
+				EventId:   action.Id,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_DetachedWorkflowInstanceCreated{
+					DetachedWorkflowInstanceCreated: &protos.DetachedWorkflowInstanceCreatedEvent{
+						InstanceId: createDetached.InstanceId,
+					},
+				},
+				Router: action.Router,
+			})
+
+			// Mint an execution ID if the action did not supply one,
+			// matching the client ScheduleNewWorkflow behavior so the new
+			// instance always has a stable executionId on its start event.
+			// An explicitly empty value is treated the same as absent so a
+			// malformed action cannot produce an instance with an empty
+			// execution ID.
+			executionID := createDetached.GetExecutionId()
+			if executionID.GetValue() == "" {
+				executionID = wrapperspb.String(uuid.New().String())
+			}
+
+			// Prefer the trace context the workflow author attached to
+			// the action; fall back to the caller's current trace context
+			// so a detached workflow scheduled without explicit tracing
+			// still inherits a parent span.
+			traceContext := createDetached.GetParentTraceContext()
+			if traceContext == nil {
+				traceContext = currentTraceContext
+			}
+
+			// Build a target-only router for the spawned StartEvent so the
+			// new instance carries no back-reference to the caller. The
+			// applier loop stamps action.Router.SourceAppID = a.appID, which
+			// is what CallChildWorkflow propagates to its child so completion
+			// can flow back. Detached workflows do not flow completion back,
+			// so dropping SourceAppID gives the spawned instance the same
+			// router shape a client-scheduled top-level workflow would have.
+			var spawnedRouter *protos.TaskRouter
+			if r := action.Router; r != nil && r.GetTargetAppID() != "" {
+				spawnedRouter = &protos.TaskRouter{
+					TargetAppID: ptr.Of(r.GetTargetAppID()),
+				}
+				if ns := r.GetTargetAppNamespace(); ns != "" {
+					spawnedRouter.TargetAppNamespace = ptr.Of(ns)
+				}
+			}
+
+			startEvent := &protos.HistoryEvent{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_ExecutionStarted{
+					ExecutionStarted: &protos.ExecutionStartedEvent{
+						Name:                    createDetached.Name,
+						Input:                   createDetached.Input,
+						ScheduledStartTimestamp: createDetached.ScheduledStartTimestamp,
+						Tags:                    createDetached.Tags,
+						WorkflowInstance: &protos.WorkflowInstance{
+							InstanceId:  createDetached.InstanceId,
+							ExecutionId: executionID,
+						},
+						ParentTraceContext: traceContext,
+						// ParentInstance is intentionally left nil: the
+						// detached workflow has no parent linkage.
+					},
+				},
+				Router: spawnedRouter,
+			}
+
+			s.PendingMessages = append(s.PendingMessages, &protos.WorkflowRuntimeStateMessage{
+				HistoryEvent:     startEvent,
+				TargetInstanceId: createDetached.InstanceId,
+			})
 		} else if sendEvent := action.GetSendEvent(); sendEvent != nil {
 			e := &protos.HistoryEvent{
 				EventId:   action.Id,

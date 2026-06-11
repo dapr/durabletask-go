@@ -60,6 +60,15 @@ type WorkflowContext struct {
 	appliedPatches             map[string]bool
 	encounteredPatches         []string
 	propagatedHistory          *api.PropagatedHistory
+
+	// defaultDetachedWorkflowCounter tracks how many ScheduleNewWorkflow
+	// calls have used the default-generated instance ID this execution.
+	// It is incremented only when the caller does not pass
+	// WithDetachedWorkflowInstanceID, so the suffix on generated IDs
+	// reflects the order of default-ID spawns rather than the global
+	// action sequence. Reset by start() each replay so the same workflow
+	// code path always produces the same IDs.
+	defaultDetachedWorkflowCounter int32
 }
 
 // callChildWorkflowOptions is a struct that holds the options for the CallChildWorkflow workflow method.
@@ -182,6 +191,7 @@ func NewWorkflowContext(registry *TaskRegistry, id api.InstanceID, oldEvents []*
 func (ctx *WorkflowContext) start() (actions []*protos.WorkflowAction) {
 	ctx.historyIndex = 0
 	ctx.sequenceNumber = 0
+	ctx.defaultDetachedWorkflowCounter = 0
 	ctx.pendingActions = make(map[int32]*protos.WorkflowAction)
 	ctx.pendingTasks = make(map[int32]*completableTask)
 
@@ -278,6 +288,8 @@ func (ctx *WorkflowContext) processEvent(e *backend.HistoryEvent) error {
 		err = ctx.onChildWorkflowCompleted(sc)
 	} else if sf := e.GetChildWorkflowInstanceFailed(); sf != nil {
 		err = ctx.onChildWorkflowFailed(sf)
+	} else if dw := e.GetDetachedWorkflowInstanceCreated(); dw != nil {
+		err = ctx.onDetachedWorkflowCreated(e.EventId, dw)
 	} else if tc := e.GetTimerCreated(); tc != nil {
 		err = ctx.onTimerCreated(e)
 	} else if tf := e.GetTimerFired(); tf != nil {

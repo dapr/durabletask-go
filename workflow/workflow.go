@@ -3,8 +3,9 @@ package workflow
 import (
 	"time"
 
-	"github.com/dapr/durabletask-go/task"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/dapr/durabletask-go/task"
 )
 
 // Workflow is the functional interface for workflow functions.
