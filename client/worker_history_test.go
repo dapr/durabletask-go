@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
@@ -67,11 +68,25 @@ func TestResolveWorkflowHistory_CacheHitReconstructs(t *testing.T) {
 	assert.Len(t, past, 8, "cached prefix (5) + delta (3) = full committed history (8)")
 }
 
-func TestResolveWorkflowHistory_CacheMissNoServerErrors(t *testing.T) {
-	// With no cached entry and a nil gRPC client, the miss path attempts a
-	// GetInstanceHistory fetch, which fails. The caller treats this as a
-	// redeliverable error rather than corrupting state.
-	c := &TaskHubGrpcClient{}
+// fakeSidecarClient is a partial protos.TaskHubSidecarServiceClient that implements
+// only GetInstanceHistory (the resolve path calls nothing else on the client), so the
+// cache-miss fallback can be exercised deterministically.
+type fakeSidecarClient struct {
+	protos.TaskHubSidecarServiceClient
+	events []*protos.HistoryEvent
+	calls  int
+}
+
+func (f *fakeSidecarClient) GetInstanceHistory(_ context.Context, _ *protos.GetInstanceHistoryRequest, _ ...grpc.CallOption) (*protos.GetInstanceHistoryResponse, error) {
+	f.calls++
+	return &protos.GetInstanceHistoryResponse{Events: f.events}, nil
+}
+
+func TestResolveWorkflowHistory_CacheMissFetchesFromServer(t *testing.T) {
+	// No cached entry for the instance, but the work item is a delta: the miss path
+	// must fetch the full history via GetInstanceHistory rather than reconstruct.
+	stub := &fakeSidecarClient{events: histEvents(9)}
+	c := &TaskHubGrpcClient{client: stub}
 	cache := newWorkflowHistoryCache(workflowHistoryCacheConfig{})
 
 	req := &protos.WorkflowRequest{
@@ -80,33 +95,31 @@ func TestResolveWorkflowHistory_CacheMissNoServerErrors(t *testing.T) {
 		PastEvents:    histEvents(3),
 	}
 
-	defer func() {
-		// A nil client panics on the RPC call; that still proves the miss path
-		// routes to GetInstanceHistory rather than silently using a wrong history.
-		_ = recover()
-	}()
-	_, err := c.resolveWorkflowHistory(context.Background(), cache, req)
-	if err == nil {
-		t.Fatal("expected an error or panic on cache miss with no server")
-	}
+	got, err := c.resolveWorkflowHistory(context.Background(), cache, req)
+	require.NoError(t, err)
+	assert.Equal(t, 1, stub.calls, "the miss path must route to GetInstanceHistory")
+	assert.Len(t, got, 9, "resolved history must be the fetched full history, not a reconstruction")
 }
 
 func TestResolveWorkflowHistory_LengthMismatchIsMiss(t *testing.T) {
-	c := &TaskHubGrpcClient{}
+	// The worker holds 4 events but the service expects it to hold 5: a desync. The
+	// worker must not reconstruct from its stale cache (which would yield 4+3=7
+	// events); it must fall back to the fetched full history (9 events here).
+	stub := &fakeSidecarClient{events: histEvents(9)}
+	c := &TaskHubGrpcClient{client: stub}
 	cache := newWorkflowHistoryCache(workflowHistoryCacheConfig{})
-	cache.put("a", histEvents(4)) // worker holds 4...
+	cache.put("a", histEvents(4))
 
 	req := &protos.WorkflowRequest{
 		InstanceId:    "a",
-		CachedHistory: &protos.CachedHistory{EventCount: 5}, // ...but expects 5: a desync, must not reconstruct.
+		CachedHistory: &protos.CachedHistory{EventCount: 5},
 		PastEvents:    histEvents(3),
 	}
 
-	defer func() { _ = recover() }()
-	_, err := c.resolveWorkflowHistory(context.Background(), cache, req)
-	if err == nil {
-		t.Fatal("a count mismatch must be treated as a cache miss, not a reconstruction")
-	}
+	got, err := c.resolveWorkflowHistory(context.Background(), cache, req)
+	require.NoError(t, err)
+	assert.Equal(t, 1, stub.calls, "a count mismatch must route to GetInstanceHistory")
+	assert.Len(t, got, 9, "must use the fetched history, not reconstruct 4+3 from the stale cache")
 }
 
 func TestWorkflowHistoryReset(t *testing.T) {

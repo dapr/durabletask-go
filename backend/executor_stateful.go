@@ -141,9 +141,12 @@ func (s *streamState) applyStatefulHistory(req *protos.WorkflowRequest) {
 	iid := api.InstanceID(req.GetInstanceId())
 	pastLen := len(req.GetPastEvents())
 
-	// n = committed events the worker is believed to already hold. Only send a
-	// delta when that prefix is a strict, non-empty prefix of the current history
-	// (n within (0, pastLen]); anything else falls back to a full send.
+	// n = committed events the worker is believed to already hold. Send a delta
+	// whenever that prefix is non-empty and not longer than the current history
+	// (0 < n <= pastLen); anything else (no warm entry, or a shrunk history after
+	// continue-as-new) falls back to a full send. n == pastLen is allowed and means
+	// the worker already holds the whole committed history, so the delta is empty
+	// and only NewEvents are sent.
 	if n, ok := s.warm[iid]; ok && n > 0 && n <= pastLen {
 		req.PastEvents = req.GetPastEvents()[n:]
 		req.CachedHistory = &protos.CachedHistory{EventCount: int32(n)}
