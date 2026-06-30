@@ -8,7 +8,7 @@ import (
 // maxWarmInstancesPerStream bounds the number of warm (stateful-history) instance
 // entries tracked per work-item stream. Evicting an entry only costs a single
 // full-history send the next time that instance runs, so this is a soft cap.
-const maxWarmInstancesPerStream = 100_000_000
+const maxWarmInstancesPerStream = 1_000_000
 
 // streamState holds the per-connection state for a single GetWorkItems stream.
 // It is created when a worker connects and discarded when the stream closes.
@@ -23,10 +23,13 @@ type streamState struct {
 	// pastEvents prefix that may be omitted on the next turn. Only accessed from
 	// the owning stream's GetWorkItems dispatch loop, so it needs no locking.
 	warm map[api.InstanceID]int
+
+	// maxWarm is the soft cap on warm entries; defaults to maxWarmInstancesPerStream.
+	maxWarm int
 }
 
 func newStreamState(req *protos.GetWorkItemsRequest) *streamState {
-	s := &streamState{warm: make(map[api.InstanceID]int)}
+	s := &streamState{warm: make(map[api.InstanceID]int), maxWarm: maxWarmInstancesPerStream}
 	for _, c := range req.GetCapabilities() {
 		if c == protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY {
 			s.statefulHistory = true
@@ -69,13 +72,13 @@ func (s *streamState) applyStatefulHistory(req *protos.WorkflowRequest) {
 	// Completed instances are never re-dispatched, so their warm entries are
 	// never naturally evicted. Bound the map: dropping an entry only forces a
 	// (safe) full send next turn, so evicting arbitrary entries is harmless.
-	if len(s.warm) > maxWarmInstancesPerStream {
+	if len(s.warm) > s.maxWarm {
 		for k := range s.warm {
 			if k == iid {
 				continue
 			}
 			delete(s.warm, k)
-			if len(s.warm) <= maxWarmInstancesPerStream {
+			if len(s.warm) <= s.maxWarm {
 				break
 			}
 		}

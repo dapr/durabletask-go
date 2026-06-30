@@ -14,6 +14,7 @@ limitations under the License.
 package backend
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -140,11 +141,12 @@ func TestApplyStatefulHistory_BoundsWarmMap(t *testing.T) {
 	ss := newStreamState(&protos.GetWorkItemsRequest{
 		Capabilities: []protos.WorkerCapability{protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY},
 	})
+	ss.maxWarm = 16
 
-	for i := 0; i < maxWarmInstancesPerStream+10; i++ {
-		ss.applyStatefulHistory(workflowReq("inst-"+string(rune(i)), 1, 0))
+	for i := 0; i < ss.maxWarm+10; i++ {
+		ss.applyStatefulHistory(workflowReq("inst-"+strconv.Itoa(i), 1, 0))
 	}
 
-	assert.LessOrEqual(t, len(ss.warm), maxWarmInstancesPerStream+1,
+	assert.LessOrEqual(t, len(ss.warm), ss.maxWarm+1,
 		"warm map must stay bounded as new instances are dispatched")
 }

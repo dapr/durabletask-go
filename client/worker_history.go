@@ -78,9 +78,13 @@ func (c *TaskHubGrpcClient) resolveWorkflowHistory(
 	return resp.GetEvents(), nil
 }
 
-// workflowHistoryReset reports whether a workflow turn ended the current
-// execution (completion, failure, termination, or continue-as-new), after which
-// the cached history no longer extends the instance's history and must be dropped.
+// workflowHistoryReset reports whether this turn ended the current instance's
+// execution, after which the cached history no longer extends and must be
+// dropped. The current instance always ends via a CompleteWorkflow action,
+// whatever its terminal status (completed, failed, terminated, or
+// continued-as-new). A TerminateWorkflow action is deliberately not treated as a
+// reset: it targets a different instance (sending that instance an
+// ExecutionTerminated message), so the current instance keeps running.
 func workflowHistoryReset(resp *protos.WorkflowResponse) bool {
 	for _, a := range resp.GetActions() {
 		if a.GetCompleteWorkflow() != nil {
