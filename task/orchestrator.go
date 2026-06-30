@@ -358,7 +358,7 @@ func (ctx *WorkflowContext) CallActivity(activity interface{}, opts ...CallActiv
 	activityName := helpers.GetTaskFunctionName(activity)
 
 	if options.retryPolicy != nil {
-		return ctx.internalScheduleTaskWithRetries(activityName+"-retry", ctx.CurrentTimeUtc, func(taskExecutionId string) Task {
+		return ctx.internalScheduleTaskWithRetries(activityName+"-retry", ctx.CurrentTimeUtc, func(taskExecutionId string, _ bool) Task {
 			return ctx.internalScheduleActivity(activityName, taskExecutionId, options)
 		}, *options.retryPolicy, 0, uuid.NewString(), func(a *protos.CreateTimerAction, execID string) {
 			a.Origin = &protos.CreateTimerAction_ActivityRetry{
@@ -424,8 +424,15 @@ func (ctx *WorkflowContext) CallChildWorkflow(workflow interface{}, opts ...Chil
 		if firstInstanceID == "" {
 			firstInstanceID = helpers.GenerateChildWorkflowInstanceID(string(ctx.ID), ctx.sequenceNumber)
 		}
-		return ctx.internalScheduleTaskWithRetries(workflowName+"-retry", ctx.CurrentTimeUtc, func(_ string) Task {
-			return ctx.internalCallChildWorkflow(workflowName, options)
+		return ctx.internalScheduleTaskWithRetries(workflowName+"-retry", ctx.CurrentTimeUtc, func(_ string, isRetry bool) Task {
+			// On retry attempts (2nd onward) carry the first attempt's instance
+			// ID so the runtime can record it on the resulting
+			// ChildWorkflowInstanceCreatedEvent and consumers can correlate the
+			// retry chain. The first attempt carries nothing.
+			if isRetry {
+				return ctx.internalCallChildWorkflow(workflowName, options, &firstInstanceID)
+			}
+			return ctx.internalCallChildWorkflow(workflowName, options, nil)
 		}, *options.retryPolicy, 0, uuid.NewString(), func(a *protos.CreateTimerAction, _ string) {
 			a.Origin = &protos.CreateTimerAction_ChildWorkflowRetry{
 				ChildWorkflowRetry: &protos.TimerOriginChildWorkflowRetry{
@@ -435,18 +442,28 @@ func (ctx *WorkflowContext) CallChildWorkflow(workflow interface{}, opts ...Chil
 		})
 	}
 
-	return ctx.internalCallChildWorkflow(workflowName, options)
+	return ctx.internalCallChildWorkflow(workflowName, options, nil)
 }
 
-func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, options *callChildWorkflowOptions) Task {
+// internalCallChildWorkflow schedules a child workflow. retryParentInstanceID,
+// when non-nil, is the instance ID of the first attempt in this child's retry
+// chain; it is set only on retry attempts (2nd onward) and is persisted by the
+// runtime onto the ChildWorkflowInstanceCreatedEvent for retry-chain correlation.
+func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, options *callChildWorkflowOptions, retryParentInstanceID *string) Task {
+	createChildWorkflow := &protos.CreateChildWorkflowAction{
+		Name:       workflowName,
+		Input:      options.rawInput,
+		InstanceId: options.instanceID,
+	}
+	if retryParentInstanceID != nil {
+		createChildWorkflow.RetryParentInstanceInfo = &protos.RetryParentInstanceInfo{
+			InstanceID: *retryParentInstanceID,
+		}
+	}
 	createChildWorkflowAction := &protos.WorkflowAction{
 		Id: ctx.getNextSequenceNumber(),
 		WorkflowActionType: &protos.WorkflowAction_CreateChildWorkflow{
-			CreateChildWorkflow: &protos.CreateChildWorkflowAction{
-				Name:       workflowName,
-				Input:      options.rawInput,
-				InstanceId: options.instanceID,
-			},
+			CreateChildWorkflow: createChildWorkflow,
 		},
 	}
 
@@ -467,9 +484,9 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 	return task
 }
 
-func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initialAttempt time.Time, schedule func(taskExecutionId string) Task, policy RetryPolicy, retryCount int, taskExecutionId string, setTimerOrigin func(*protos.CreateTimerAction, string)) Task {
+func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initialAttempt time.Time, schedule func(taskExecutionId string, isRetry bool) Task, policy RetryPolicy, retryCount int, taskExecutionId string, setTimerOrigin func(*protos.CreateTimerAction, string)) Task {
 	return &taskWrapper{
-		delegate: schedule(taskExecutionId),
+		delegate: schedule(taskExecutionId, retryCount > 0),
 		onAwaitResult: func(v any, taskExecutionId string, err error) error {
 			if err == nil {
 				return nil
