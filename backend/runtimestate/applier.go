@@ -275,6 +275,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 						InstanceId:              createSO.InstanceId,
 						ParentTraceContext:      currentTraceContext,
 						HistoryPropagationScope: createSO.HistoryPropagationScope,
+						RetryParentInstanceInfo: createSO.GetRetryParentInstanceInfo(),
 					},
 				},
 				Router: action.Router,

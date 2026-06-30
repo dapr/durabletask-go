@@ -626,6 +626,224 @@ func Test_ChildWorkflowRetry_TimerOriginPointsToFirstChild(t *testing.T) {
 	}
 }
 
+// Verifies that when a child workflow with a retry policy fails and a retry
+// attempt is created, the resulting ChildWorkflowInstanceCreatedEvent carries a
+// RetryParentInstanceInfo pointing back to the first attempt's instance ID,
+// while the first attempt itself carries no such field.
+func Test_ChildWorkflowRetry_RetryParentInstanceInfoLinksToFirstChild(t *testing.T) {
+	const parentID = "parent-instance"
+
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Parent", func(ctx *task.WorkflowContext) (any, error) {
+		err := ctx.CallChildWorkflow("Child", task.WithChildWorkflowRetryPolicy(&task.RetryPolicy{
+			MaxAttempts:          4,
+			InitialRetryInterval: 1 * time.Second,
+		})).Await(nil)
+		return nil, err
+	})
+	r.AddWorkflowN("Child", func(ctx *task.WorkflowContext) (any, error) {
+		return nil, errors.New("child failed")
+	})
+
+	executor := task.NewTaskExecutor(r)
+	applier := runtimestate.NewApplier("test", "")
+
+	startEvent := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ExecutionStarted{
+			ExecutionStarted: &protos.ExecutionStartedEvent{
+				Name: "Parent",
+				WorkflowInstance: &protos.WorkflowInstance{
+					InstanceId:  parentID,
+					ExecutionId: wrapperspb.String(uuid.New().String()),
+				},
+			},
+		},
+	}
+
+	// Round 1: Parent starts, produces CreateChildWorkflow#1 (the first attempt).
+	resp, err := executor.ExecuteWorkflow(context.Background(), api.InstanceID(parentID), nil, []*protos.HistoryEvent{startEvent}, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+	childAction := resp.Actions[0].GetCreateChildWorkflow()
+	require.NotNil(t, childAction)
+
+	state := runtimestate.NewWorkflowRuntimeState(parentID, nil, []*protos.HistoryEvent{startEvent})
+	_, err = applier.Actions(state, nil, resp.Actions, nil, nil)
+	require.NoError(t, err)
+
+	firstChildInstanceID := childAction.InstanceId
+
+	// The SDK must not stamp a retry parent on the first attempt's action.
+	assert.Nil(t, childAction.GetRetryParentInstanceInfo(),
+		"the first attempt action must not carry a RetryParentInstanceInfo")
+
+	// The first attempt's ChildWorkflowInstanceCreatedEvent must NOT carry a
+	// RetryParentInstanceInfo.
+	created1 := findChildWorkflowInstanceCreated(state.NewEvents)
+	require.NotNil(t, created1, "round 1 should produce a ChildWorkflowInstanceCreated event")
+	assert.Equal(t, firstChildInstanceID, created1.InstanceId)
+	assert.Nil(t, created1.RetryParentInstanceInfo,
+		"the first attempt must not carry a RetryParentInstanceInfo")
+
+	// Simulate first child failure.
+	childFailedEvent := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ChildWorkflowInstanceFailed{
+			ChildWorkflowInstanceFailed: &protos.ChildWorkflowInstanceFailedEvent{
+				TaskScheduledId: 0,
+				FailureDetails: &protos.TaskFailureDetails{
+					ErrorMessage: "child failed",
+				},
+			},
+		},
+	}
+
+	// Round 2: Parent replays, sees failure, produces the retry CreateTimer.
+	oldEvents := append([]*protos.HistoryEvent{startEvent}, state.NewEvents...)
+	resp, err = executor.ExecuteWorkflow(context.Background(), api.InstanceID(parentID), oldEvents, []*protos.HistoryEvent{childFailedEvent}, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+	require.NotNil(t, resp.Actions[0].GetCreateTimer())
+	timerActionID := resp.Actions[0].Id
+
+	state2 := runtimestate.NewWorkflowRuntimeState(parentID, nil, oldEvents)
+	_, err = applier.Actions(state2, nil, resp.Actions, nil, nil)
+	require.NoError(t, err)
+
+	// Round 3: The retry timer fires, producing CreateChildWorkflow#2 (the retry attempt).
+	timerFiredEvent := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_TimerFired{
+			TimerFired: &protos.TimerFiredEvent{
+				TimerId: timerActionID,
+			},
+		},
+	}
+	oldEvents2 := make([]*protos.HistoryEvent, 0)
+	oldEvents2 = append(oldEvents2, oldEvents...)
+	oldEvents2 = append(oldEvents2, childFailedEvent)
+	oldEvents2 = append(oldEvents2, state2.NewEvents...)
+	resp, err = executor.ExecuteWorkflow(context.Background(), api.InstanceID(parentID), oldEvents2, []*protos.HistoryEvent{timerFiredEvent}, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Actions, 1)
+	childAction2 := resp.Actions[0].GetCreateChildWorkflow()
+	require.NotNil(t, childAction2)
+
+	// The SDK must stamp the retry re-creation action with the first attempt's
+	// instance ID; the applier then copies it onto the event.
+	require.NotNil(t, childAction2.GetRetryParentInstanceInfo(),
+		"the retry re-creation action must carry a RetryParentInstanceInfo")
+	assert.Equal(t, firstChildInstanceID, childAction2.GetRetryParentInstanceInfo().GetInstanceID(),
+		"the retry action should reference the first attempt's instance ID")
+
+	// Apply round 3 the way the backend does: the triggering TimerFired event is
+	// appended to NewEvents (by applyWorkItem) before the actions are applied.
+	state3 := runtimestate.NewWorkflowRuntimeState(parentID, nil, oldEvents2)
+	require.NoError(t, runtimestate.AddEvent(state3, timerFiredEvent))
+	_, err = applier.Actions(state3, nil, resp.Actions, nil, nil)
+	require.NoError(t, err)
+
+	created2 := findChildWorkflowInstanceCreated(state3.NewEvents)
+	require.NotNil(t, created2, "round 3 should produce a ChildWorkflowInstanceCreated event")
+	assert.NotEqual(t, firstChildInstanceID, created2.InstanceId,
+		"the retry attempt should have its own instance ID")
+	require.NotNil(t, created2.RetryParentInstanceInfo,
+		"the retry attempt must carry a RetryParentInstanceInfo")
+	assert.Equal(t, firstChildInstanceID, created2.RetryParentInstanceInfo.InstanceID,
+		"the retry attempt should link back to the first attempt's instance ID")
+}
+
+// findChildWorkflowInstanceCreated returns the first
+// ChildWorkflowInstanceCreatedEvent found in the given events, or nil.
+func findChildWorkflowInstanceCreated(events []*protos.HistoryEvent) *protos.ChildWorkflowInstanceCreatedEvent {
+	for _, e := range events {
+		if created := e.GetChildWorkflowInstanceCreated(); created != nil {
+			return created
+		}
+	}
+	return nil
+}
+
+// Verifies the byte-identical concurrency case that pure runtime-side
+// correlation cannot handle: several child workflows with the SAME name,
+// version AND input, each a retry attempt of a different chain. The SDK stamps
+// each re-creation action with its own first-attempt instance ID, and the
+// applier must copy each through to its event without cross-linking — even
+// though the actions are otherwise indistinguishable. A fresh (non-retry)
+// creation carries nothing.
+func Test_ChildWorkflowRetry_ApplierCopiesRetryParentPerAction(t *testing.T) {
+	const parentID = "parent-instance"
+	const firstA = "parent-instance:000a"
+	const firstB = "parent-instance:0014"
+
+	startEvent := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_ExecutionStarted{
+			ExecutionStarted: &protos.ExecutionStartedEvent{
+				Name: "Parent",
+				WorkflowInstance: &protos.WorkflowInstance{
+					InstanceId:  parentID,
+					ExecutionId: wrapperspb.String(uuid.New().String()),
+				},
+			},
+		},
+	}
+	state := runtimestate.NewWorkflowRuntimeState(parentID, nil, []*protos.HistoryEvent{startEvent})
+
+	// Three byte-identical child creations (same name/version/input). Two are
+	// retry attempts carrying distinct first-attempt ids; one is a fresh attempt.
+	createChild := func(id int32, instanceID, retryParent string) *protos.WorkflowAction {
+		cc := &protos.CreateChildWorkflowAction{
+			Name:       "Worker",
+			Version:    wrapperspb.String("v1"),
+			Input:      wrapperspb.String("same"),
+			InstanceId: instanceID,
+		}
+		if retryParent != "" {
+			cc.RetryParentInstanceInfo = &protos.RetryParentInstanceInfo{InstanceID: retryParent}
+		}
+		return &protos.WorkflowAction{
+			Id:                 id,
+			WorkflowActionType: &protos.WorkflowAction_CreateChildWorkflow{CreateChildWorkflow: cc},
+		}
+	}
+	actions := []*protos.WorkflowAction{
+		createChild(30, "worker-a-attempt2", firstA),
+		createChild(31, "worker-b-attempt2", firstB),
+		createChild(32, "worker-c-attempt1", ""),
+	}
+
+	applier := runtimestate.NewApplier("test", "")
+	_, err := applier.Actions(state, nil, actions, nil, nil)
+	require.NoError(t, err)
+
+	created := map[string]*protos.ChildWorkflowInstanceCreatedEvent{}
+	for _, e := range state.NewEvents {
+		if c := e.GetChildWorkflowInstanceCreated(); c != nil {
+			created[c.InstanceId] = c
+		}
+	}
+
+	require.NotNil(t, created["worker-a-attempt2"])
+	require.NotNil(t, created["worker-a-attempt2"].RetryParentInstanceInfo)
+	assert.Equal(t, firstA, created["worker-a-attempt2"].RetryParentInstanceInfo.InstanceID,
+		"worker A's retry must keep its own first-attempt id")
+
+	require.NotNil(t, created["worker-b-attempt2"])
+	require.NotNil(t, created["worker-b-attempt2"].RetryParentInstanceInfo)
+	assert.Equal(t, firstB, created["worker-b-attempt2"].RetryParentInstanceInfo.InstanceID,
+		"worker B's retry must keep its own first-attempt id")
+
+	require.NotNil(t, created["worker-c-attempt1"])
+	assert.Nil(t, created["worker-c-attempt1"].RetryParentInstanceInfo,
+		"a fresh (non-retry) creation must not carry a RetryParentInstanceInfo")
+}
+
 func Test_ActivityRetry_TimerOriginMatchesTaskExecutionId(t *testing.T) {
 	const parentID = "parent-instance"
 
