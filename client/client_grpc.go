@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
@@ -19,17 +20,63 @@ import (
 // REVIEW: Can this be merged with backend/client.go somehow?
 
 type TaskHubGrpcClient struct {
-	client protos.TaskHubSidecarServiceClient
-	logger backend.Logger
+	client                  protos.TaskHubSidecarServiceClient
+	logger                  backend.Logger
+	historyCacheConfig      workflowHistoryCacheConfig
+	statefulHistoryDisabled bool
+}
+
+// TaskHubGrpcClientOption configures a TaskHubGrpcClient.
+type TaskHubGrpcClientOption func(*TaskHubGrpcClient)
+
+// WithStatefulHistoryDisabled opts the worker out of the stateful-history
+// optimization: it does not advertise WORKER_CAPABILITY_STATEFUL_HISTORY, so the
+// sidecar sends the full history on every turn and the worker keeps no history
+// cache. Use to fall back to the pre-optimization behavior.
+func WithStatefulHistoryDisabled() TaskHubGrpcClientOption {
+	return func(c *TaskHubGrpcClient) { c.statefulHistoryDisabled = true }
+}
+
+// WithWorkflowHistoryCacheTTL sets how long an instance's history is retained in
+// the worker's stateful-history cache after its last turn (sliding window).
+// A non-positive value keeps the default.
+func WithWorkflowHistoryCacheTTL(ttl time.Duration) TaskHubGrpcClientOption {
+	return func(c *TaskHubGrpcClient) { c.historyCacheConfig.ttl = &ttl }
+}
+
+// WithWorkflowHistoryCacheSweepInterval sets how often the worker reclaims expired
+// history cache entries. A non-positive value keeps the default.
+func WithWorkflowHistoryCacheSweepInterval(interval time.Duration) TaskHubGrpcClientOption {
+	return func(c *TaskHubGrpcClient) { c.historyCacheConfig.sweepInterval = &interval }
+}
+
+// WithWorkflowHistoryCacheMaxInstances sets the maximum number of per-instance
+// histories the worker retains on a single stream. A non-positive value keeps the
+// default.
+func WithWorkflowHistoryCacheMaxInstances(maxInstances int) TaskHubGrpcClientOption {
+	return func(c *TaskHubGrpcClient) { c.historyCacheConfig.maxInstances = &maxInstances }
+}
+
+// WithWorkflowHistoryCacheMaxBytes sets a budget, in bytes (serialized history
+// size), for the worker's stateful-history cache across all instances on a stream.
+// When exceeded, least-recently-used histories are evicted. A non-positive value
+// means no byte limit (the cache is then bounded only by the instance count and TTL).
+func WithWorkflowHistoryCacheMaxBytes(maxBytes int64) TaskHubGrpcClientOption {
+	return func(c *TaskHubGrpcClient) { c.historyCacheConfig.maxBytes = &maxBytes }
 }
 
 // NewTaskHubGrpcClient creates a client that can be used to manage workflows over a gRPC connection.
 // The gRPC connection must be to a task hub worker that understands the Durable Task gRPC protocol.
-func NewTaskHubGrpcClient(cc grpc.ClientConnInterface, logger backend.Logger) *TaskHubGrpcClient {
-	return &TaskHubGrpcClient{
+func NewTaskHubGrpcClient(cc grpc.ClientConnInterface, logger backend.Logger, opts ...TaskHubGrpcClientOption) *TaskHubGrpcClient {
+	c := &TaskHubGrpcClient{
 		client: protos.NewTaskHubSidecarServiceClient(cc),
 		logger: logger,
+		// historyCacheConfig zero value (all nil) means every parameter defaults.
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // ScheduleNewWorkflow schedules a new workflow instance with a specified set of options for execution.

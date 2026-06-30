@@ -54,6 +54,7 @@ type grpcExecutor struct {
 	workItemQueue            chan *protos.WorkItem
 	pendingWorkflows         *sync.Map // map[api.InstanceID]*pendingWorkflow
 	pendingActivities        *sync.Map // map[string]*pendingActivity
+	streams                  *sync.Map // map[string]*streamState
 	backend                  Backend
 	logger                   Logger
 	onWorkItemConnection     func(context.Context) error
@@ -114,6 +115,7 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 		logger:            logger,
 		pendingWorkflows:  &sync.Map{},
 		pendingActivities: &sync.Map{},
+		streams:           &sync.Map{},
 	}
 
 	for _, opt := range opts {
@@ -296,6 +298,13 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 
 	streamID := uuid.NewString()
 
+	// Track per-stream state (advertised capabilities and, for stateful-history
+	// workers, which instances this stream is warm for). Discarded on disconnect
+	// so the next turn for those instances falls back to a full history send.
+	ss := newStreamState(req)
+	g.streams.Store(streamID, ss)
+	defer g.streams.Delete(streamID)
+
 	// There are some cases where the app may need to be notified when a client connects to fetch work items, like
 	// for auto-starting the worker. The app also has an opportunity to set itself as unavailable by returning an error.
 	if err := g.executeOnWorkItemConnection(stream.Context()); err != nil {
@@ -369,6 +378,9 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 						p.streamID = streamID
 					}
 				}
+				// If this stream retains instance history between turns, omit the
+				// committed history prefix it already holds and send only the delta.
+				ss.applyStatefulHistory(x.WorkflowRequest)
 			case *protos.WorkItem_ActivityRequest:
 				key := GetActivityExecutionKey(x.ActivityRequest.GetWorkflowInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
 				if value, ok := g.pendingActivities.Load(key); ok {

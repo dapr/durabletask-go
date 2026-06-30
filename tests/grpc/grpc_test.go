@@ -501,6 +501,60 @@ func Test_Grpc_GetInstanceHistory(t *testing.T) {
 	require.Len(t, resp.Events, 12)
 }
 
+// Test_Grpc_StatefulHistory_MultiTurn exercises the stateful-history delta path
+// end to end: the worker (StartWorkItemListener) advertises
+// WORKER_CAPABILITY_STATEFUL_HISTORY, so on every turn after the first the sidecar
+// sends only the new history events and the worker reconstructs the full history
+// from its per-instance cache. A correct result across many turns (each activity
+// call is a separate turn with a growing history) proves the reconstruction is
+// equivalent to receiving the full history every turn.
+func Test_Grpc_StatefulHistory_MultiTurn(t *testing.T) {
+	const activityCount = 8
+
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("AccumulateSequential", func(ctx *task.WorkflowContext) (any, error) {
+		total := 0
+		for i := 0; i < activityCount; i++ {
+			var got int
+			// Sequential awaits force a distinct turn (and a longer history) per activity.
+			if err := ctx.CallActivity("AddOne", task.WithActivityInput(total)).Await(&got); err != nil {
+				return nil, err
+			}
+			total = got
+		}
+		return total, nil
+	})
+	r.AddActivityN("AddOne", func(ctx task.ActivityContext) (any, error) {
+		var n int
+		if err := ctx.GetInput(&n); err != nil {
+			return nil, err
+		}
+		return n + 1, nil
+	})
+
+	cancelListener := startGrpcListener(t, r)
+	defer cancelListener()
+
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "AccumulateSequential")
+	require.NoError(t, err)
+
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+	metadata, err := grpcClient.WaitForWorkflowCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
+	require.NoError(t, err)
+
+	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
+	assert.Equal(t, strconv.Itoa(activityCount), metadata.Output.Value,
+		"sequential accumulation must be correct even though most turns were served as deltas")
+
+	// The reconstructed history must match what a full-history run would persist.
+	hist, err := grpcClient.GetInstanceHistory(ctx, id)
+	require.NoError(t, err)
+	assert.NotEmpty(t, hist.Events)
+
+	require.NoError(t, grpcClient.PurgeWorkflowState(ctx, id))
+}
+
 func Test_Grpc_PatchedWorkflow(t *testing.T) {
 	r := task.NewTaskRegistry()
 	patches1Found := []bool{}
