@@ -15,11 +15,13 @@ package backend
 
 import (
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
@@ -41,12 +43,12 @@ func workflowReq(iid string, past, new int) *protos.WorkflowRequest {
 
 func TestNewStreamState_Capabilities(t *testing.T) {
 	t.Run("no capabilities", func(t *testing.T) {
-		ss := newStreamState(&protos.GetWorkItemsRequest{})
+		ss := newStreamState("s1", &protos.GetWorkItemsRequest{})
 		assert.False(t, ss.statefulHistory)
 	})
 
 	t.Run("stateful history advertised alongside an unknown capability", func(t *testing.T) {
-		ss := newStreamState(&protos.GetWorkItemsRequest{
+		ss := newStreamState("s1", &protos.GetWorkItemsRequest{
 			Capabilities: []protos.WorkerCapability{
 				protos.WorkerCapability(99), // an unknown/future capability is ignored
 				protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY,
@@ -57,7 +59,7 @@ func TestNewStreamState_Capabilities(t *testing.T) {
 }
 
 func TestApplyStatefulHistory_NonCapableStreamUnchanged(t *testing.T) {
-	ss := newStreamState(&protos.GetWorkItemsRequest{})
+	ss := newStreamState("s1", &protos.GetWorkItemsRequest{})
 	req := workflowReq("a", 5, 2)
 
 	ss.applyStatefulHistory(req)
@@ -68,7 +70,7 @@ func TestApplyStatefulHistory_NonCapableStreamUnchanged(t *testing.T) {
 }
 
 func TestApplyStatefulHistory_FirstTurnSendsFullThenWarms(t *testing.T) {
-	ss := newStreamState(&protos.GetWorkItemsRequest{
+	ss := newStreamState("s1", &protos.GetWorkItemsRequest{
 		Capabilities: []protos.WorkerCapability{protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY},
 	})
 	req := workflowReq("a", 5, 2)
@@ -83,7 +85,7 @@ func TestApplyStatefulHistory_FirstTurnSendsFullThenWarms(t *testing.T) {
 }
 
 func TestApplyStatefulHistory_SubsequentTurnSendsDelta(t *testing.T) {
-	ss := newStreamState(&protos.GetWorkItemsRequest{
+	ss := newStreamState("s1", &protos.GetWorkItemsRequest{
 		Capabilities: []protos.WorkerCapability{protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY},
 	})
 
@@ -104,7 +106,7 @@ func TestApplyStatefulHistory_SubsequentTurnSendsDelta(t *testing.T) {
 }
 
 func TestApplyStatefulHistory_PerInstanceIsolation(t *testing.T) {
-	ss := newStreamState(&protos.GetWorkItemsRequest{
+	ss := newStreamState("s1", &protos.GetWorkItemsRequest{
 		Capabilities: []protos.WorkerCapability{protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY},
 	})
 
@@ -122,7 +124,7 @@ func TestApplyStatefulHistory_PerInstanceIsolation(t *testing.T) {
 func TestApplyStatefulHistory_ShrinkingHistoryFallsBackToFull(t *testing.T) {
 	// A continue-as-new resets the committed history to a shorter list. The warm
 	// count is now larger than the current history, so we must not send a delta.
-	ss := newStreamState(&protos.GetWorkItemsRequest{
+	ss := newStreamState("s1", &protos.GetWorkItemsRequest{
 		Capabilities: []protos.WorkerCapability{protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY},
 	})
 
@@ -138,7 +140,7 @@ func TestApplyStatefulHistory_ShrinkingHistoryFallsBackToFull(t *testing.T) {
 }
 
 func TestApplyStatefulHistory_BoundsWarmMap(t *testing.T) {
-	ss := newStreamState(&protos.GetWorkItemsRequest{
+	ss := newStreamState("s1", &protos.GetWorkItemsRequest{
 		Capabilities: []protos.WorkerCapability{protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY},
 	})
 	ss.maxWarm = 16
@@ -149,4 +151,86 @@ func TestApplyStatefulHistory_BoundsWarmMap(t *testing.T) {
 
 	assert.LessOrEqual(t, len(ss.warm), ss.maxWarm+1,
 		"warm map must stay bounded as new instances are dispatched")
+}
+
+// streamsWith builds a grpcExecutor whose stream registry holds the given streams,
+// for exercising affinity owner selection.
+func streamsWith(ss ...*streamState) *grpcExecutor {
+	g := &grpcExecutor{streams: &sync.Map{}}
+	for _, s := range ss {
+		g.streams.Store(s.id, s)
+	}
+	return g
+}
+
+func capableStream(id string) *streamState {
+	return newStreamState(id, &protos.GetWorkItemsRequest{
+		Capabilities: []protos.WorkerCapability{protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY},
+	})
+}
+
+func TestAffinityStreamOwner_Deterministic(t *testing.T) {
+	g := streamsWith(capableStream("s1"), capableStream("s2"), capableStream("s3"))
+
+	owner := g.affinityStreamOwner("inst-1")
+	require.NotNil(t, owner)
+	// Stable across repeated lookups regardless of map iteration order.
+	for i := 0; i < 50; i++ {
+		assert.Same(t, owner, g.affinityStreamOwner("inst-1"))
+	}
+}
+
+func TestAffinityStreamOwner_DistributesAcrossStreams(t *testing.T) {
+	g := streamsWith(capableStream("s1"), capableStream("s2"), capableStream("s3"))
+
+	owners := map[string]struct{}{}
+	for i := 0; i < 200; i++ {
+		owner := g.affinityStreamOwner(api.InstanceID("inst-" + strconv.Itoa(i)))
+		require.NotNil(t, owner)
+		owners[owner.id] = struct{}{}
+	}
+	assert.Len(t, owners, 3, "every stream should own some share of the instances")
+}
+
+func TestAffinityStreamOwner_SkipsNonCapableStreams(t *testing.T) {
+	capable := capableStream("capable")
+	g := streamsWith(capable, newStreamState("plain", &protos.GetWorkItemsRequest{}))
+
+	for i := 0; i < 50; i++ {
+		owner := g.affinityStreamOwner(api.InstanceID("inst-" + strconv.Itoa(i)))
+		require.NotNil(t, owner)
+		assert.Equal(t, "capable", owner.id, "only stateful-history-capable streams may own an instance")
+	}
+}
+
+func TestAffinityStreamOwner_NilWhenNoCapableStream(t *testing.T) {
+	g := streamsWith(newStreamState("plain", &protos.GetWorkItemsRequest{}))
+	assert.Nil(t, g.affinityStreamOwner("inst-1"))
+
+	empty := &grpcExecutor{streams: &sync.Map{}}
+	assert.Nil(t, empty.affinityStreamOwner("inst-1"))
+}
+
+// TestAffinityStreamOwner_MinimalRemapOnMembershipChange is the property that motivates
+// rendezvous hashing over modulo-over-index: removing one stream must leave the owner of
+// instances that did not belong to it unchanged (only its instances remap).
+func TestAffinityStreamOwner_MinimalRemapOnMembershipChange(t *testing.T) {
+	s1, s2, s3 := capableStream("s1"), capableStream("s2"), capableStream("s3")
+	before := streamsWith(s1, s2, s3)
+
+	ownerBefore := map[string]string{}
+	for i := 0; i < 300; i++ {
+		iid := api.InstanceID("inst-" + strconv.Itoa(i))
+		ownerBefore[string(iid)] = before.affinityStreamOwner(iid).id
+	}
+
+	// Drop s3; only instances previously owned by s3 may move.
+	after := streamsWith(s1, s2)
+	for i := 0; i < 300; i++ {
+		iid := api.InstanceID("inst-" + strconv.Itoa(i))
+		got := after.affinityStreamOwner(iid).id
+		if prev := ownerBefore[string(iid)]; prev != "s3" {
+			assert.Equal(t, prev, got, "instance %s must not remap when its owner stayed connected", iid)
+		}
+	}
 }
