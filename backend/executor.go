@@ -54,6 +54,7 @@ type grpcExecutor struct {
 	workItemQueue            chan *protos.WorkItem
 	pendingWorkflows         *sync.Map // map[api.InstanceID]*pendingWorkflow
 	pendingActivities        *sync.Map // map[string]*pendingActivity
+	streams                  *sync.Map // map[string]*streamState
 	backend                  Backend
 	logger                   Logger
 	onWorkItemConnection     func(context.Context) error
@@ -114,6 +115,7 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 		logger:            logger,
 		pendingWorkflows:  &sync.Map{},
 		pendingActivities: &sync.Map{},
+		streams:           &sync.Map{},
 	}
 
 	for _, opt := range opts {
@@ -150,11 +152,12 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 	// Worker-level routing (gRPC stream vs in-process internal executor)
 	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.InProcess.
 	// In other words, this is always the external-stream path.
-	select {
-	case <-ctx.Done():
+	//
+	// The item prefers the stream that owns this instance under affinity (so the next
+	// turn can be a delta), falling back to any connected stream.
+	if err := executor.dispatchWorkflowWorkItem(ctx, iid, workItem); err != nil {
 		executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
-		return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", ctx.Err())
-	case executor.workItemQueue <- workItem:
+		return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", err)
 	}
 
 	resp, err := wait(ctx)
@@ -296,6 +299,13 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 
 	streamID := uuid.NewString()
 
+	// Track per-stream state (advertised capabilities and, for stateful-history
+	// workers, which instances this stream is warm for). Discarded on disconnect
+	// so the next turn for those instances falls back to a full history send.
+	ss := newStreamState(streamID, req)
+	g.streams.Store(streamID, ss)
+	defer g.streams.Delete(streamID)
+
 	// There are some cases where the app may need to be notified when a client connects to fetch work items, like
 	// for auto-starting the worker. The app also has an opportunity to set itself as unavailable by returning an error.
 	if err := g.executeOnWorkItemConnection(stream.Context()); err != nil {
@@ -351,42 +361,68 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 	}()
 
 	// The worker client invokes this method, which streams back work-items as they arrive.
+	// Items reach this stream either by affinity (its own ss.ch) or off the shared queue
+	// (work not pinned to a warm stream, plus all activities).
 	for {
 		select {
 		case <-stream.Context().Done():
 			g.logger.Info("work item stream closed")
 			return nil
+		case wi := <-ss.ch:
+			if err := g.dispatchToStream(stream, streamID, ss, wi, ch, errCh); err != nil {
+				return err
+			}
 		case wi, ok := <-g.workItemQueue:
 			if !ok {
 				continue
 			}
-
-			switch x := wi.Request.(type) {
-			case *protos.WorkItem_WorkflowRequest:
-				key := x.WorkflowRequest.GetInstanceId()
-				if value, ok := g.pendingWorkflows.Load(api.InstanceID(key)); ok {
-					if p, ok := value.(*pendingWorkflow); ok {
-						p.streamID = streamID
-					}
-				}
-			case *protos.WorkItem_ActivityRequest:
-				key := GetActivityExecutionKey(x.ActivityRequest.GetWorkflowInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
-				if value, ok := g.pendingActivities.Load(key); ok {
-					if p, ok := value.(*pendingActivity); ok {
-						p.streamID = streamID
-					}
-				}
-			}
-
-			if err := g.sendWorkItem(stream, wi, ch, errCh); err != nil {
-				g.logger.Errorf("encountered an error while sending work item: %v", err)
+			if err := g.dispatchToStream(stream, streamID, ss, wi, ch, errCh); err != nil {
 				return err
 			}
-
 		case <-g.streamShutdownChan:
 			return errShuttingDown
 		}
 	}
+}
+
+// dispatchToStream stamps the owning stream on the pending item, applies the
+// stateful-history delta rewrite when the receiving stream is warm for the instance, and
+// sends the work item. It runs for items arriving by affinity (ss.ch) or off the shared
+// queue, so the same stream that physically sends an item is the one recorded for
+// disconnect cleanup and the one whose warm set governs the delta decision.
+func (g *grpcExecutor) dispatchToStream(
+	stream protos.TaskHubSidecarService_GetWorkItemsServer,
+	streamID string,
+	ss *streamState,
+	wi *protos.WorkItem,
+	ch chan *protos.WorkItem,
+	errCh chan error,
+) error {
+	switch x := wi.Request.(type) {
+	case *protos.WorkItem_WorkflowRequest:
+		key := x.WorkflowRequest.GetInstanceId()
+		if value, ok := g.pendingWorkflows.Load(api.InstanceID(key)); ok {
+			if p, ok := value.(*pendingWorkflow); ok {
+				p.streamID = streamID
+			}
+		}
+		// If this stream retains instance history between turns, omit the
+		// committed history prefix it already holds and send only the delta.
+		ss.applyStatefulHistory(x.WorkflowRequest)
+	case *protos.WorkItem_ActivityRequest:
+		key := GetActivityExecutionKey(x.ActivityRequest.GetWorkflowInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
+		if value, ok := g.pendingActivities.Load(key); ok {
+			if p, ok := value.(*pendingActivity); ok {
+				p.streamID = streamID
+			}
+		}
+	}
+
+	if err := g.sendWorkItem(stream, wi, ch, errCh); err != nil {
+		g.logger.Errorf("encountered an error while sending work item: %v", err)
+		return err
+	}
+	return nil
 }
 
 func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkItemsServer, wi *protos.WorkItem,
