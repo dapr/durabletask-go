@@ -259,30 +259,31 @@ type childWorkflowRef struct {
 	Router     *protos.TaskRouter
 }
 
-// terminateChildWorkflowInstances submits termination requests to child workflows if [et.Recurse] is true.
-func terminateChildWorkflowInstances(ctx context.Context, be Backend, iid api.InstanceID, state *WorkflowRuntimeState, et *protos.ExecutionTerminatedEvent) error {
+// appendCascadeTerminateMessages appends one ExecutionTerminated pending
+// message per child workflow to the runtime state if [et.Recurse] is true.
+// The backend delivers these when completing the work item, so a failed
+// child delivery cannot abort the parent's own completion and strand it in
+// RUNNING.
+func appendCascadeTerminateMessages(state *WorkflowRuntimeState, et *protos.ExecutionTerminatedEvent) {
 	if !et.Recurse {
-		return nil
+		return
 	}
-	childWorkflowInstances := getChildWorkflowInstances(state.OldEvents, state.NewEvents)
-	for _, child := range childWorkflowInstances {
-		e := &protos.HistoryEvent{
-			EventId:   -1,
-			Timestamp: timestamppb.Now(),
-			EventType: &protos.HistoryEvent_ExecutionTerminated{
-				ExecutionTerminated: &protos.ExecutionTerminatedEvent{
-					Input:   et.Input,
-					Recurse: et.Recurse,
+	for _, child := range getChildWorkflowInstances(state.OldEvents, state.NewEvents) {
+		state.PendingMessages = append(state.PendingMessages, &protos.WorkflowRuntimeStateMessage{
+			TargetInstanceId: string(child.InstanceID),
+			HistoryEvent: &protos.HistoryEvent{
+				EventId:   -1,
+				Timestamp: timestamppb.Now(),
+				EventType: &protos.HistoryEvent_ExecutionTerminated{
+					ExecutionTerminated: &protos.ExecutionTerminatedEvent{
+						Input:   et.Input,
+						Recurse: et.Recurse,
+					},
 				},
+				Router: child.Router,
 			},
-			Router: child.Router,
-		}
-		// Adding terminate event to child workflow instance
-		if err := be.AddNewWorkflowEvent(ctx, child.InstanceID, e); err != nil {
-			return fmt.Errorf("failed to submit termination request to child workflow: %w", err)
-		}
+		})
 	}
-	return nil
 }
 
 // getChildWorkflowInstances returns each child workflow recorded in the given

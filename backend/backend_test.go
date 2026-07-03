@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
@@ -374,4 +375,39 @@ func TestPurgeWorkflowState_Recursive_ForceBypassesIsCompleted(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, count)
 	assert.Equal(t, []api.InstanceID{childID, parentID}, be.purgeCalls)
+}
+
+func TestAppendCascadeTerminateMessages_EmitsPendingMessagePerChild(t *testing.T) {
+	state := &WorkflowRuntimeState{
+		OldEvents: []*HistoryEvent{childCreatedEvent("child-old", nil)},
+		NewEvents: []*HistoryEvent{childCreatedEvent("child-new", ptr.Of("other-ns"))},
+	}
+
+	appendCascadeTerminateMessages(state, &protos.ExecutionTerminatedEvent{
+		Input:   wrapperspb.String("reason"),
+		Recurse: true,
+	})
+
+	require.Len(t, state.PendingMessages, 2)
+	byTarget := make(map[string]*protos.WorkflowRuntimeStateMessage, 2)
+	for _, msg := range state.PendingMessages {
+		byTarget[msg.GetTargetInstanceId()] = msg
+	}
+	for _, target := range []string{"child-old", "child-new"} {
+		msg, ok := byTarget[target]
+		require.True(t, ok, "missing pending message for %s", target)
+		et := msg.GetHistoryEvent().GetExecutionTerminated()
+		require.NotNil(t, et)
+		assert.True(t, et.GetRecurse())
+		assert.Equal(t, "reason", et.GetInput().GetValue())
+	}
+	assert.Equal(t, "other-ns", byTarget["child-new"].GetHistoryEvent().GetRouter().GetTargetAppNamespace())
+}
+
+func TestAppendCascadeTerminateMessages_NonRecursiveIsNoOp(t *testing.T) {
+	state := &WorkflowRuntimeState{
+		OldEvents: []*HistoryEvent{childCreatedEvent("child", nil)},
+	}
+	appendCascadeTerminateMessages(state, &protos.ExecutionTerminatedEvent{Recurse: false})
+	assert.Empty(t, state.PendingMessages)
 }
