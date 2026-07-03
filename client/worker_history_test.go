@@ -225,7 +225,9 @@ func TestWorkflowHistoryCache_SingleOversizedEntryKept(t *testing.T) {
 }
 
 func TestWorkflowHistoryCache_ByteAccounting(t *testing.T) {
-	cache := newWorkflowHistoryCache(workflowHistoryCacheConfig{})
+	// Byte accounting is only tracked when a budget is configured; use a large one so it
+	// is active without triggering eviction.
+	cache := newWorkflowHistoryCache(workflowHistoryCacheConfig{maxBytes: ptr.Of[int64](1 << 30)})
 
 	cache.put("a", sizedEvents(3))
 	cache.put("b", sizedEvents(2))
@@ -244,7 +246,10 @@ func TestWorkflowHistoryCache_ByteAccounting(t *testing.T) {
 
 func TestWorkflowHistoryCache_TTLSweepUpdatesBytes(t *testing.T) {
 	now := time.Unix(0, 0)
-	cache := newWorkflowHistoryCache(workflowHistoryCacheConfig{ttl: ptr.Of(time.Minute)})
+	cache := newWorkflowHistoryCache(workflowHistoryCacheConfig{
+		ttl:      ptr.Of(time.Minute),
+		maxBytes: ptr.Of[int64](1 << 30), // byte accounting is only tracked when a budget is set
+	})
 	cache.now = func() time.Time { return now }
 
 	cache.put("a", sizedEvents(3))

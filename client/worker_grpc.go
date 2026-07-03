@@ -67,7 +67,7 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 	// overwritten by the next full send anyway). A janitor reclaims idle entries
 	// for the lifetime of this listener.
 	historyCache := newWorkflowHistoryCache(c.historyCacheConfig)
-	if !c.statefulHistoryDisabled {
+	if c.statefulHistoryEnabled() {
 		go historyCache.runJanitor(ctx)
 	}
 
@@ -78,7 +78,7 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 		}
 
 		req := protos.GetWorkItemsRequest{}
-		if !c.statefulHistoryDisabled {
+		if c.statefulHistoryEnabled() {
 			req.Capabilities = []protos.WorkerCapability{
 				protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY,
 			}
@@ -234,7 +234,7 @@ func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 	// not-yet-committed NewEvents). Drop it once the instance completes or
 	// continues-as-new, since its history no longer extends this prefix. Skipped
 	// entirely when the stateful-history optimization is disabled.
-	if err == nil && !c.statefulHistoryDisabled {
+	if err == nil && c.statefulHistoryEnabled() {
 		if workflowHistoryReset(results) {
 			historyCache.delete(iid)
 		} else {

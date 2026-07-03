@@ -26,6 +26,12 @@ type TaskHubGrpcClient struct {
 	statefulHistoryDisabled bool
 }
 
+// statefulHistoryEnabled reports whether the stateful-history optimization is active,
+// avoiding a double negative at the call sites.
+func (c *TaskHubGrpcClient) statefulHistoryEnabled() bool {
+	return !c.statefulHistoryDisabled
+}
+
 // TaskHubGrpcClientOption configures a TaskHubGrpcClient.
 type TaskHubGrpcClientOption func(*TaskHubGrpcClient)
 

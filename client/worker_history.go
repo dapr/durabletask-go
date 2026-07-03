@@ -97,15 +97,16 @@ func workflowHistoryReset(resp *protos.WorkflowResponse) bool {
 type cachedWorkflowHistory struct {
 	events     []*protos.HistoryEvent
 	lastAccess time.Time
-	bytes      int
+	bytes      int64
 }
 
 // historyBytes returns the serialized size of a history, used as a proxy for its
-// memory footprint when enforcing the cache's byte budget.
-func historyBytes(events []*protos.HistoryEvent) int {
-	total := 0
+// memory footprint when enforcing the cache's byte budget. It is only computed when a
+// byte budget is configured, since it walks and sizes the whole history.
+func historyBytes(events []*protos.HistoryEvent) int64 {
+	var total int64
 	for _, e := range events {
-		total += proto.Size(e)
+		total += int64(proto.Size(e))
 	}
 	return total
 }
@@ -166,12 +167,20 @@ func (h *workflowHistoryCache) get(iid api.InstanceID) ([]*protos.HistoryEvent, 
 func (h *workflowHistoryCache) put(iid api.InstanceID, events []*protos.HistoryEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if old, ok := h.entries[iid]; ok {
-		h.totalBytes -= int64(old.bytes)
+
+	// Only measure the serialized size when a byte budget is configured. On the default
+	// (unbounded) path this avoids re-serializing the whole history every turn, which
+	// would reintroduce the full-history serialization cost this cache exists to avoid.
+	var size int64
+	if h.maxBytes > 0 {
+		size = historyBytes(events)
 	}
-	size := historyBytes(events)
+
+	if old, ok := h.entries[iid]; ok {
+		h.totalBytes -= old.bytes
+	}
 	h.entries[iid] = &cachedWorkflowHistory{events: events, lastAccess: h.now(), bytes: size}
-	h.totalBytes += int64(size)
+	h.totalBytes += size
 	h.evictToFit(iid)
 }
 
@@ -211,7 +220,7 @@ func (h *workflowHistoryCache) lruExcept(keep api.InstanceID) (api.InstanceID, b
 
 func (h *workflowHistoryCache) removeEntry(iid api.InstanceID) {
 	if e, ok := h.entries[iid]; ok {
-		h.totalBytes -= int64(e.bytes)
+		h.totalBytes -= e.bytes
 		delete(h.entries, iid)
 	}
 }
