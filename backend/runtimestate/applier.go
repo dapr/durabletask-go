@@ -96,7 +96,20 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 					Router: action.Router,
 				})
 
-				// Duplicate the start event info, updating just the input
+				// Duplicate the start event info, updating just the input.
+				// ParentTraceContext is reset to a fresh root when the prior
+				// generation was traced. Copying the previous generation's
+				// ParentTraceContext caused every generation of an eternal
+				// ContinueAsNew workflow to re-parent its span off the very
+				// first generation's trace and produce an unbounded single
+				// trace that kept accumulating spans across every iteration
+				// (dapr/dapr#10064). If the workflow was not being traced
+				// (prior ParentTraceContext was nil), leave it nil so we do
+				// not introduce tracing where the caller opted out.
+				var newParentTraceContext *protos.TraceContext
+				if s.StartEvent.ParentTraceContext != nil {
+					newParentTraceContext = helpers.NewRootTraceContext()
+				}
 				_ = AddEvent(newState,
 					&protos.HistoryEvent{
 						EventId:   -1,
@@ -110,7 +123,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 									InstanceId:  s.InstanceId,
 									ExecutionId: wrapperspb.String(uuid.New().String()),
 								},
-								ParentTraceContext: s.StartEvent.ParentTraceContext,
+								ParentTraceContext: newParentTraceContext,
 							},
 						},
 						Router: action.Router,
