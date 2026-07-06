@@ -627,6 +627,15 @@ func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Du
 			fireAt = externalEventIndefiniteFireAt
 		}
 		ctx.createExternalEventTimerInternal(eventName, fireAt).onCompleted(func() {
+			if task.isCompleted {
+				// The event won the race: the task was already completed by
+				// onExternalEventRaised and deregistered. Nothing cancels the
+				// durable timer, so its TimerFired still arrives later; it must
+				// not cancel the delivered result, nor touch
+				// pendingExternalEventTasks, where this key may now belong to a
+				// newer waiter on the same event name.
+				return
+			}
 			task.cancel()
 			if taskList.Len() > 1 {
 				taskList.Remove(taskElement)
