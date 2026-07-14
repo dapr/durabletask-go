@@ -45,6 +45,11 @@ const maxConcurrentGets = 8
 // mandatory verification, so a misbehaving store cannot feed the workflow
 // payload bytes that do not match the (typically signed) reference.
 func Dereference(ctx context.Context, store Store, instanceID string, events []*protos.HistoryEvent) ([]*protos.HistoryEvent, error) {
+	// A nil store disables the feature: references pass through unresolved.
+	if store == nil {
+		return events, nil
+	}
+
 	// Find the events to resolve sequentially - the scan is cheap - then
 	// fan out the store reads, which may be remote I/O.
 	type job struct {
@@ -99,6 +104,11 @@ func Dereference(ctx context.Context, store Store, instanceID string, events []*
 // unchanged. Use it for single payload values outside of history events,
 // such as the input/output fields of workflow metadata.
 func Resolve(ctx context.Context, store Store, instanceID, s string) (string, bool, error) {
+	// A nil store disables the feature: references pass through unresolved.
+	if store == nil {
+		return s, false, nil
+	}
+
 	ref, err := DecodeReference(s)
 	if err != nil {
 		return s, false, nil

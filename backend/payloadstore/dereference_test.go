@@ -231,3 +231,31 @@ func TestResolve(t *testing.T) {
 		require.ErrorContains(t, err, "checksum")
 	})
 }
+
+// A nil store disables the feature entirely: references pass through
+// unresolved instead of panicking, per the package contract.
+func TestDereferenceNilStore(t *testing.T) {
+	t.Parallel()
+
+	backing := fake.New()
+	events := []*protos.HistoryEvent{offloaded(t, backing, 0, "payload")}
+	encoded := events[0].GetTaskCompleted().GetResult().GetValue()
+
+	out, err := payloadstore.Dereference(t.Context(), nil, "wf1", events)
+	require.NoError(t, err)
+	assert.Equal(t, encoded, out[0].GetTaskCompleted().GetResult().GetValue())
+}
+
+func TestResolveNilStore(t *testing.T) {
+	t.Parallel()
+
+	backing := fake.New()
+	ref, err := backing.Put(t.Context(), "wf1", []byte("payload"))
+	require.NoError(t, err)
+	encoded := payloadstore.EncodeReference(ref)
+
+	got, resolved, err := payloadstore.Resolve(t.Context(), nil, "wf1", encoded)
+	require.NoError(t, err)
+	assert.False(t, resolved)
+	assert.Equal(t, encoded, got)
+}
