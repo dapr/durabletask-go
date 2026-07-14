@@ -60,7 +60,11 @@ func Init(ctx context.Context, r *task.TaskRegistry) (backend.TaskHubClient, bac
 		Executor: executor,
 		Logger:   logger,
 	})
-	activityWorker := backend.NewActivityTaskWorker(be, executor, logger)
+	activityWorker := backend.NewActivityWorker(backend.ActivityWorkerOptions{
+		Backend:  be,
+		Executor: executor,
+		Logger:   logger,
+	})
 	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 
 	// Start the worker

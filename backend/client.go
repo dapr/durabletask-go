@@ -14,6 +14,7 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend/payloadstore"
 )
 
 type TaskHubClient interface {
@@ -30,13 +31,33 @@ type TaskHubClient interface {
 }
 
 type backendClient struct {
-	be Backend
+	be           Backend
+	payloadStore payloadstore.Store
+	logger       Logger
 }
 
-func NewTaskHubClient(be Backend) TaskHubClient {
-	return &backendClient{
+// TaskHubClientOption configures NewTaskHubClient.
+type TaskHubClientOption func(*backendClient)
+
+// WithClientPayloadStore makes the client resolve offloaded payload
+// references in workflow metadata (FetchWorkflowMetadata and the
+// WaitForWorkflow* calls) back to full payloads, best-effort. Resolution
+// failures are logged through logger when non-nil.
+func WithClientPayloadStore(store payloadstore.Store, logger Logger) TaskHubClientOption {
+	return func(c *backendClient) {
+		c.payloadStore = store
+		c.logger = logger
+	}
+}
+
+func NewTaskHubClient(be Backend, opts ...TaskHubClientOption) TaskHubClient {
+	c := &backendClient{
 		be: be,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interface{}, opts ...api.NewWorkflowOptions) (api.InstanceID, error) {
@@ -92,6 +113,7 @@ func (c *backendClient) FetchWorkflowMetadata(ctx context.Context, id api.Instan
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch workflow metadata: %w", err)
 	}
+	resolveMetadataPayloads(ctx, c.payloadStore, c.logger, metadata)
 	return metadata, nil
 }
 
@@ -120,6 +142,9 @@ func (c *backendClient) waitForWorkflowCondition(ctx context.Context, id api.Ins
 		return condition(m)
 	})
 
+	// Resolve once on the final metadata rather than on every status
+	// update observed while waiting.
+	resolveMetadataPayloads(ctx, c.payloadStore, c.logger, metadata)
 	return metadata, err
 }
 

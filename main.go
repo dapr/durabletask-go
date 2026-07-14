@@ -52,7 +52,11 @@ func createTaskHubWorker(server *grpc.Server, sqliteFilePath string, logger back
 		Logger:   logger,
 		AppID:    "example",
 	})
-	activityWorker := backend.NewActivityTaskWorker(be, executor, logger)
+	activityWorker := backend.NewActivityWorker(backend.ActivityWorkerOptions{
+		Backend:  be,
+		Executor: executor,
+		Logger:   logger,
+	})
 	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 	return taskHubWorker
 }

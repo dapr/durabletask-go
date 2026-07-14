@@ -11,6 +11,7 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend/payloadstore"
 )
 
 type activityProcessor struct {
@@ -18,33 +19,38 @@ type activityProcessor struct {
 	executor            ActivityExecutor
 	inProcessExecutor   ActivityExecutor
 	inProcessNamePrefix string
+	payloadStore        payloadstore.Store
 }
 
 type ActivityExecutor interface {
 	ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error)
 }
 
-// NewActivityTaskWorker constructs an activity worker.
-func NewActivityTaskWorker(be Backend, executor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
-	processor := newActivityProcessor(be, executor, nil, "")
-	return NewTaskWorker(processor, logger, opts...)
+// ActivityWorkerOptions configures NewActivityWorker.
+type ActivityWorkerOptions struct {
+	Backend  Backend
+	Executor ActivityExecutor
+	Logger   Logger
+	// InProcessExecutor dispatches activities whose name has
+	// InProcessNamePrefix as a prefix; an empty prefix disables it.
+	InProcessExecutor   ActivityExecutor
+	InProcessNamePrefix string
+	// PayloadStore, when non-nil, resolves a payload-store reference in
+	// the activity input back to the payload before it is handed to the
+	// executor. Nil disables dereferencing.
+	PayloadStore payloadstore.Store
 }
 
-// NewActivityTaskWorkerWithInProcess constructs an activity worker that dispatches
-// activities whose name starts with inProcessNamePrefix to inProcessExecutor.
-// An empty prefix disables in-process dispatch.
-func NewActivityTaskWorkerWithInProcess(be Backend, executor, inProcessExecutor ActivityExecutor, inProcessNamePrefix string, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
-	processor := newActivityProcessor(be, executor, inProcessExecutor, inProcessNamePrefix)
-	return NewTaskWorker(processor, logger, opts...)
-}
-
-func newActivityProcessor(be Backend, executor, inProcessExecutor ActivityExecutor, inProcessNamePrefix string) TaskProcessor[*ActivityWorkItem] {
-	return &activityProcessor{
-		be:                  be,
-		executor:            executor,
-		inProcessExecutor:   inProcessExecutor,
-		inProcessNamePrefix: inProcessNamePrefix,
+// NewActivityWorker constructs an activity worker.
+func NewActivityWorker(opts ActivityWorkerOptions, taskopts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
+	processor := &activityProcessor{
+		be:                  opts.Backend,
+		executor:            opts.Executor,
+		inProcessExecutor:   opts.InProcessExecutor,
+		inProcessNamePrefix: opts.InProcessNamePrefix,
+		payloadStore:        opts.PayloadStore,
 	}
+	return NewTaskWorker(processor, opts.Logger, taskopts...)
 }
 
 // Name implements TaskProcessor
@@ -89,7 +95,21 @@ func (p *activityProcessor) ProcessWorkItem(ctx context.Context, awi *ActivityWo
 	if p.inProcessExecutor != nil && p.inProcessNamePrefix != "" && strings.HasPrefix(ts.GetName(), p.inProcessNamePrefix) {
 		executor = p.inProcessExecutor
 	}
-	result, err := executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent, execOpts)
+	// Resolve an offloaded input on a copy of the event so the executor
+	// sees the full payload while the work item keeps its reference.
+	event := awi.NewEvent
+	if p.payloadStore != nil {
+		events, derr := payloadstore.Dereference(ctx, p.payloadStore, string(awi.InstanceID), []*protos.HistoryEvent{event})
+		if derr != nil {
+			if span != nil {
+				span.RecordError(derr)
+				span.SetStatus(codes.Error, derr.Error())
+			}
+			return fmt.Errorf("failed to resolve offloaded activity input: %w", derr)
+		}
+		event = events[0]
+	}
+	result, err := executor.ExecuteActivity(ctx, awi.InstanceID, event, execOpts)
 	if err != nil {
 		if span != nil {
 			span.RecordError(err)
