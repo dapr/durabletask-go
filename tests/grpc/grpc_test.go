@@ -15,7 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
@@ -339,6 +341,53 @@ func Test_Grpc_ReuseInstanceIDError(t *testing.T) {
 	if assert.Error(t, err) {
 		assert.Contains(t, err.Error(), "orchestration instance already exists")
 	}
+}
+
+func Test_Grpc_EnforceUniqueInstanceID(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("SingleActivity", func(ctx *task.WorkflowContext) (any, error) {
+		var input string
+		if err := ctx.GetInput(&input); err != nil {
+			return nil, err
+		}
+		var output string
+		err := ctx.CallActivity("SayHello", task.WithActivityInput(input)).Await(&output)
+		return output, err
+	})
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
+		var name string
+		if err := ctx.GetInput(&name); err != nil {
+			return nil, err
+		}
+		return fmt.Sprintf("Hello, %s!", name), nil
+	})
+
+	cancelListener := startGrpcListener(t, r)
+	defer cancelListener()
+	instanceID := api.InstanceID("GRPC_ENFORCE_UNIQUE_INSTANCE_ID")
+
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
+	require.NoError(t, err)
+
+	// Scheduling again with the flag while the instance is active fails
+	// with an ALREADY_EXISTS error
+	_, err = grpcClient.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id), api.WithEnforceUniqueInstanceID())
+	require.Error(t, err)
+	assert.Equal(t, codes.AlreadyExists, status.Code(err), err)
+
+	metadata, err := grpcClient.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, `"Hello, 世界!"`, metadata.Output.GetValue())
+
+	// Scheduling again with the flag after completion also fails and does
+	// not restart the completed instance
+	_, err = grpcClient.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id), api.WithEnforceUniqueInstanceID())
+	require.Error(t, err)
+	assert.Equal(t, codes.AlreadyExists, status.Code(err), err)
+
+	metadata, err = grpcClient.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, `"Hello, 世界!"`, metadata.Output.GetValue())
 }
 
 func Test_Grpc_ActivityRetries(t *testing.T) {

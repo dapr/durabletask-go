@@ -435,7 +435,7 @@ func Test_GetWorkflowMetadata_StartedAt(t *testing.T) {
 				},
 			},
 		}
-		if !assert.NoError(t, be.CreateWorkflowInstance(ctx, e)) {
+		if !assert.NoError(t, be.CreateWorkflowInstance(ctx, &backend.CreateWorkflowInstanceRequest{StartEvent: e})) {
 			continue
 		}
 
@@ -603,7 +603,7 @@ func createWorkflowInstance(t assert.TestingT, be backend.Backend, instanceID st
 			},
 		},
 	}
-	err := be.CreateWorkflowInstance(ctx, e)
+	err := be.CreateWorkflowInstance(ctx, &backend.CreateWorkflowInstanceRequest{StartEvent: e})
 	return assert.NoError(t, err)
 }
 
@@ -622,7 +622,7 @@ func createChildWorkflowInstance(t assert.TestingT, be backend.Backend, instance
 			},
 		},
 	}
-	err := be.CreateWorkflowInstance(ctx, e)
+	err := be.CreateWorkflowInstance(ctx, &backend.CreateWorkflowInstanceRequest{StartEvent: e})
 	return assert.NoError(t, err)
 }
 

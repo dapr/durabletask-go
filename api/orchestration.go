@@ -102,6 +102,18 @@ func WithStartTime(startTime time.Time) NewWorkflowOptions {
 	}
 }
 
+// WithEnforceUniqueInstanceID configures scheduling to fail if an instance
+// with the same ID already exists, whether active or completed. The gRPC
+// client surfaces the failure as a gRPC ALREADY_EXISTS status, while the
+// in-process client returns an error wrapping api.ErrDuplicateInstance.
+// Without it, an existing completed instance is restarted.
+func WithEnforceUniqueInstanceID() NewWorkflowOptions {
+	return func(req *protos.CreateInstanceRequest) error {
+		req.EnforceUniqueInstanceId = true
+		return nil
+	}
+}
+
 // WithFetchPayloads configures whether to load workflow inputs, outputs, and custom status values, which could be large.
 func WithFetchPayloads(fetchPayloads bool) FetchWorkflowMetadataOptions {
 	return func(req *protos.GetInstanceRequest) {

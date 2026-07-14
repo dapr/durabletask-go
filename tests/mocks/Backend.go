@@ -452,7 +452,7 @@ func (_c *Backend_CompleteWorkflowTask_Call) RunAndReturn(run func(context.Conte
 }
 
 // CreateWorkflowInstance provides a mock function with given fields: _a0, _a1
-func (_m *Backend) CreateWorkflowInstance(_a0 context.Context, _a1 *protos.HistoryEvent) error {
+func (_m *Backend) CreateWorkflowInstance(_a0 context.Context, _a1 *protos.CreateWorkflowInstanceRequest) error {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
@@ -460,7 +460,7 @@ func (_m *Backend) CreateWorkflowInstance(_a0 context.Context, _a1 *protos.Histo
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *protos.HistoryEvent) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *protos.CreateWorkflowInstanceRequest) error); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		r0 = ret.Error(0)
@@ -476,14 +476,14 @@ type Backend_CreateWorkflowInstance_Call struct {
 
 // CreateWorkflowInstance is a helper method to define mock.On call
 //   - _a0 context.Context
-//   - _a1 *protos.HistoryEvent
+//   - _a1 *protos.CreateWorkflowInstanceRequest
 func (_e *Backend_Expecter) CreateWorkflowInstance(_a0 interface{}, _a1 interface{}) *Backend_CreateWorkflowInstance_Call {
 	return &Backend_CreateWorkflowInstance_Call{Call: _e.mock.On("CreateWorkflowInstance", _a0, _a1)}
 }
 
-func (_c *Backend_CreateWorkflowInstance_Call) Run(run func(_a0 context.Context, _a1 *protos.HistoryEvent)) *Backend_CreateWorkflowInstance_Call {
+func (_c *Backend_CreateWorkflowInstance_Call) Run(run func(_a0 context.Context, _a1 *protos.CreateWorkflowInstanceRequest)) *Backend_CreateWorkflowInstance_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*protos.HistoryEvent))
+		run(args[0].(context.Context), args[1].(*protos.CreateWorkflowInstanceRequest))
 	})
 	return _c
 }
@@ -493,7 +493,7 @@ func (_c *Backend_CreateWorkflowInstance_Call) Return(_a0 error) *Backend_Create
 	return _c
 }
 
-func (_c *Backend_CreateWorkflowInstance_Call) RunAndReturn(run func(context.Context, *protos.HistoryEvent) error) *Backend_CreateWorkflowInstance_Call {
+func (_c *Backend_CreateWorkflowInstance_Call) RunAndReturn(run func(context.Context, *protos.CreateWorkflowInstanceRequest) error) *Backend_CreateWorkflowInstance_Call {
 	_c.Call.Return(run)
 	return _c
 }

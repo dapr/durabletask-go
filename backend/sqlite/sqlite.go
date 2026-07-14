@@ -411,10 +411,12 @@ func (be *sqliteBackend) CompleteWorkflowWorkItem(ctx context.Context, wi *backe
 }
 
 // CreateWorkflowInstance implements backend.Backend
-func (be *sqliteBackend) CreateWorkflowInstance(ctx context.Context, e *backend.HistoryEvent) error {
+func (be *sqliteBackend) CreateWorkflowInstance(ctx context.Context, req *backend.CreateWorkflowInstanceRequest) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
+
+	e := req.GetStartEvent()
 
 	tx, err := be.db.BeginTx(ctx, nil)
 	if err != nil {
