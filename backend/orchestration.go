@@ -185,9 +185,7 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 		}
 	}
 	if terminateEvent != nil && runtimestate.IsCompleted(wi.State) {
-		if err := terminateChildWorkflowInstances(ctx, w.be, wi.InstanceID, wi.State, terminateEvent); err != nil {
-			return err
-		}
+		appendCascadeTerminateMessages(wi.State, terminateEvent)
 	}
 	return nil
 }
