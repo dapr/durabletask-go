@@ -141,11 +141,14 @@ func (c *backendClient) waitForWorkflowCondition(ctx context.Context, id api.Ins
 		metadata = m
 		return condition(m)
 	})
+	if err != nil {
+		return metadata, err
+	}
 
 	// Resolve once on the final metadata rather than on every status
 	// update observed while waiting.
 	resolveMetadataPayloads(ctx, c.payloadStore, c.logger, metadata)
-	return metadata, err
+	return metadata, nil
 }
 
 // TerminateWorkflow enqueues a message to terminate a running workflow, causing it to stop receiving new events and
