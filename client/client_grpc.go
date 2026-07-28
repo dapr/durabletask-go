@@ -94,6 +94,9 @@ func (c *TaskHubGrpcClient) ScheduleNewWorkflow(ctx context.Context, workflow st
 	if req.InstanceId == "" {
 		req.InstanceId = uuid.NewString()
 	}
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return api.EmptyInstanceID, err
+	}
 
 	xspan := trace.SpanFromContext(ctx)
 	if sctx := xspan.SpanContext(); sctx.IsValid() {
@@ -119,6 +122,9 @@ func (c *TaskHubGrpcClient) ScheduleNewWorkflow(ctx context.Context, workflow st
 // api.ErrInstanceNotFound is returned when the specified workflow doesn't exist.
 func (c *TaskHubGrpcClient) FetchWorkflowMetadata(ctx context.Context, id api.InstanceID, opts ...api.FetchWorkflowMetadataOptions) (*backend.WorkflowMetadata, error) {
 	req := makeGetInstanceRequest(id, opts)
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return nil, err
+	}
 	resp, err := c.client.GetInstance(ctx, req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -134,6 +140,9 @@ func (c *TaskHubGrpcClient) FetchWorkflowMetadata(ctx context.Context, id api.In
 //
 // api.ErrInstanceNotFound is returned when the specified workflow doesn't exist.
 func (c *TaskHubGrpcClient) WaitForWorkflowStart(ctx context.Context, id api.InstanceID, opts ...api.FetchWorkflowMetadataOptions) (*backend.WorkflowMetadata, error) {
+	if err := api.ValidateTaskRouter(makeGetInstanceRequest(id, opts).GetRouter()); err != nil {
+		return nil, err
+	}
 	var resp *protos.GetInstanceResponse
 	var err error
 	err = backoff.Retry(func() error {
@@ -159,6 +168,9 @@ func (c *TaskHubGrpcClient) WaitForWorkflowStart(ctx context.Context, id api.Ins
 //
 // api.ErrInstanceNotFound is returned when the specified workflow doesn't exist.
 func (c *TaskHubGrpcClient) WaitForWorkflowCompletion(ctx context.Context, id api.InstanceID, opts ...api.FetchWorkflowMetadataOptions) (*backend.WorkflowMetadata, error) {
+	if err := api.ValidateTaskRouter(makeGetInstanceRequest(id, opts).GetRouter()); err != nil {
+		return nil, err
+	}
 	var resp *protos.GetInstanceResponse
 	var err error
 	err = backoff.Retry(func() error {
@@ -188,6 +200,9 @@ func (c *TaskHubGrpcClient) TerminateWorkflow(ctx context.Context, id api.Instan
 			return fmt.Errorf("failed to configure termination request: %w", err)
 		}
 	}
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return err
+	}
 
 	_, err := c.client.TerminateInstance(ctx, req)
 	if err != nil {
@@ -207,6 +222,9 @@ func (c *TaskHubGrpcClient) RaiseEvent(ctx context.Context, id api.InstanceID, e
 			return fmt.Errorf("failed to configure raise event request: %w", err)
 		}
 	}
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return err
+	}
 
 	if _, err := c.client.RaiseEvent(ctx, req); err != nil {
 		if ctx.Err() != nil {
@@ -220,10 +238,18 @@ func (c *TaskHubGrpcClient) RaiseEvent(ctx context.Context, id api.InstanceID, e
 // SuspendWorkflow suspends a workflow instance, halting processing of its events until a "resume" operation resumes it.
 //
 // Note that suspended workflows are still considered to be "running" even though they will not process events.
-func (c *TaskHubGrpcClient) SuspendWorkflow(ctx context.Context, id api.InstanceID, reason string) error {
+func (c *TaskHubGrpcClient) SuspendWorkflow(ctx context.Context, id api.InstanceID, reason string, opts ...api.SuspendOptions) error {
 	req := &protos.SuspendRequest{
 		InstanceId: string(id),
 		Reason:     wrapperspb.String(reason),
+	}
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return fmt.Errorf("failed to configure suspend request: %w", err)
+		}
+	}
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return err
 	}
 	if _, err := c.client.SuspendInstance(ctx, req); err != nil {
 		if ctx.Err() != nil {
@@ -235,10 +261,18 @@ func (c *TaskHubGrpcClient) SuspendWorkflow(ctx context.Context, id api.Instance
 }
 
 // ResumeWorkflow resumes a workflow instance that was previously suspended.
-func (c *TaskHubGrpcClient) ResumeWorkflow(ctx context.Context, id api.InstanceID, reason string) error {
+func (c *TaskHubGrpcClient) ResumeWorkflow(ctx context.Context, id api.InstanceID, reason string, opts ...api.ResumeOptions) error {
 	req := &protos.ResumeRequest{
 		InstanceId: string(id),
 		Reason:     wrapperspb.String(reason),
+	}
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return fmt.Errorf("failed to configure resume request: %w", err)
+		}
+	}
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return err
 	}
 	if _, err := c.client.ResumeInstance(ctx, req); err != nil {
 		if ctx.Err() != nil {
@@ -260,6 +294,9 @@ func (c *TaskHubGrpcClient) PurgeWorkflowState(ctx context.Context, id api.Insta
 		if err := configure(req); err != nil {
 			return fmt.Errorf("failed to configure purge request: %w", err)
 		}
+	}
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return err
 	}
 
 	res, err := c.client.PurgeInstances(ctx, req)
@@ -287,6 +324,9 @@ func (c *TaskHubGrpcClient) RerunWorkflowFromEvent(ctx context.Context, id api.I
 		if err := configure(req); err != nil {
 			return "", fmt.Errorf("failed to configure rerun request: %w", err)
 		}
+	}
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return "", err
 	}
 
 	resp, err := c.client.RerunWorkflowFromEvent(ctx, req)

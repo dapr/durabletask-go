@@ -490,7 +490,7 @@ func GetActivityExecutionKey(iid string, taskID int32) string {
 
 // GetInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) GetInstance(ctx context.Context, req *protos.GetInstanceRequest) (*protos.GetInstanceResponse, error) {
-	metadata, err := g.backend.GetWorkflowMetadata(ctx, api.InstanceID(req.InstanceId))
+	metadata, err := g.backend.GetWorkflowMetadata(ctx, api.InstanceID(req.InstanceId), req.GetRouter())
 	if err != nil {
 		if errors.Is(err, api.ErrInstanceNotFound) {
 			return &protos.GetInstanceResponse{Exists: false}, nil
@@ -508,9 +508,9 @@ func (g *grpcExecutor) GetInstance(ctx context.Context, req *protos.GetInstanceR
 // PurgeInstances implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInstancesRequest) (*protos.PurgeInstancesResponse, error) {
 	if req.GetPurgeInstanceFilter() != nil {
-		return nil, errors.New("multi-instance purge is not unimplemented")
+		return nil, errors.New("multi-instance purge is not implemented")
 	}
-	count, err := purgeWorkflowState(ctx, g.backend, api.InstanceID(req.GetInstanceId()), req.Recursive, req.GetForce())
+	count, err := purgeWorkflowState(ctx, g.backend, api.InstanceID(req.GetInstanceId()), req.GetRouter(), req.Recursive, req.GetForce())
 	resp := &protos.PurgeInstancesResponse{DeletedInstanceCount: int32(count)}
 	if err != nil {
 		return resp, fmt.Errorf("failed to purge workflow state: %w", err)
@@ -527,6 +527,7 @@ func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventReq
 		EventType: &protos.HistoryEvent_EventRaised{
 			EventRaised: &protos.EventRaisedEvent{Name: req.Name, Input: req.Input},
 		},
+		Router: req.GetRouter(),
 	}
 	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, err
@@ -564,13 +565,14 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
 			},
 		},
+		Router: req.GetRouter(),
 	}
 	if err := g.backend.CreateWorkflowInstance(ctx, e); err != nil {
 		return nil, fmt.Errorf("failed to create workflow instance: %w", err)
 	}
 
 	if req.ScheduledStartTimestamp == nil && !g.skipWaitForInstanceStart {
-		_, err := g.WaitForInstanceStart(ctx, &protos.GetInstanceRequest{InstanceId: instanceID})
+		_, err := g.WaitForInstanceStart(ctx, &protos.GetInstanceRequest{InstanceId: instanceID, Router: req.GetRouter()})
 		if err != nil {
 			return nil, err
 		}
@@ -589,7 +591,7 @@ func (g *grpcExecutor) RerunWorkflowFromEvent(ctx context.Context, req *protos.R
 		return nil, err
 	}
 
-	_, err = g.WaitForInstanceStart(ctx, &protos.GetInstanceRequest{InstanceId: newInstanceID.String()})
+	_, err = g.WaitForInstanceStart(ctx, &protos.GetInstanceRequest{InstanceId: newInstanceID.String(), Router: req.GetRouter()})
 	if err != nil {
 		return nil, err
 	}
@@ -616,12 +618,13 @@ func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.Termin
 				Recurse: req.Recursive,
 			},
 		},
+		Router: req.GetRouter(),
 	}
 	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, fmt.Errorf("failed to submit termination request: %w", err)
 	}
 
-	_, err := g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId})
+	_, err := g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId, Router: req.GetRouter()})
 
 	return &protos.TerminateResponse{}, err
 }
@@ -640,6 +643,7 @@ func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendR
 				Input: input,
 			},
 		},
+		Router: req.GetRouter(),
 	}
 	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, err
@@ -647,6 +651,7 @@ func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendR
 
 	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
 		InstanceId: req.InstanceId,
+		Router:     req.GetRouter(),
 	}, func(metadata *WorkflowMetadata) bool {
 		return metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_SUSPENDED ||
 			api.WorkflowMetadataIsComplete(metadata)
@@ -669,6 +674,7 @@ func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeReq
 				Input: input,
 			},
 		},
+		Router: req.GetRouter(),
 	}
 	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, err
@@ -676,6 +682,7 @@ func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeReq
 
 	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
 		InstanceId: req.InstanceId,
+		Router:     req.GetRouter(),
 	}, func(metadata *WorkflowMetadata) bool {
 		return metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING ||
 			api.WorkflowMetadataIsComplete(metadata)
@@ -700,7 +707,7 @@ func (g *grpcExecutor) waitForInstance(ctx context.Context, req *protos.GetInsta
 	iid := api.InstanceID(req.InstanceId)
 
 	var metadata *protos.WorkflowMetadata
-	err := g.backend.WatchWorkflowRuntimeStatus(ctx, iid, func(m *WorkflowMetadata) bool {
+	err := g.backend.WatchWorkflowRuntimeStatus(ctx, iid, req.GetRouter(), func(m *WorkflowMetadata) bool {
 		metadata = m
 		return condition(m)
 	})

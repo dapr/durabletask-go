@@ -155,7 +155,10 @@ func (be *postgresBackend) NextWorkflowWorkItem(ctx context.Context) (*backend.W
 	}
 }
 
-func (be *postgresBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, fn func(*backend.WorkflowMetadata) bool) error {
+func (be *postgresBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, fn func(*backend.WorkflowMetadata) bool) error {
+	if router.GetTargetAppID() != "" {
+		return errors.New("postgres backend does not support cross-app workflow status watch")
+	}
 	b := backoff.ExponentialBackOff{
 		InitialInterval:     100 * time.Millisecond,
 		MaxInterval:         10 * time.Second,
@@ -176,7 +179,7 @@ func (be *postgresBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id ap
 			}
 			return ctx.Err()
 		case <-t.C:
-			meta, err := be.GetWorkflowMetadata(ctx, id)
+			meta, err := be.GetWorkflowMetadata(ctx, id, nil)
 			if err != nil {
 				return err
 			}
@@ -727,7 +730,10 @@ func (be *postgresBackend) AddNewWorkflowEvent(ctx context.Context, iid api.Inst
 }
 
 // GetWorkflowMetadata implements backend.Backend
-func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.InstanceID) (*backend.WorkflowMetadata, error) {
+func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.InstanceID, router *protos.TaskRouter) (*backend.WorkflowMetadata, error) {
+	if router.GetTargetAppID() != "" {
+		return nil, errors.New("postgres backend does not support cross-app workflow metadata reads")
+	}
 	if err := be.ensureDB(); err != nil {
 		return nil, err
 	}
@@ -1178,9 +1184,9 @@ func (be *postgresBackend) AbandonActivityWorkItem(ctx context.Context, wi *back
 // Postgres does not model cross-app routing — a foreign router from a
 // recursive purge driver indicates a configuration mismatch. Return an error
 // in that case so the caller fails loudly.
-func (be *postgresBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool) (int, error) {
+func (be *postgresBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, recursive bool, force bool) (int, error) {
 	if router != nil && router.GetTargetAppID() != "" {
-		return 0, errors.New("postgres backend does not support cross-app recursive purge dispatch")
+		return 0, errors.New("postgres backend does not support cross-app purge dispatch")
 	}
 	if err := be.purgeWorkflowStateLocal(ctx, id, force); err != nil {
 		return 0, err

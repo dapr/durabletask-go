@@ -343,7 +343,7 @@ func Test_UninitializedBackend(t *testing.T) {
 		assert.Equal(t, err, backend.ErrNotInitialized)
 		err = be.CreateWorkflowInstance(ctx, nil)
 		assert.Equal(t, err, backend.ErrNotInitialized)
-		_, err = be.GetWorkflowMetadata(ctx, api.InstanceID(""))
+		_, err = be.GetWorkflowMetadata(ctx, api.InstanceID(""), nil)
 		assert.Equal(t, err, backend.ErrNotInitialized)
 		_, err = be.GetWorkflowRuntimeState(ctx, nil)
 		assert.Equal(t, err, backend.ErrNotInitialized)
@@ -358,7 +358,7 @@ func Test_GetNonExistingMetadata(t *testing.T) {
 	for i, be := range backends {
 		initTest(t, be, i, true)
 
-		_, err := be.GetWorkflowMetadata(ctx, api.InstanceID("bogus"))
+		_, err := be.GetWorkflowMetadata(ctx, api.InstanceID("bogus"), nil)
 		assert.ErrorIs(t, err, api.ErrInstanceNotFound)
 	}
 }
@@ -441,7 +441,7 @@ func Test_GetWorkflowMetadata_StartedAt(t *testing.T) {
 
 		// Pre-execution: instance row exists but History is empty.
 		// getStartedAt must hit the no-rows branch and StartedAt stays nil.
-		md, err := be.GetWorkflowMetadata(ctx, api.InstanceID(iid))
+		md, err := be.GetWorkflowMetadata(ctx, api.InstanceID(iid), nil)
 		if assert.NoError(t, err) {
 			assert.Nil(t, md.StartedAt, "StartedAt should be nil before the first work item is processed")
 		}
@@ -459,7 +459,7 @@ func Test_GetWorkflowMetadata_StartedAt(t *testing.T) {
 
 		// after processing the work item startAt should return a non-nil value not earlier than the time the
 		// work item was processed and not earlier than the start time
-		md, err = be.GetWorkflowMetadata(ctx, api.InstanceID(iid))
+		md, err = be.GetWorkflowMetadata(ctx, api.InstanceID(iid), nil)
 		if assert.NoError(t, err) {
 			if assert.NotNil(t, md.StartedAt, "StartedAt must be populated once History has a row") {
 				started := md.StartedAt.AsTime()
@@ -504,12 +504,12 @@ func Test_PurgeWorkflowState(t *testing.T) {
 		workItemProcessingTestLogic(t, be, getWorkflowActions, validateMetadata)
 
 		// Purge the workflow state
-		if _, err := be.PurgeWorkflowState(ctx, instanceID, nil, false); !assert.NoError(t, err) {
+		if _, err := be.PurgeWorkflowState(ctx, instanceID, nil, false, false); !assert.NoError(t, err) {
 			return
 		}
 
 		// The metadata should be gone
-		if _, err := be.GetWorkflowMetadata(ctx, instanceID); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
+		if _, err := be.GetWorkflowMetadata(ctx, instanceID, nil); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
 			return
 		}
 
@@ -522,7 +522,7 @@ func Test_PurgeWorkflowState(t *testing.T) {
 		assert.Equal(t, 0, len(state.OldEvents))
 
 		// Attempting to purge again should fail with api.ErrInstanceNotFound
-		if _, err := be.PurgeWorkflowState(ctx, instanceID, nil, false); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
+		if _, err := be.PurgeWorkflowState(ctx, instanceID, nil, false, false); !assert.ErrorIs(t, err, api.ErrInstanceNotFound) {
 			return
 		}
 	}
@@ -676,7 +676,7 @@ func processFirstWorkItem(t assert.TestingT, be backend.Backend, instanceID stri
 }
 
 func getWorkflowMetadata(t assert.TestingT, be backend.Backend, iid api.InstanceID) (*backend.WorkflowMetadata, bool) {
-	metadata, err := be.GetWorkflowMetadata(ctx, iid)
+	metadata, err := be.GetWorkflowMetadata(ctx, iid, nil)
 	if assert.NoError(t, err) && assert.NotNil(t, metadata) {
 		return metadata, assert.Equal(t, iid, api.InstanceID(metadata.InstanceId))
 	}

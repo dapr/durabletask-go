@@ -153,6 +153,9 @@ type fakePurgeBackend struct {
 	// purgeCalls records the order of be.PurgeWorkflowState calls for
 	// assertions on dispatch order.
 	purgeCalls []api.InstanceID
+
+	// onPurge, when set, observes each be.PurgeWorkflowState call's arguments.
+	onPurge func(id api.InstanceID, router *protos.TaskRouter, recursive bool, force bool)
 }
 
 func (f *fakePurgeBackend) GetWorkflowRuntimeState(_ context.Context, wi *WorkflowWorkItem) (*protos.WorkflowRuntimeState, error) {
@@ -165,8 +168,11 @@ func (f *fakePurgeBackend) GetWorkflowRuntimeState(_ context.Context, wi *Workfl
 	return s, nil
 }
 
-func (f *fakePurgeBackend) PurgeWorkflowState(_ context.Context, id api.InstanceID, _ *protos.TaskRouter, _ bool) (int, error) {
+func (f *fakePurgeBackend) PurgeWorkflowState(_ context.Context, id api.InstanceID, router *protos.TaskRouter, recursive bool, force bool) (int, error) {
 	f.purgeCalls = append(f.purgeCalls, id)
+	if f.onPurge != nil {
+		f.onPurge(id, router, recursive, force)
+	}
 	r, ok := f.purgeResults[id]
 	if !ok {
 		return 1, nil
@@ -212,7 +218,7 @@ func TestPurgeWorkflowState_Recursive_SkipsMissingSameAppChild(t *testing.T) {
 		},
 	}
 
-	count, err := purgeWorkflowState(t.Context(), be, parentID, true, false)
+	count, err := purgeWorkflowState(t.Context(), be, parentID, nil, true, false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count, "parent must still be purged when child is already gone")
 	assert.Equal(t, []api.InstanceID{parentID}, be.purgeCalls,
@@ -254,7 +260,7 @@ func TestPurgeWorkflowState_Recursive_SkipsMissingCrossAppChild(t *testing.T) {
 		},
 	}
 
-	count, err := purgeWorkflowState(t.Context(), be, parentID, true, false)
+	count, err := purgeWorkflowState(t.Context(), be, parentID, nil, true, false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count, "deleted count should reflect only the parent; the missing child contributes 0")
 	assert.Equal(t, []api.InstanceID{childID, parentID}, be.purgeCalls,
@@ -295,7 +301,7 @@ func TestPurgeWorkflowState_Recursive_PropagatesNonNotFoundChildError(t *testing
 		},
 	}
 
-	count, err := purgeWorkflowState(t.Context(), be, parentID, true, false)
+	count, err := purgeWorkflowState(t.Context(), be, parentID, nil, true, false)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, boom)
 	assert.Equal(t, 0, count)
@@ -327,7 +333,7 @@ func TestPurgeWorkflowState_Recursive_RequiresCompletedWithoutForce(t *testing.T
 		states: map[api.InstanceID]*protos.WorkflowRuntimeState{parentID: running},
 	}
 
-	count, err := purgeWorkflowState(t.Context(), be, parentID, true, false)
+	count, err := purgeWorkflowState(t.Context(), be, parentID, nil, true, false)
 	require.ErrorIs(t, err, api.ErrNotCompleted)
 	assert.Equal(t, 0, count)
 	assert.Empty(t, be.purgeCalls, "driver must not touch the backend when the root is in-progress without force")
@@ -371,7 +377,7 @@ func TestPurgeWorkflowState_Recursive_ForceBypassesIsCompleted(t *testing.T) {
 		},
 	}
 
-	count, err := purgeWorkflowState(t.Context(), be, parentID, true, true)
+	count, err := purgeWorkflowState(t.Context(), be, parentID, nil, true, true)
 	require.NoError(t, err)
 	assert.Equal(t, 2, count)
 	assert.Equal(t, []api.InstanceID{childID, parentID}, be.purgeCalls)
@@ -410,4 +416,38 @@ func TestAppendCascadeTerminateMessages_NonRecursiveIsNoOp(t *testing.T) {
 	}
 	appendCascadeTerminateMessages(state, &protos.ExecutionTerminatedEvent{Recurse: false})
 	assert.Empty(t, state.PendingMessages)
+}
+
+// TestPurgeWorkflowState_RemoteRouterDelegatesWithoutLocalWalk asserts that a
+// purge whose router targets a foreign app is delegated to the backend in a
+// single call, without reading local runtime state (which cannot see the
+// remote instance), and that the recursive flag is preserved.
+func TestPurgeWorkflowState_RemoteRouterDelegatesWithoutLocalWalk(t *testing.T) {
+	const rootID = api.InstanceID("remote-root")
+	router := &protos.TaskRouter{TargetAppID: ptr.Of("other-app")}
+
+	for _, recursive := range []bool{true, false} {
+		var gotRecursive *bool
+		be := &fakePurgeBackend{
+			// states intentionally empty: a local walk would return
+			// ErrInstanceNotFound, so success proves no walk happened.
+			purgeResults: map[api.InstanceID]struct {
+				count int
+				err   error
+			}{
+				rootID: {count: 3, err: nil},
+			},
+			onPurge: func(_ api.InstanceID, r *protos.TaskRouter, recurse bool, _ bool) {
+				require.Equal(t, "other-app", r.GetTargetAppID())
+				gotRecursive = ptr.Of(recurse)
+			},
+		}
+
+		count, err := purgeWorkflowState(t.Context(), be, rootID, router, recursive, false)
+		require.NoError(t, err)
+		assert.Equal(t, 3, count, "remote purge count must be returned as-is")
+		assert.Equal(t, []api.InstanceID{rootID}, be.purgeCalls)
+		require.NotNil(t, gotRecursive)
+		assert.Equal(t, recursive, *gotRecursive, "recursive flag must reach the delegated backend call")
+	}
 }
