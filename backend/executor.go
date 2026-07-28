@@ -508,7 +508,7 @@ func (g *grpcExecutor) GetInstance(ctx context.Context, req *protos.GetInstanceR
 // PurgeInstances implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInstancesRequest) (*protos.PurgeInstancesResponse, error) {
 	if req.GetPurgeInstanceFilter() != nil {
-		return nil, errors.New("multi-instance purge is not unimplemented")
+		return nil, errors.New("multi-instance purge is not implemented")
 	}
 	count, err := purgeWorkflowState(ctx, g.backend, api.InstanceID(req.GetInstanceId()), req.GetRouter(), req.Recursive, req.GetForce())
 	resp := &protos.PurgeInstancesResponse{DeletedInstanceCount: int32(count)}

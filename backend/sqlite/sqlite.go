@@ -1124,7 +1124,7 @@ func (be *sqliteBackend) AbandonActivityWorkItem(ctx context.Context, wi *backen
 // in that case so the caller fails loudly.
 func (be *sqliteBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, recursive bool, force bool) (int, error) {
 	if router != nil && router.GetTargetAppID() != "" {
-		return 0, errors.New("sqlite backend does not support cross-app recursive purge dispatch")
+		return 0, errors.New("sqlite backend does not support cross-app purge dispatch")
 	}
 	if err := be.purgeWorkflowStateLocal(ctx, id, force); err != nil {
 		return 0, err

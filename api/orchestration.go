@@ -318,9 +318,8 @@ func WithResumeAppID(appID string) ResumeOptions {
 }
 
 // WithPurgeAppID targets the purge at the workflow instance owned by the app
-// with the given app ID rather than the local app. Cross-app purges are
-// delegated to the target app in full, so they are always recursive on the
-// remote side.
+// with the given app ID rather than the local app. The purge is delegated to
+// the target app, which honours the caller's recursive flag.
 func WithPurgeAppID(appID string) PurgeOptions {
 	return func(req *protos.PurgeInstancesRequest) error {
 		req.Router = routerWithTargetAppID(req.GetRouter(), appID)

@@ -1186,7 +1186,7 @@ func (be *postgresBackend) AbandonActivityWorkItem(ctx context.Context, wi *back
 // in that case so the caller fails loudly.
 func (be *postgresBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, recursive bool, force bool) (int, error) {
 	if router != nil && router.GetTargetAppID() != "" {
-		return 0, errors.New("postgres backend does not support cross-app recursive purge dispatch")
+		return 0, errors.New("postgres backend does not support cross-app purge dispatch")
 	}
 	if err := be.purgeWorkflowStateLocal(ctx, id, force); err != nil {
 		return 0, err
