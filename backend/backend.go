@@ -86,12 +86,18 @@ type Backend interface {
 	// the OrchestrtionMetadata, receiving events as and when the state changes.
 	// When the given condition is true, returns.
 	// Used over polling the metadata.
-	WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, condition func(*WorkflowMetadata) bool) error
+	// A nil router or one whose TargetAppID is empty or the local app watches
+	// the local instance. A foreign TargetAppID delegates the watch to the
+	// owning app; backends without cross-app support return an error.
+	WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, condition func(*WorkflowMetadata) bool) error
 
 	// GetWorkflowMetadata gets the metadata associated with the given workflow instance ID.
+	// A nil router or one whose TargetAppID is empty or the local app reads the
+	// local instance. A foreign TargetAppID delegates the read to the owning
+	// app; backends without cross-app support return an error.
 	//
 	// Returns [api.ErrInstanceNotFound] if the workflow instance doesn't exist.
-	GetWorkflowMetadata(context.Context, api.InstanceID) (*WorkflowMetadata, error)
+	GetWorkflowMetadata(ctx context.Context, id api.InstanceID, router *protos.TaskRouter) (*WorkflowMetadata, error)
 
 	// CompleteWorkflowWorkItem completes a work item by saving the updated runtime state to durable storage.
 	//
@@ -120,15 +126,16 @@ type Backend interface {
 	AbandonActivityWorkItem(context.Context, *ActivityWorkItem) error
 
 	// PurgeWorkflowState deletes saved workflow state. When router is nil or
-	// targets the local app, this is a single-instance purge of id and the
-	// returned count is 1 on success. When router carries a foreign TargetAppID
-	// set by the recursive purge driver for a child started cross-app the
-	// backend is expected to delegate the entire recursive purge of that subtree
-	// to the target app (the local recursion stops walking through it) and
-	// return the number of instances purged on the remote side.
+	// targets the local app, this is a single-instance purge of id (recursive
+	// is ignored, the driver walks children itself) and the returned count is 1
+	// on success. When router carries a foreign TargetAppID the backend is
+	// expected to delegate the purge to the target app and return the number of
+	// instances purged on the remote side: recursively for the whole subtree
+	// when recursive is true (always the case for cross-app children reached by
+	// the recursive purge driver), or just the single instance otherwise.
 	// [api.ErrInstanceNotFound] is returned if the specified workflow instance doesn't exist.
 	// [api.ErrNotCompleted] is returned if the specified workflow instance is still running.
-	PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool) (int, error)
+	PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, recursive bool, force bool) (int, error)
 
 	// CompleteWorkflowTask completes the workflow task by saving the updated runtime state to durable storage.
 	CompleteWorkflowTask(context.Context, *protos.WorkflowResponse) error
@@ -180,7 +187,13 @@ func UnmarshalHistoryEvent(bytes []byte) (*HistoryEvent, error) {
 
 // purgeWorkflowState purges the workflow state, including child workflows if [recursive] is true.
 // Returns (deletedInstanceCount, error), where deletedInstanceCount is the number of instances deleted.
-func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, recursive bool, force bool) (int, error) {
+func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, router *protos.TaskRouter, recursive bool, force bool) (int, error) {
+	if isRemoteRouter(router) {
+		// The instance lives on another app: its state (and any descendants)
+		// cannot be walked from here, so delegate the whole purge to the
+		// backend's cross-app dispatch path.
+		return be.PurgeWorkflowState(ctx, iid, router, recursive, force)
+	}
 	deletedInstanceCount := 0
 	if recursive {
 		owi := &WorkflowWorkItem{
@@ -205,7 +218,7 @@ func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, rec
 				// Child workflow started cross-app: its state (and any further
 				// descendants) live on a different app, so delegate the entire subtree
 				// to the backend rather than trying to walk it from here.
-				count, err := be.PurgeWorkflowState(ctx, child.InstanceID, child.Router, force)
+				count, err := be.PurgeWorkflowState(ctx, child.InstanceID, child.Router, true, force)
 				deletedInstanceCount += count
 				if errors.Is(err, api.ErrInstanceNotFound) {
 					// Child was already purged out-of-band; skip and continue so
@@ -218,7 +231,7 @@ func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, rec
 				continue
 			}
 			// Same-app child: walk locally.
-			count, err := purgeWorkflowState(ctx, be, child.InstanceID, recursive, force)
+			count, err := purgeWorkflowState(ctx, be, child.InstanceID, nil, recursive, force)
 			// `count` child workflows have been successfully purged (even in case of
 			// error)
 			deletedInstanceCount += count
@@ -231,7 +244,7 @@ func purgeWorkflowState(ctx context.Context, be Backend, iid api.InstanceID, rec
 		}
 	}
 	// Purging root workflow
-	count, err := be.PurgeWorkflowState(ctx, iid, nil, force)
+	count, err := be.PurgeWorkflowState(ctx, iid, nil, false, force)
 	if err != nil {
 		return deletedInstanceCount, err
 	}

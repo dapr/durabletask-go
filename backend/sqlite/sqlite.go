@@ -604,7 +604,10 @@ func (be *sqliteBackend) AddNewWorkflowEvent(ctx context.Context, iid api.Instan
 	return nil
 }
 
-func (be *sqliteBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, fn func(*backend.WorkflowMetadata) bool) error {
+func (be *sqliteBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, fn func(*backend.WorkflowMetadata) bool) error {
+	if router.GetTargetAppID() != "" {
+		return errors.New("sqlite backend does not support cross-app workflow status watch")
+	}
 	b := backoff.ExponentialBackOff{
 		InitialInterval:     100 * time.Millisecond,
 		MaxInterval:         10 * time.Second,
@@ -625,7 +628,7 @@ func (be *sqliteBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.
 			}
 			return ctx.Err()
 		case <-t.C:
-			meta, err := be.GetWorkflowMetadata(ctx, id)
+			meta, err := be.GetWorkflowMetadata(ctx, id, nil)
 			if err != nil {
 				return err
 			}
@@ -640,7 +643,10 @@ func (be *sqliteBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.
 }
 
 // GetWorkflowMetadata implements backend.Backend
-func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.InstanceID) (*backend.WorkflowMetadata, error) {
+func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.InstanceID, router *protos.TaskRouter) (*backend.WorkflowMetadata, error) {
+	if router.GetTargetAppID() != "" {
+		return nil, errors.New("sqlite backend does not support cross-app workflow metadata reads")
+	}
 	if err := be.ensureDB(); err != nil {
 		return nil, err
 	}
@@ -1116,7 +1122,7 @@ func (be *sqliteBackend) AbandonActivityWorkItem(ctx context.Context, wi *backen
 // SQLite does not model cross-app routing — a foreign router from a
 // recursive purge driver indicates a configuration mismatch. Return an error
 // in that case so the caller fails loudly.
-func (be *sqliteBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool) (int, error) {
+func (be *sqliteBackend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, recursive bool, force bool) (int, error) {
 	if router != nil && router.GetTargetAppID() != "" {
 		return 0, errors.New("sqlite backend does not support cross-app recursive purge dispatch")
 	}

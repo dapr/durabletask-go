@@ -649,9 +649,9 @@ func (_c *Backend_GetInstanceHistory_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// GetWorkflowMetadata provides a mock function with given fields: _a0, _a1
-func (_m *Backend) GetWorkflowMetadata(_a0 context.Context, _a1 api.InstanceID) (*protos.WorkflowMetadata, error) {
-	ret := _m.Called(_a0, _a1)
+// GetWorkflowMetadata provides a mock function with given fields: _a0, _a1, _a2
+func (_m *Backend) GetWorkflowMetadata(_a0 context.Context, _a1 api.InstanceID, _a2 *protos.TaskRouter) (*protos.WorkflowMetadata, error) {
+	ret := _m.Called(_a0, _a1, _a2)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetWorkflowMetadata")
@@ -659,19 +659,19 @@ func (_m *Backend) GetWorkflowMetadata(_a0 context.Context, _a1 api.InstanceID) 
 
 	var r0 *protos.WorkflowMetadata
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID) (*protos.WorkflowMetadata, error)); ok {
-		return rf(_a0, _a1)
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, *protos.TaskRouter) (*protos.WorkflowMetadata, error)); ok {
+		return rf(_a0, _a1, _a2)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID) *protos.WorkflowMetadata); ok {
-		r0 = rf(_a0, _a1)
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, *protos.TaskRouter) *protos.WorkflowMetadata); ok {
+		r0 = rf(_a0, _a1, _a2)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*protos.WorkflowMetadata)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, api.InstanceID) error); ok {
-		r1 = rf(_a0, _a1)
+	if rf, ok := ret.Get(1).(func(context.Context, api.InstanceID, *protos.TaskRouter) error); ok {
+		r1 = rf(_a0, _a1, _a2)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -687,13 +687,14 @@ type Backend_GetWorkflowMetadata_Call struct {
 // GetWorkflowMetadata is a helper method to define mock.On call
 //   - _a0 context.Context
 //   - _a1 api.InstanceID
-func (_e *Backend_Expecter) GetWorkflowMetadata(_a0 interface{}, _a1 interface{}) *Backend_GetWorkflowMetadata_Call {
-	return &Backend_GetWorkflowMetadata_Call{Call: _e.mock.On("GetWorkflowMetadata", _a0, _a1)}
+//   - _a2 *protos.TaskRouter
+func (_e *Backend_Expecter) GetWorkflowMetadata(_a0 interface{}, _a1 interface{}, _a2 interface{}) *Backend_GetWorkflowMetadata_Call {
+	return &Backend_GetWorkflowMetadata_Call{Call: _e.mock.On("GetWorkflowMetadata", _a0, _a1, _a2)}
 }
 
-func (_c *Backend_GetWorkflowMetadata_Call) Run(run func(_a0 context.Context, _a1 api.InstanceID)) *Backend_GetWorkflowMetadata_Call {
+func (_c *Backend_GetWorkflowMetadata_Call) Run(run func(_a0 context.Context, _a1 api.InstanceID, _a2 *protos.TaskRouter)) *Backend_GetWorkflowMetadata_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(api.InstanceID))
+		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(*protos.TaskRouter))
 	})
 	return _c
 }
@@ -703,7 +704,7 @@ func (_c *Backend_GetWorkflowMetadata_Call) Return(_a0 *protos.WorkflowMetadata,
 	return _c
 }
 
-func (_c *Backend_GetWorkflowMetadata_Call) RunAndReturn(run func(context.Context, api.InstanceID) (*protos.WorkflowMetadata, error)) *Backend_GetWorkflowMetadata_Call {
+func (_c *Backend_GetWorkflowMetadata_Call) RunAndReturn(run func(context.Context, api.InstanceID, *protos.TaskRouter) (*protos.WorkflowMetadata, error)) *Backend_GetWorkflowMetadata_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -942,9 +943,9 @@ func (_c *Backend_NextWorkflowWorkItem_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// PurgeWorkflowState provides a mock function with given fields: ctx, id, router, force
-func (_m *Backend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool) (int, error) {
-	ret := _m.Called(ctx, id, router, force)
+// PurgeWorkflowState provides a mock function with given fields: ctx, id, router, recursive, force
+func (_m *Backend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, recursive bool, force bool) (int, error) {
+	ret := _m.Called(ctx, id, router, recursive, force)
 
 	if len(ret) == 0 {
 		panic("no return value specified for PurgeWorkflowState")
@@ -952,17 +953,17 @@ func (_m *Backend) PurgeWorkflowState(ctx context.Context, id api.InstanceID, ro
 
 	var r0 int
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, *protos.TaskRouter, bool) (int, error)); ok {
-		return rf(ctx, id, router, force)
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, *protos.TaskRouter, bool, bool) (int, error)); ok {
+		return rf(ctx, id, router, recursive, force)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, *protos.TaskRouter, bool) int); ok {
-		r0 = rf(ctx, id, router, force)
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, *protos.TaskRouter, bool, bool) int); ok {
+		r0 = rf(ctx, id, router, recursive, force)
 	} else {
 		r0 = ret.Get(0).(int)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, api.InstanceID, *protos.TaskRouter, bool) error); ok {
-		r1 = rf(ctx, id, router, force)
+	if rf, ok := ret.Get(1).(func(context.Context, api.InstanceID, *protos.TaskRouter, bool, bool) error); ok {
+		r1 = rf(ctx, id, router, recursive, force)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -979,14 +980,15 @@ type Backend_PurgeWorkflowState_Call struct {
 //   - ctx context.Context
 //   - id api.InstanceID
 //   - router *protos.TaskRouter
+//   - recursive bool
 //   - force bool
-func (_e *Backend_Expecter) PurgeWorkflowState(ctx interface{}, id interface{}, router interface{}, force interface{}) *Backend_PurgeWorkflowState_Call {
-	return &Backend_PurgeWorkflowState_Call{Call: _e.mock.On("PurgeWorkflowState", ctx, id, router, force)}
+func (_e *Backend_Expecter) PurgeWorkflowState(ctx interface{}, id interface{}, router interface{}, recursive interface{}, force interface{}) *Backend_PurgeWorkflowState_Call {
+	return &Backend_PurgeWorkflowState_Call{Call: _e.mock.On("PurgeWorkflowState", ctx, id, router, recursive, force)}
 }
 
-func (_c *Backend_PurgeWorkflowState_Call) Run(run func(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, force bool)) *Backend_PurgeWorkflowState_Call {
+func (_c *Backend_PurgeWorkflowState_Call) Run(run func(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, recursive bool, force bool)) *Backend_PurgeWorkflowState_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(*protos.TaskRouter), args[3].(bool))
+		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(*protos.TaskRouter), args[3].(bool), args[4].(bool))
 	})
 	return _c
 }
@@ -996,7 +998,7 @@ func (_c *Backend_PurgeWorkflowState_Call) Return(_a0 int, _a1 error) *Backend_P
 	return _c
 }
 
-func (_c *Backend_PurgeWorkflowState_Call) RunAndReturn(run func(context.Context, api.InstanceID, *protos.TaskRouter, bool) (int, error)) *Backend_PurgeWorkflowState_Call {
+func (_c *Backend_PurgeWorkflowState_Call) RunAndReturn(run func(context.Context, api.InstanceID, *protos.TaskRouter, bool, bool) (int, error)) *Backend_PurgeWorkflowState_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1246,17 +1248,17 @@ func (_c *Backend_WaitForWorkflowTaskCompletion_Call) RunAndReturn(run func(*pro
 	return _c
 }
 
-// WatchWorkflowRuntimeStatus provides a mock function with given fields: ctx, id, condition
-func (_m *Backend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, condition func(*protos.WorkflowMetadata) bool) error {
-	ret := _m.Called(ctx, id, condition)
+// WatchWorkflowRuntimeStatus provides a mock function with given fields: ctx, id, router, condition
+func (_m *Backend) WatchWorkflowRuntimeStatus(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, condition func(*protos.WorkflowMetadata) bool) error {
+	ret := _m.Called(ctx, id, router, condition)
 
 	if len(ret) == 0 {
 		panic("no return value specified for WatchWorkflowRuntimeStatus")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, func(*protos.WorkflowMetadata) bool) error); ok {
-		r0 = rf(ctx, id, condition)
+	if rf, ok := ret.Get(0).(func(context.Context, api.InstanceID, *protos.TaskRouter, func(*protos.WorkflowMetadata) bool) error); ok {
+		r0 = rf(ctx, id, router, condition)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -1272,14 +1274,15 @@ type Backend_WatchWorkflowRuntimeStatus_Call struct {
 // WatchWorkflowRuntimeStatus is a helper method to define mock.On call
 //   - ctx context.Context
 //   - id api.InstanceID
+//   - router *protos.TaskRouter
 //   - condition func(*protos.WorkflowMetadata) bool
-func (_e *Backend_Expecter) WatchWorkflowRuntimeStatus(ctx interface{}, id interface{}, condition interface{}) *Backend_WatchWorkflowRuntimeStatus_Call {
-	return &Backend_WatchWorkflowRuntimeStatus_Call{Call: _e.mock.On("WatchWorkflowRuntimeStatus", ctx, id, condition)}
+func (_e *Backend_Expecter) WatchWorkflowRuntimeStatus(ctx interface{}, id interface{}, router interface{}, condition interface{}) *Backend_WatchWorkflowRuntimeStatus_Call {
+	return &Backend_WatchWorkflowRuntimeStatus_Call{Call: _e.mock.On("WatchWorkflowRuntimeStatus", ctx, id, router, condition)}
 }
 
-func (_c *Backend_WatchWorkflowRuntimeStatus_Call) Run(run func(ctx context.Context, id api.InstanceID, condition func(*protos.WorkflowMetadata) bool)) *Backend_WatchWorkflowRuntimeStatus_Call {
+func (_c *Backend_WatchWorkflowRuntimeStatus_Call) Run(run func(ctx context.Context, id api.InstanceID, router *protos.TaskRouter, condition func(*protos.WorkflowMetadata) bool)) *Backend_WatchWorkflowRuntimeStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(func(*protos.WorkflowMetadata) bool))
+		run(args[0].(context.Context), args[1].(api.InstanceID), args[2].(*protos.TaskRouter), args[3].(func(*protos.WorkflowMetadata) bool))
 	})
 	return _c
 }
@@ -1289,7 +1292,7 @@ func (_c *Backend_WatchWorkflowRuntimeStatus_Call) Return(_a0 error) *Backend_Wa
 	return _c
 }
 
-func (_c *Backend_WatchWorkflowRuntimeStatus_Call) RunAndReturn(run func(context.Context, api.InstanceID, func(*protos.WorkflowMetadata) bool) error) *Backend_WatchWorkflowRuntimeStatus_Call {
+func (_c *Backend_WatchWorkflowRuntimeStatus_Call) RunAndReturn(run func(context.Context, api.InstanceID, *protos.TaskRouter, func(*protos.WorkflowMetadata) bool) error) *Backend_WatchWorkflowRuntimeStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

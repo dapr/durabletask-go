@@ -110,14 +110,22 @@ func (c *Client) RaiseEvent(ctx context.Context, id, eventName string, opts ...R
 //
 // Note that suspended workflows are still considered to be "running" even
 // though they will not process events.
-func (c *Client) SuspendWorkflow(ctx context.Context, id, reason string) error {
-	return c.thgc.SuspendWorkflow(ctx, api.InstanceID(id), reason)
+func (c *Client) SuspendWorkflow(ctx context.Context, id, reason string, opts ...SuspendOptions) error {
+	oops := make([]api.SuspendOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.SuspendOptions(o)
+	}
+	return c.thgc.SuspendWorkflow(ctx, api.InstanceID(id), reason, oops...)
 }
 
 // ResumeWorkflow resumes a workflow instance that was previously
 // suspended.
-func (c *Client) ResumeWorkflow(ctx context.Context, id, reason string) error {
-	return c.thgc.ResumeWorkflow(ctx, api.InstanceID(id), reason)
+func (c *Client) ResumeWorkflow(ctx context.Context, id, reason string, opts ...ResumeOptions) error {
+	oops := make([]api.ResumeOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.ResumeOptions(o)
+	}
+	return c.thgc.ResumeWorkflow(ctx, api.InstanceID(id), reason, oops...)
 }
 
 // PurgeWorkflowState deletes the state of the specified workflow instance.

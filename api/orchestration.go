@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -48,6 +49,12 @@ type TerminateOptions func(*protos.TerminateRequest) error
 
 // PurgeOptions is a set of options for purging a workflow.
 type PurgeOptions func(*protos.PurgeInstancesRequest) error
+
+// SuspendOptions is a set of options for suspending a workflow.
+type SuspendOptions func(*protos.SuspendRequest) error
+
+// ResumeOptions is a set of options for resuming a workflow.
+type ResumeOptions func(*protos.ResumeRequest) error
 
 type RerunOptions func(*protos.RerunWorkflowFromEventRequest) error
 
@@ -232,6 +239,100 @@ func WithListInstanceIDsPageSize(pageSize uint32) ListInstanceIDsOptions {
 func WithListInstanceIDsContinuationToken(token string) ListInstanceIDsOptions {
 	return func(req *protos.ListInstanceIDsRequest) error {
 		req.ContinuationToken = &token
+		return nil
+	}
+}
+
+// routerWithTargetAppID returns r (allocating if nil) with the target app ID set.
+func routerWithTargetAppID(r *protos.TaskRouter, appID string) *protos.TaskRouter {
+	if r == nil {
+		r = new(protos.TaskRouter)
+	}
+	r.TargetAppID = ptr.Of(appID)
+	return r
+}
+
+// ValidateTaskRouter enforces the router invariant that cannot be checked
+// inside a single option because options are order-independent: a target app
+// namespace must be paired with a target app ID. Clients call this after
+// applying all options. A nil router is valid.
+func ValidateTaskRouter(r *protos.TaskRouter) error {
+	if r.GetTargetAppNamespace() != "" && r.GetTargetAppID() == "" {
+		return errors.New("a target app namespace requires a target app ID")
+	}
+	return nil
+}
+
+// WithAppID targets the new workflow at the app with the given app ID rather
+// than the local app. The target app's access policy governs whether the
+// schedule is permitted.
+func WithAppID(appID string) NewWorkflowOptions {
+	return func(req *protos.CreateInstanceRequest) error {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
+		return nil
+	}
+}
+
+// WithFetchAppID targets the metadata fetch at the workflow instance owned by
+// the app with the given app ID rather than the local app.
+func WithFetchAppID(appID string) FetchWorkflowMetadataOptions {
+	return func(req *protos.GetInstanceRequest) {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
+	}
+}
+
+// WithRaiseEventAppID targets the event at the workflow instance owned by the
+// app with the given app ID rather than the local app.
+func WithRaiseEventAppID(appID string) RaiseEventOptions {
+	return func(req *protos.RaiseEventRequest) error {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
+		return nil
+	}
+}
+
+// WithTerminateAppID targets the termination at the workflow instance owned by
+// the app with the given app ID rather than the local app.
+func WithTerminateAppID(appID string) TerminateOptions {
+	return func(req *protos.TerminateRequest) error {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
+		return nil
+	}
+}
+
+// WithSuspendAppID targets the suspension at the workflow instance owned by
+// the app with the given app ID rather than the local app.
+func WithSuspendAppID(appID string) SuspendOptions {
+	return func(req *protos.SuspendRequest) error {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
+		return nil
+	}
+}
+
+// WithResumeAppID targets the resumption at the workflow instance owned by the
+// app with the given app ID rather than the local app.
+func WithResumeAppID(appID string) ResumeOptions {
+	return func(req *protos.ResumeRequest) error {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
+		return nil
+	}
+}
+
+// WithPurgeAppID targets the purge at the workflow instance owned by the app
+// with the given app ID rather than the local app. Cross-app purges are
+// delegated to the target app in full, so they are always recursive on the
+// remote side.
+func WithPurgeAppID(appID string) PurgeOptions {
+	return func(req *protos.PurgeInstancesRequest) error {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
+		return nil
+	}
+}
+
+// WithRerunAppID targets the rerun at the workflow instance owned by the app
+// with the given app ID rather than the local app.
+func WithRerunAppID(appID string) RerunOptions {
+	return func(req *protos.RerunWorkflowFromEventRequest) error {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
 		return nil
 	}
 }

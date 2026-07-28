@@ -14,6 +14,8 @@ type FetchWorkflowMetadataOptions api.FetchWorkflowMetadataOptions
 type RaiseEventOptions api.RaiseEventOptions
 type TerminateOptions api.TerminateOptions
 type PurgeOptions api.PurgeOptions
+type SuspendOptions api.SuspendOptions
+type ResumeOptions api.ResumeOptions
 type RerunOptions api.RerunOptions
 type ListInstanceIDsOptions api.ListInstanceIDsOptions
 type GetInstanceHistoryOptions api.GetInstanceHistoryOptions
@@ -119,4 +121,54 @@ func WithListInstanceIDsPageSize(pageSize uint32) ListInstanceIDsOptions {
 
 func WithListInstanceIDsContinuationToken(token string) ListInstanceIDsOptions {
 	return ListInstanceIDsOptions(api.WithListInstanceIDsContinuationToken(token))
+}
+
+// WithAppID targets the new workflow at the app with the given app ID rather
+// than the local app.
+func WithAppID(appID string) NewWorkflowOptions {
+	return NewWorkflowOptions(api.WithAppID(appID))
+}
+
+// WithFetchAppID targets the metadata fetch at the workflow instance owned by
+// the app with the given app ID rather than the local app.
+func WithFetchAppID(appID string) FetchWorkflowMetadataOptions {
+	return FetchWorkflowMetadataOptions(api.WithFetchAppID(appID))
+}
+
+// WithRaiseEventAppID targets the event at the workflow instance owned by the
+// app with the given app ID rather than the local app.
+func WithRaiseEventAppID(appID string) RaiseEventOptions {
+	return RaiseEventOptions(api.WithRaiseEventAppID(appID))
+}
+
+// WithTerminateAppID targets the termination at the workflow instance owned by
+// the app with the given app ID rather than the local app.
+func WithTerminateAppID(appID string) TerminateOptions {
+	return TerminateOptions(api.WithTerminateAppID(appID))
+}
+
+// WithSuspendAppID targets the suspension at the workflow instance owned by
+// the app with the given app ID rather than the local app.
+func WithSuspendAppID(appID string) SuspendOptions {
+	return SuspendOptions(api.WithSuspendAppID(appID))
+}
+
+// WithResumeAppID targets the resumption at the workflow instance owned by the
+// app with the given app ID rather than the local app.
+func WithResumeAppID(appID string) ResumeOptions {
+	return ResumeOptions(api.WithResumeAppID(appID))
+}
+
+// WithPurgeAppID targets the purge at the workflow instance owned by the app
+// with the given app ID rather than the local app. Cross-app purges are
+// delegated to the target app in full, so they are always recursive on the
+// remote side.
+func WithPurgeAppID(appID string) PurgeOptions {
+	return PurgeOptions(api.WithPurgeAppID(appID))
+}
+
+// WithRerunAppID targets the rerun at the workflow instance owned by the app
+// with the given app ID rather than the local app.
+func WithRerunAppID(appID string) RerunOptions {
+	return RerunOptions(api.WithRerunAppID(appID))
 }
