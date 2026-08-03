@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"reflect"
 	"strings"
@@ -210,6 +211,26 @@ func TraceContextFromSpan(span trace.Span) *protos.TraceContext {
 		}
 	}
 	return tc
+}
+
+// NewRootTraceContext returns a fresh W3C TraceContext with a randomly
+// generated trace ID and span ID and the sampled flag set. It is intended
+// for cases where a new root trace should be started explicitly, such as
+// each generation of a ContinueAsNew workflow (dapr/dapr#10064): copying
+// the previous generation's ParentTraceContext caused every generation to
+// re-parent off the original trace and produced unbounded traces.
+func NewRootTraceContext() *protos.TraceContext {
+	var traceID trace.TraceID
+	var spanID trace.SpanID
+	if _, err := rand.Read(traceID[:]); err != nil {
+		return nil
+	}
+	if _, err := rand.Read(spanID[:]); err != nil {
+		return nil
+	}
+	return &protos.TraceContext{
+		TraceParent: "00-" + traceID.String() + "-" + spanID.String() + "-01",
+	}
 }
 
 func ChangeSpanID(span trace.Span, newSpanID trace.SpanID) {
