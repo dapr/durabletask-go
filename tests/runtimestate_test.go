@@ -254,6 +254,86 @@ func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 	}
 }
 
+// Test_RuntimeState_ContinueAsNew_ResetsParentTraceContext asserts that a
+// ContinueAsNew transition resets the ParentTraceContext to a fresh root when
+// the prior generation was traced, and leaves it nil when it was not. Copying
+// the previous generation's ParentTraceContext caused every generation of an
+// eternal ContinueAsNew workflow to re-parent its span off the first
+// generation's trace, producing an unbounded single trace (dapr/dapr#10064).
+func Test_RuntimeState_ContinueAsNew_ResetsParentTraceContext(t *testing.T) {
+	const iid = "abc"
+	const expectedName = "MyWorkflow"
+	const priorTraceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+
+	buildState := func(ptc *protos.TraceContext) *protos.WorkflowRuntimeState {
+		return runtimestate.NewWorkflowRuntimeState(iid, nil, []*protos.HistoryEvent{
+			{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_ExecutionStarted{
+					ExecutionStarted: &protos.ExecutionStartedEvent{
+						Name: expectedName,
+						WorkflowInstance: &protos.WorkflowInstance{
+							InstanceId:  iid,
+							ExecutionId: wrapperspb.String(uuid.New().String()),
+						},
+						ParentTraceContext: ptc,
+					},
+				},
+			},
+		})
+	}
+
+	canActions := []*protos.WorkflowAction{
+		{
+			Id: 1,
+			WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+				CompleteWorkflow: &protos.CompleteWorkflowAction{
+					WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW,
+					Result:         wrapperspb.String("\"round-2\""),
+				},
+			},
+		},
+	}
+
+	t.Run("prior generation was traced -> fresh root trace context", func(t *testing.T) {
+		state := buildState(&protos.TraceContext{
+			TraceParent: priorTraceParent,
+			TraceState:  wrapperspb.String("vendor=value"),
+		})
+
+		applier := runtimestate.NewApplier("example", "")
+		result, err := applier.Actions(state, nil, canActions, nil, nil)
+		require.NoError(t, err)
+		require.True(t, result.ContinuedAsNew)
+		require.Len(t, state.NewEvents, 2)
+
+		ec := state.NewEvents[1].GetExecutionStarted()
+		require.NotNil(t, ec)
+		require.NotNil(t, ec.ParentTraceContext,
+			"a traced workflow must keep tracing across ContinueAsNew, just rooted fresh")
+		assert.NotEqual(t, priorTraceParent, ec.ParentTraceContext.GetTraceParent(),
+			"new generation must start a fresh root trace, not inherit the previous generation's TraceParent")
+		assert.Nil(t, ec.ParentTraceContext.GetTraceState(),
+			"prior TraceState must not be carried over into the fresh root")
+	})
+
+	t.Run("prior generation was not traced -> new generation stays untraced", func(t *testing.T) {
+		state := buildState(nil)
+
+		applier := runtimestate.NewApplier("example", "")
+		result, err := applier.Actions(state, nil, canActions, nil, nil)
+		require.NoError(t, err)
+		require.True(t, result.ContinuedAsNew)
+		require.Len(t, state.NewEvents, 2)
+
+		ec := state.NewEvents[1].GetExecutionStarted()
+		require.NotNil(t, ec)
+		assert.Nil(t, ec.ParentTraceContext,
+			"a workflow that opted out of tracing must not be opted in by ContinueAsNew")
+	})
+}
+
 func Test_CreateTimer(t *testing.T) {
 	const iid = "abc"
 	timerName := "foo"
