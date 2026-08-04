@@ -567,7 +567,13 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 		},
 		Router: req.GetRouter(),
 	}
-	if err := g.backend.CreateWorkflowInstance(ctx, e); err != nil {
+	if err := g.backend.CreateWorkflowInstance(ctx, &CreateWorkflowInstanceRequest{
+		StartEvent:              e,
+		EnforceUniqueInstanceId: req.EnforceUniqueInstanceId,
+	}); err != nil {
+		if errors.Is(err, api.ErrDuplicateInstance) {
+			return nil, status.Error(codes.AlreadyExists, err.Error())
+		}
 		return nil, fmt.Errorf("failed to create workflow instance: %w", err)
 	}
 

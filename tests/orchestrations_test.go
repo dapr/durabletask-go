@@ -1511,6 +1511,55 @@ func Test_SingleActivity_ReuseInstanceIDError(t *testing.T) {
 	}
 }
 
+func Test_SingleActivity_EnforceUniqueInstanceID(t *testing.T) {
+	// Registration
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("SingleActivity", func(ctx *task.WorkflowContext) (any, error) {
+		var input string
+		if err := ctx.GetInput(&input); err != nil {
+			return nil, err
+		}
+		var output string
+		err := ctx.CallActivity("SayHello", task.WithActivityInput(input)).Await(&output)
+		return output, err
+	})
+	r.AddActivityN("SayHello", func(ctx task.ActivityContext) (any, error) {
+		var name string
+		if err := ctx.GetInput(&name); err != nil {
+			return nil, err
+		}
+		return fmt.Sprintf("Hello, %s!", name), nil
+	})
+
+	// Initialization
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	instanceID := api.InstanceID("ENFORCE_UNIQUE_INSTANCE_ID")
+
+	// Run the workflow
+	id, err := client.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("世界"), api.WithInstanceID(instanceID))
+	require.NoError(t, err)
+
+	// Scheduling again with the flag while the instance is active fails
+	_, err = client.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id), api.WithEnforceUniqueInstanceID())
+	require.ErrorIs(t, err, api.ErrDuplicateInstance)
+
+	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, `"Hello, 世界!"`, metadata.Output.GetValue())
+
+	// Scheduling again with the flag after completion also fails and does
+	// not restart the completed instance
+	_, err = client.ScheduleNewWorkflow(ctx, "SingleActivity", api.WithInput("World"), api.WithInstanceID(id), api.WithEnforceUniqueInstanceID())
+	require.ErrorIs(t, err, api.ErrDuplicateInstance)
+
+	metadata, err = client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, `"Hello, 世界!"`, metadata.Output.GetValue())
+}
+
 func Test_TaskExecutionId(t *testing.T) {
 	t.Run("SingleActivityWithRetry", func(t *testing.T) {
 		// Registration

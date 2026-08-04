@@ -62,9 +62,9 @@ type Backend interface {
 	// Stop stops any background processing done by this backend.
 	Stop(context.Context) error
 
-	// CreateWorkflowInstance creates a new workflow instance with a history event that
-	// wraps a ExecutionStarted event.
-	CreateWorkflowInstance(context.Context, *HistoryEvent) error
+	// CreateWorkflowInstance creates a new workflow instance with a request that
+	// wraps an ExecutionStarted history event.
+	CreateWorkflowInstance(context.Context, *CreateWorkflowInstanceRequest) error
 
 	// RerunWorkflowFromEvent reruns a workflow from a specific event ID of some
 	// source instance ID. If not given, a random new instance ID will be

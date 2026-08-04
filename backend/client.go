@@ -80,7 +80,10 @@ func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interf
 		},
 		Router: req.GetRouter(),
 	}
-	if err := c.be.CreateWorkflowInstance(ctx, e); err != nil {
+	if err := c.be.CreateWorkflowInstance(ctx, &CreateWorkflowInstanceRequest{
+		StartEvent:              e,
+		EnforceUniqueInstanceId: req.EnforceUniqueInstanceId,
+	}); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return api.EmptyInstanceID, fmt.Errorf("failed to start workflow: %w", err)

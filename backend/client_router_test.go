@@ -36,8 +36,8 @@ type fakeRouterBackend struct {
 	watchRouter  *protos.TaskRouter
 }
 
-func (f *fakeRouterBackend) CreateWorkflowInstance(_ context.Context, e *HistoryEvent) error {
-	f.createdEvent = e
+func (f *fakeRouterBackend) CreateWorkflowInstance(_ context.Context, req *CreateWorkflowInstanceRequest) error {
+	f.createdEvent = req.GetStartEvent()
 	return nil
 }
 

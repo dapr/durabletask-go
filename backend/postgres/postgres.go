@@ -540,10 +540,12 @@ func (be *postgresBackend) CompleteWorkflowWorkItem(ctx context.Context, wi *bac
 }
 
 // CreateWorkflowInstance implements backend.Backend
-func (be *postgresBackend) CreateWorkflowInstance(ctx context.Context, e *backend.HistoryEvent) error {
+func (be *postgresBackend) CreateWorkflowInstance(ctx context.Context, req *backend.CreateWorkflowInstanceRequest) error {
 	if err := be.ensureDB(); err != nil {
 		return err
 	}
+
+	e := req.GetStartEvent()
 
 	tx, err := be.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
