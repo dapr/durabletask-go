@@ -3,10 +3,17 @@ package backend
 import (
 	"context"
 	"hash/fnv"
+	"time"
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
 )
+
+// affinityOwnerGrace is how long a workflow item waits for its warm owner
+// stream before any free stream may take it. Sends are pipelined, so the
+// owner is only slow when its whole outbox is full; a short grace keeps the
+// turn a delta send instead of a full-history resend on a cold stream.
+const affinityOwnerGrace = 2 * time.Millisecond
 
 // maxWarmInstancesPerStream bounds the number of warm (stateful-history) instance
 // entries tracked per work-item stream. Evicting an entry only costs a single
@@ -81,8 +88,20 @@ func (g *grpcExecutor) dispatchWorkflowWorkItem(ctx context.Context, iid api.Ins
 			return nil
 		default:
 		}
-		// Owner busy: give it first crack but let any free stream take over so a
-		// slow or overloaded owner never stalls the instance.
+		// Owner busy: give it a short grace to drain before racing the shared
+		// queue, so a momentarily busy owner keeps the delta send. After the
+		// grace any free stream may take over, preserving the guarantee that
+		// the producer never blocks solely on the owner.
+		t := time.NewTimer(affinityOwnerGrace)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case owner.ch <- wi:
+			t.Stop()
+			return nil
+		case <-t.C:
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
