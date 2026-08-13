@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ type PostgresOptions struct {
 type postgresBackend struct {
 	db         *pgxpool.Pool
 	workerName string
-	logger     backend.Logger
+	logger     *slog.Logger
 	options    *PostgresOptions
 	*local.TasksBackend
 }
@@ -84,7 +85,7 @@ func NewPostgresBackend(opts *PostgresOptions, logger backend.Logger) backend.Ba
 		db:           nil,
 		workerName:   fmt.Sprintf("%s,%d,%s", hostname, pid, uuidStr),
 		options:      opts,
-		logger:       logger,
+		logger:       backend.SlogFromLogger(logger),
 		TasksBackend: local.NewTasksBackend(),
 	}
 }
@@ -197,7 +198,7 @@ func (be *postgresBackend) WatchWorkflowRuntimeStatus(ctx context.Context, id ap
 func (be *postgresBackend) CreateTaskHub(context.Context) error {
 	pool, err := pgxpool.NewWithConfig(context.Background(), be.options.PgOptions)
 	if err != nil {
-		be.logger.Error("CreateTaskHub", "failed to create a new postgres pool", err)
+		be.logger.Error("CreateTaskHub: failed to create a new postgres pool", "error", err)
 		return err
 	}
 	be.db = pool
@@ -216,22 +217,22 @@ func (be *postgresBackend) DeleteTaskHub(ctx context.Context) error {
 
 	_, err := be.db.Exec(ctx, "DROP TABLE IF EXISTS Instances CASCADE")
 	if err != nil {
-		be.logger.Error("DeleteTaskHub", "failed to drop Instances table", err)
+		be.logger.Error("DeleteTaskHub: failed to drop Instances table", "error", err)
 		return fmt.Errorf("failed to drop Instances table: %w", err)
 	}
 	_, err = be.db.Exec(ctx, "DROP TABLE IF EXISTS History CASCADE")
 	if err != nil {
-		be.logger.Error("DeleteTaskHub", "failed to drop History table", err)
+		be.logger.Error("DeleteTaskHub: failed to drop History table", "error", err)
 		return fmt.Errorf("failed to drop History table: %w", err)
 	}
 	_, err = be.db.Exec(ctx, "DROP TABLE IF EXISTS NewEvents CASCADE")
 	if err != nil {
-		be.logger.Error("DeleteTaskHub", "failed to drop NewEvents table", err)
+		be.logger.Error("DeleteTaskHub: failed to drop NewEvents table", "error", err)
 		return fmt.Errorf("failed to drop NewEvents table: %w", err)
 	}
 	_, err = be.db.Exec(ctx, "DROP TABLE IF EXISTS NewTasks CASCADE")
 	if err != nil {
-		be.logger.Error("DeleteTaskHub", "failed to drop NewTasks table", err)
+		be.logger.Error("DeleteTaskHub: failed to drop NewTasks table", "error", err)
 		return fmt.Errorf("failed to drop NewTasks table: %w", err)
 	}
 
@@ -480,15 +481,15 @@ func (be *postgresBackend) CompleteWorkflowWorkItem(ctx context.Context, wi *bac
 					if errors.Is(err, runtimestate.ErrDuplicateEvent) || errors.Is(err, api.ErrDuplicateInstance) {
 						// Clean up existing instance and retry
 						if cleanupErr := be.cleanupWorkflowStateInternal(ctx, tx, api.InstanceID(es.WorkflowInstance.InstanceId), true); cleanupErr != nil {
-							be.logger.Warnf(
-								"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
-								wi.InstanceID,
-								es.WorkflowInstance.InstanceId)
+							be.logger.Warn("dropping child workflow creation event: cleanup of existing instance with the target ID failed",
+								"instance_id", string(wi.InstanceID),
+								"target_instance_id", es.WorkflowInstance.InstanceId,
+								"error", cleanupErr)
 						} else if _, retryErr := be.createWorkflowInstanceInternal(ctx, msg.HistoryEvent, tx); retryErr != nil {
-							be.logger.Warnf(
-								"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
-								wi.InstanceID,
-								es.WorkflowInstance.InstanceId)
+							be.logger.Warn("dropping child workflow creation event: an instance with the target ID already exists",
+								"instance_id", string(wi.InstanceID),
+								"target_instance_id", es.WorkflowInstance.InstanceId,
+								"error", retryErr)
 						}
 					} else {
 						return err

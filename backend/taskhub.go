@@ -2,6 +2,8 @@ package backend
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"sync"
 )
 
@@ -17,7 +19,7 @@ type taskHubWorker struct {
 	backend        Backend
 	workflowWorker TaskWorker[*WorkflowWorkItem]
 	activityWorker TaskWorker[*ActivityWorkItem]
-	logger         Logger
+	logger         *slog.Logger
 }
 
 func NewTaskHubWorker(be Backend, workflowWorker TaskWorker[*WorkflowWorkItem], activityWorker TaskWorker[*ActivityWorkItem], logger Logger) TaskHubWorker {
@@ -25,7 +27,7 @@ func NewTaskHubWorker(be Backend, workflowWorker TaskWorker[*WorkflowWorkItem], 
 		backend:        be,
 		workflowWorker: workflowWorker,
 		activityWorker: activityWorker,
-		logger:         logger,
+		logger:         SlogFromLogger(logger),
 	}
 }
 
@@ -38,7 +40,7 @@ func (w *taskHubWorker) Start(ctx context.Context) error {
 		return err
 	}
 
-	w.logger.Infof("worker started with backend %v", w.backend)
+	w.logger.Info("worker started", "backend", lazyString(func() string { return fmt.Sprintf("%v", w.backend) }))
 
 	w.workflowWorker.Start(ctx)
 	w.activityWorker.Start(ctx)

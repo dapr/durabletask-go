@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -21,7 +22,7 @@ import (
 
 type TaskHubGrpcClient struct {
 	client                  protos.TaskHubSidecarServiceClient
-	logger                  backend.Logger
+	logger                  *slog.Logger
 	historyCacheConfig      workflowHistoryCacheConfig
 	statefulHistoryDisabled bool
 }
@@ -76,7 +77,7 @@ func WithWorkflowHistoryCacheMaxBytes(maxBytes int64) TaskHubGrpcClientOption {
 func NewTaskHubGrpcClient(cc grpc.ClientConnInterface, logger backend.Logger, opts ...TaskHubGrpcClientOption) *TaskHubGrpcClient {
 	c := &TaskHubGrpcClient{
 		client: protos.NewTaskHubSidecarServiceClient(cc),
-		logger: logger,
+		logger: backend.SlogFromLogger(logger),
 		// historyCacheConfig zero value (all nil) means every parameter defaults.
 	}
 	for _, opt := range opts {
