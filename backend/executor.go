@@ -110,7 +110,15 @@ func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 
 func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (executor Executor, registerServerFn func(grpcServer grpc.ServiceRegistrar)) {
 	grpcExecutor := &grpcExecutor{
-		workItemQueue:     make(chan *protos.WorkItem),
+		// Buffered: a turn dispatch must not rendezvous with a stream's
+		// synchronous send loop. Unbuffered, every producer (holding its
+		// actor turn upstream) parked until some stream finished its
+		// in-flight delta rewrite plus gRPC send, capping cluster turn
+		// dispatch at the streams' aggregate send rate and convoying
+		// thousands of goroutines at high load. Items resting in the
+		// buffer across a total stream outage are recovered by the same
+		// turn-timeout retry path that covers a mid-send disconnect.
+		workItemQueue:     make(chan *protos.WorkItem, 512),
 		backend:           be,
 		logger:            logger,
 		pendingWorkflows:  &sync.Map{},

@@ -20,9 +20,11 @@ type streamState struct {
 	// rendezvous (HRW) affinity hashing.
 	id string
 
-	// ch delivers work items routed to this specific stream by instance affinity.
-	// Unbuffered: a routed item is taken only when this stream's dispatch loop is
-	// ready, otherwise the producer falls back to the shared queue (any stream).
+	// ch delivers work items routed to this specific stream by instance
+	// affinity. Small buffer (see newStreamState): a routed item is taken
+	// when the stream's dispatch loop is ready or queued briefly while it
+	// is mid-send; the producer falls back to the shared queue (any
+	// stream) when the buffer is full.
 	ch chan *protos.WorkItem
 
 	// statefulHistory is true if the worker advertised
@@ -42,8 +44,16 @@ type streamState struct {
 
 func newStreamState(id string, req *protos.GetWorkItemsRequest) *streamState {
 	s := &streamState{
-		id:      id,
-		ch:      make(chan *protos.WorkItem),
+		id: id,
+		// Small buffer: the affinity fast path can queue a few turns for
+		// the warm owner while it is mid-send, keeping the delta
+		// optimization instead of spilling to the shared queue (full
+		// history resend) whenever the owner is briefly busy. The
+		// overflow fallback to the shared queue is unchanged, so a slow
+		// owner still never stalls an instance. Undelivered items in a
+		// dying stream's buffer recover via the turn-timeout retry path,
+		// the same class as a mid-send disconnect.
+		ch:      make(chan *protos.WorkItem, 8),
 		warm:    make(map[api.InstanceID]int),
 		maxWarm: maxWarmInstancesPerStream,
 	}
