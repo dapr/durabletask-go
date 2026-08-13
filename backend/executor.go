@@ -208,7 +208,11 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 		return
 	}
 
-	g.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
+	// Capture the tracked value: a superseded attempt settling late must not
+	// delete a newer attempt's entry (both share the instance key), or the
+	// newer dispatch loses stream-disconnect/shutdown cancellation.
+	trackedWorkflow := &pendingWorkflow{instanceID: iid}
+	g.pendingWorkflows.Store(iid, trackedWorkflow)
 
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
@@ -246,7 +250,7 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 		if !wait.settle() {
 			return
 		}
-		g.pendingWorkflows.Delete(iid)
+		g.pendingWorkflows.CompareAndDelete(iid, trackedWorkflow)
 		if err != nil {
 			if errors.Is(err, api.ErrTaskCancelled) {
 				done(nil, errors.New("operation aborted"))
@@ -280,7 +284,10 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 	}
 
 	key := GetActivityExecutionKey(string(iid), e.EventId)
-	g.pendingActivities.Store(key, &pendingActivity{instanceID: iid, taskID: e.EventId})
+	// See executeWorkflowAsync: CompareAndDelete-able so a late-settling
+	// superseded attempt cannot evict a newer attempt's tracking entry.
+	trackedActivity := &pendingActivity{instanceID: iid, taskID: e.EventId}
+	g.pendingActivities.Store(key, trackedActivity)
 
 	task := e.GetTaskScheduled()
 	req := &protos.ActivityRequest{
@@ -314,7 +321,7 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 		if !wait.settle() {
 			return
 		}
-		g.pendingActivities.Delete(key)
+		g.pendingActivities.CompareAndDelete(key, trackedActivity)
 		if err != nil {
 			if errors.Is(err, api.ErrTaskCancelled) {
 				done(nil, errors.New("operation aborted"))
@@ -342,7 +349,8 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 
 // ExecuteWorkflow implements Executor
 func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error) {
-	executor.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
+	trackedWorkflow := &pendingWorkflow{instanceID: iid}
+	executor.pendingWorkflows.Store(iid, trackedWorkflow)
 
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
@@ -375,8 +383,9 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 
 	resp, err := wait(ctx)
 
-	// this workflow is either completed or cancelled, but its no longer pending, delete it
-	executor.pendingWorkflows.Delete(iid)
+	// This workflow is completed or cancelled and no longer pending. Remove
+	// only our own entry: a newer attempt may have re-stored the key.
+	executor.pendingWorkflows.CompareAndDelete(iid, trackedWorkflow)
 	if err != nil {
 		if errors.Is(err, api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
@@ -391,7 +400,8 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 // ExecuteActivity implements Executor
 func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error) {
 	key := GetActivityExecutionKey(string(iid), e.EventId)
-	executor.pendingActivities.Store(key, &pendingActivity{instanceID: iid, taskID: e.EventId})
+	trackedActivity := &pendingActivity{instanceID: iid, taskID: e.EventId}
+	executor.pendingActivities.Store(key, trackedActivity)
 
 	task := e.GetTaskScheduled()
 
@@ -427,8 +437,9 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 
 	resp, err := wait(ctx)
 
-	// this activity is either completed or cancelled, but its no longer pending, delete it
-	executor.pendingActivities.Delete(key)
+	// This activity is completed or cancelled and no longer pending. Remove
+	// only our own entry: a newer attempt may have re-stored the key.
+	executor.pendingActivities.CompareAndDelete(key, trackedActivity)
 	if err != nil {
 		if errors.Is(err, api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
@@ -543,7 +554,9 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 				if err != nil {
 					g.logger.Warnf("failed to cancel activity task: %v", err)
 				}
-				g.pendingActivities.Delete(key)
+				// Only this stream's entry: a newer attempt from a fresh
+				// stream may have re-stored the key since the Range yielded.
+				g.pendingActivities.CompareAndDelete(key, value)
 			}
 			return true
 		})
