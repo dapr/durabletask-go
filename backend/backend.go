@@ -167,6 +167,21 @@ type Backend interface {
 	GetInstanceHistory(ctx context.Context, req *protos.GetInstanceHistoryRequest) (*protos.GetInstanceHistoryResponse, error)
 }
 
+// CompletionCallbackBackend is an optional interface a Backend can implement
+// to deliver task completions through a registered callback instead of waking
+// a goroutine blocked in WaitForWorkflowTaskCompletion or
+// WaitForActivityCompletion. The callback is invoked exactly once, on the
+// goroutine that delivers the completion or cancellation, with the response,
+// or with [api.ErrTaskCancelled] if the task was cancelled. Registration
+// replaces any pending wait or callback for the same task. The returned
+// deregister function removes the registration; calling it after delivery, or
+// more than once, is a no-op.
+type CompletionCallbackBackend interface {
+	OnWorkflowTaskCompletion(*protos.WorkflowRequest, func(*protos.WorkflowResponse, error)) func()
+
+	OnActivityCompletion(*protos.ActivityRequest, func(*protos.ActivityResponse, error)) func()
+}
+
 // MarshalHistoryEvent serializes the [HistoryEvent] into a protobuf byte array.
 func MarshalHistoryEvent(e *HistoryEvent) ([]byte, error) {
 	if bytes, err := proto.Marshal(e); err != nil {

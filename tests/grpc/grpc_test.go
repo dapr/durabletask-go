@@ -197,6 +197,34 @@ func Test_Grpc_HelloWorkflow(t *testing.T) {
 
 }
 
+func Test_Grpc_ContinueAsNew(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("ContinueAsNewGrpc", func(ctx *task.WorkflowContext) (any, error) {
+		var input int32
+		if err := ctx.GetInput(&input); err != nil {
+			return nil, err
+		}
+		if input < 10 {
+			ctx.ContinueAsNew(input + 1)
+		}
+		return input, nil
+	})
+
+	cancelListener := startGrpcListener(t, r)
+	defer cancelListener()
+
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "ContinueAsNewGrpc", api.WithInput(0))
+	require.NoError(t, err)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+	metadata, err := grpcClient.WaitForWorkflowCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
+	require.NoError(t, err)
+	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
+	assert.Equal(t, `10`, metadata.Output.Value)
+
+	require.NoError(t, grpcClient.PurgeWorkflowState(ctx, id))
+}
+
 func Test_Grpc_SuspendResume(t *testing.T) {
 	const eventCount = 10
 

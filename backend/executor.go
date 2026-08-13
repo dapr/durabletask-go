@@ -135,6 +135,211 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 	}
 }
 
+// asyncWait arbitrates the single delivery of an asynchronously executed work
+// item's result between the backend completion callback, the context watcher,
+// and a dispatch failure. Whichever fires first wins; it also stops the
+// context watcher and deregisters the backend callback.
+type asyncWait struct {
+	mu    sync.Mutex
+	fired bool
+	stop  func() bool
+	dereg func()
+}
+
+func (a *asyncWait) setStop(stop func() bool) {
+	a.mu.Lock()
+	if a.fired {
+		a.mu.Unlock()
+		stop()
+		return
+	}
+	a.stop = stop
+	a.mu.Unlock()
+}
+
+func (a *asyncWait) setDeregister(dereg func()) {
+	a.mu.Lock()
+	if a.fired {
+		a.mu.Unlock()
+		dereg()
+		return
+	}
+	a.dereg = dereg
+	a.mu.Unlock()
+}
+
+// settle reports whether the caller won the race to deliver the result.
+func (a *asyncWait) settle() bool {
+	a.mu.Lock()
+	if a.fired {
+		a.mu.Unlock()
+		return false
+	}
+	a.fired = true
+	stop, dereg := a.stop, a.dereg
+	a.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
+	if dereg != nil {
+		dereg()
+	}
+	return true
+}
+
+// canExecuteAsync reports whether the backend can deliver completions by
+// callback, which is what the executeWorkflowAsync and executeActivityAsync
+// paths need.
+func (g *grpcExecutor) canExecuteAsync() bool {
+	_, ok := g.backend.(CompletionCallbackBackend)
+	return ok
+}
+
+// executeWorkflowAsync is the event-driven form of ExecuteWorkflow. Instead of
+// blocking until the workflow task completes, it registers done with the
+// backend and returns once the work item is dispatched; done is invoked
+// exactly once, with the same result ExecuteWorkflow would have returned, on
+// the goroutine that delivers the completion, the cancellation, the context
+// error, or the dispatch failure.
+func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions, done func(*protos.WorkflowResponse, error)) {
+	cbBackend, ok := g.backend.(CompletionCallbackBackend)
+	if !ok {
+		done(nil, errors.New("backend does not support completion callbacks"))
+		return
+	}
+
+	g.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
+
+	req := &protos.WorkflowRequest{
+		InstanceId:        string(iid),
+		ExecutionId:       nil,
+		PastEvents:        oldEvents,
+		NewEvents:         newEvents,
+		PropagatedHistory: opts.PropagatedHistory,
+	}
+	// The token correlates this dispatch with its response. A completion
+	// echoing a different token belongs to a superseded dispatch of the same
+	// instance (a duplicate forward delivery, or a response parked by an
+	// aborted attempt): adopting it would commit a turn computed from older
+	// history and strand the instance (the chaos-campaign janitor-livelock
+	// class). Workers that do not echo tokens send an empty one and keep
+	// today's behavior.
+	token := uuid.NewString()
+	workItem := &protos.WorkItem{
+		Request: &protos.WorkItem_WorkflowRequest{
+			WorkflowRequest: req,
+		},
+		CompletionToken: token,
+	}
+
+	wait := &asyncWait{}
+	var deliver func(resp *protos.WorkflowResponse, err error)
+	deliver = func(resp *protos.WorkflowResponse, err error) {
+		if err == nil && resp.GetCompletionToken() != "" && resp.GetCompletionToken() != token {
+			g.logger.Warnf("%s: discarding stale workflow task response (completion token mismatch); waiting for the current dispatch's response", iid)
+			// Re-register for the real response; registration drains any
+			// parked payload so a response displaced by the stale one is
+			// re-arbitrated rather than stranding on the executor actor.
+			wait.setDeregister(cbBackend.OnWorkflowTaskCompletion(req, deliver))
+			return
+		}
+		if !wait.settle() {
+			return
+		}
+		g.pendingWorkflows.Delete(iid)
+		if err != nil {
+			if errors.Is(err, api.ErrTaskCancelled) {
+				done(nil, errors.New("operation aborted"))
+				return
+			}
+			g.logger.Warnf("%s: failed before receiving workflow result", iid)
+			done(nil, err)
+			return
+		}
+		done(resp, nil)
+	}
+
+	wait.setDeregister(cbBackend.OnWorkflowTaskCompletion(req, deliver))
+	wait.setStop(context.AfterFunc(ctx, func() {
+		deliver(nil, ctx.Err())
+	}))
+
+	if err := g.dispatchWorkflowWorkItem(ctx, iid, workItem); err != nil {
+		g.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
+		deliver(nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", err))
+	}
+}
+
+// executeActivityAsync is the event-driven form of ExecuteActivity, with the
+// same contract as executeWorkflowAsync.
+func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions, done func(*protos.HistoryEvent, error)) {
+	cbBackend, ok := g.backend.(CompletionCallbackBackend)
+	if !ok {
+		done(nil, errors.New("backend does not support completion callbacks"))
+		return
+	}
+
+	key := GetActivityExecutionKey(string(iid), e.EventId)
+	g.pendingActivities.Store(key, &pendingActivity{instanceID: iid, taskID: e.EventId})
+
+	task := e.GetTaskScheduled()
+	req := &protos.ActivityRequest{
+		Name:               task.Name,
+		Version:            task.Version,
+		Input:              task.Input,
+		WorkflowInstance:   &protos.WorkflowInstance{InstanceId: string(iid)},
+		TaskId:             e.EventId,
+		TaskExecutionId:    task.TaskExecutionId,
+		ParentTraceContext: task.ParentTraceContext,
+		PropagatedHistory:  opts.PropagatedHistory,
+	}
+	// Same stale-response guard as executeWorkflowAsync: a mismatched token
+	// is a superseded dispatch's response and must not settle this one.
+	token := uuid.NewString()
+	workItem := &protos.WorkItem{
+		Request: &protos.WorkItem_ActivityRequest{
+			ActivityRequest: req,
+		},
+		CompletionToken: token,
+	}
+
+	wait := &asyncWait{}
+	var deliver func(resp *protos.ActivityResponse, err error)
+	deliver = func(resp *protos.ActivityResponse, err error) {
+		if err == nil && resp.GetCompletionToken() != "" && resp.GetCompletionToken() != token {
+			g.logger.Warnf("%s/%s#%d: discarding stale activity response (completion token mismatch); waiting for the current dispatch's response", iid, task.Name, e.EventId)
+			wait.setDeregister(cbBackend.OnActivityCompletion(req, deliver))
+			return
+		}
+		if !wait.settle() {
+			return
+		}
+		g.pendingActivities.Delete(key)
+		if err != nil {
+			if errors.Is(err, api.ErrTaskCancelled) {
+				done(nil, errors.New("operation aborted"))
+				return
+			}
+			g.logger.Warnf("%s/%s#%d: failed before receiving activity result", iid, task.Name, e.EventId)
+			done(nil, err)
+			return
+		}
+		done(activityResponseEvent(e, task, resp), nil)
+	}
+
+	wait.setDeregister(cbBackend.OnActivityCompletion(req, deliver))
+	wait.setStop(context.AfterFunc(ctx, func() {
+		deliver(nil, ctx.Err())
+	}))
+
+	select {
+	case <-ctx.Done():
+		g.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
+		deliver(nil, fmt.Errorf("context canceled before dispatching activity work item: %w", ctx.Err()))
+	case g.workItemQueue <- workItem:
+	}
+}
+
 // ExecuteWorkflow implements Executor
 func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error) {
 	executor.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
@@ -232,9 +437,14 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		return nil, err
 	}
 
-	var responseEvent *protos.HistoryEvent
+	return activityResponseEvent(e, task, resp), nil
+}
+
+// activityResponseEvent maps an activity response onto the TaskFailed or
+// TaskCompleted history event the workflow consumes.
+func activityResponseEvent(e *protos.HistoryEvent, task *protos.TaskScheduledEvent, resp *protos.ActivityResponse) *protos.HistoryEvent {
 	if failureDetails := resp.GetFailureDetails(); failureDetails != nil {
-		responseEvent = &protos.HistoryEvent{
+		return &protos.HistoryEvent{
 			EventId:   -1,
 			Timestamp: timestamppb.Now(),
 			EventType: &protos.HistoryEvent_TaskFailed{
@@ -246,22 +456,19 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 			},
 			Router: e.Router,
 		}
-	} else {
-		responseEvent = &protos.HistoryEvent{
-			EventId:   -1,
-			Timestamp: timestamppb.New(time.Now()),
-			EventType: &protos.HistoryEvent_TaskCompleted{
-				TaskCompleted: &protos.TaskCompletedEvent{
-					TaskScheduledId: resp.TaskId,
-					Result:          resp.Result,
-					TaskExecutionId: task.TaskExecutionId,
-				},
-			},
-			Router: e.Router,
-		}
 	}
-
-	return responseEvent, nil
+	return &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_TaskCompleted{
+			TaskCompleted: &protos.TaskCompletedEvent{
+				TaskScheduledId: resp.TaskId,
+				Result:          resp.Result,
+				TaskExecutionId: task.TaskExecutionId,
+			},
+		},
+		Router: e.Router,
+	}
 }
 
 // Shutdown implements Executor

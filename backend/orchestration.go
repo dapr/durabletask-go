@@ -27,6 +27,16 @@ type WorkflowExecutor interface {
 		opts ExecuteOptions) (*protos.WorkflowResponse, error)
 }
 
+// asyncWorkflowExecutor is implemented by executors that can deliver the
+// workflow response through a callback instead of blocking in ExecuteWorkflow.
+type asyncWorkflowExecutor interface {
+	canExecuteAsync() bool
+	executeWorkflowAsync(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions, done func(*protos.WorkflowResponse, error))
+}
+
+// maxContinueAsNewCount bounds the tight continue-as-new re-execution loop.
+const maxContinueAsNewCount = 20
+
 type WorkflowWorkerOptions struct {
 	Backend   Backend
 	Executor  WorkflowExecutor
@@ -158,9 +168,8 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 			// When continuing-as-new, we re-execute the workflow from the beginning with a truncated state in a tight loop
 			// until the workflow performs some non-continue-as-new action.
 			if applyResult.ContinuedAsNew {
-				const MaxContinueAsNewCount = 20
-				if continueAsNewCount >= MaxContinueAsNewCount {
-					return fmt.Errorf("exceeded tight-loop continue-as-new limit of %d iterations", MaxContinueAsNewCount)
+				if continueAsNewCount >= maxContinueAsNewCount {
+					return fmt.Errorf("exceeded tight-loop continue-as-new limit of %d iterations", maxContinueAsNewCount)
 				}
 
 				// Carry the propagation chain forward across the CAN boundary so
@@ -188,6 +197,165 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 		appendCascadeTerminateMessages(wi.State, terminateEvent)
 	}
 	return nil
+}
+
+// ProcessWorkItemAsync implements AsyncTaskProcessor. It mirrors
+// ProcessWorkItem, with the work that follows each workflow execution
+// registered as a completion callback, so no goroutine waits out the app
+// roundtrip. A continue-as-new response starts its next execution from the
+// goroutine that delivered the previous one.
+func (w *workflowProcessor) ProcessWorkItemAsync(ctx context.Context, wi *WorkflowWorkItem, done func(error)) bool {
+	if asyncExecutor, ok := w.executor.(asyncWorkflowExecutor); !ok || !asyncExecutor.canExecuteAsync() {
+		return false
+	}
+
+	w.logger.Debugf("%v: received work item with %d new event(s): %v", wi.InstanceID, len(wi.NewEvents), helpers.HistoryListSummary(wi.NewEvents))
+
+	if wi.State == nil {
+		state, err := w.be.GetWorkflowRuntimeState(ctx, wi)
+		if err != nil {
+			done(fmt.Errorf("failed to load workflow state: %w", err))
+			return true
+		}
+		wi.State = state
+	}
+	w.logger.Debugf("%v: got workflow runtime state: %s", wi.InstanceID, getWorkflowStateDescription(wi))
+
+	var terminateEvent *protos.ExecutionTerminatedEvent
+	for _, e := range wi.NewEvents {
+		if et := e.GetExecutionTerminated(); et != nil {
+			terminateEvent = et
+			break
+		}
+	}
+
+	spanCtx, span, ok := w.applyWorkItem(ctx, wi)
+	if !ok {
+		if terminateEvent != nil && runtimestate.IsCompleted(wi.State) {
+			appendCascadeTerminateMessages(wi.State, terminateEvent)
+		}
+		done(nil)
+		return true
+	}
+
+	turn := &workflowTurn{
+		processor:      w,
+		wi:             wi,
+		ctx:            spanCtx,
+		span:           span,
+		terminateEvent: terminateEvent,
+		done:           done,
+	}
+	turn.execute()
+	return true
+}
+
+// workflowTurn carries a workflow work item through its execute-apply loop in
+// callback form: execute hands the response to applyResponse, which either
+// finishes the work item or, on continue-as-new, executes again.
+type workflowTurn struct {
+	processor          *workflowProcessor
+	wi                 *WorkflowWorkItem
+	ctx                context.Context
+	span               trace.Span
+	terminateEvent     *protos.ExecutionTerminatedEvent
+	continueAsNewCount int
+	done               func(error)
+}
+
+func (t *workflowTurn) execute() {
+	w := t.processor
+	wi := t.wi
+
+	if t.continueAsNewCount > 0 {
+		w.logger.Debugf("%v: continuing-as-new with %d event(s): %s", wi.InstanceID, len(wi.State.NewEvents), helpers.HistoryListSummary(wi.State.NewEvents))
+	} else {
+		w.logger.Debugf("%v: invoking workflow", wi.InstanceID)
+	}
+
+	executor := w.executor
+	if w.inProcessExecutor != nil && w.inProcessNamePrefix != "" {
+		if name := wi.State.GetStartEvent().GetName(); strings.HasPrefix(name, w.inProcessNamePrefix) {
+			executor = w.inProcessExecutor
+		}
+	}
+
+	execOpts := ExecuteOptions{PropagatedHistory: wi.IncomingHistory}
+
+	// An executor that cannot deliver by callback (e.g. the in-process one,
+	// which runs the workflow code inline) is invoked synchronously on the
+	// current goroutine.
+	if asyncExecutor, ok := executor.(asyncWorkflowExecutor); ok && asyncExecutor.canExecuteAsync() {
+		asyncExecutor.executeWorkflowAsync(t.ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts, func(results *protos.WorkflowResponse, err error) {
+			t.applyResponse(results, err, execOpts)
+		})
+		return
+	}
+
+	results, err := executor.ExecuteWorkflow(t.ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts)
+	t.applyResponse(results, err, execOpts)
+}
+
+func (t *workflowTurn) applyResponse(results *protos.WorkflowResponse, err error, execOpts ExecuteOptions) {
+	w := t.processor
+	wi := t.wi
+
+	if err != nil {
+		t.finish(fmt.Errorf("error executing workflow: %w", err))
+		return
+	}
+	w.logger.Debugf("%v: workflow returned %d action(s): %s", wi.InstanceID, len(results.Actions), helpers.ActionListSummary(results.Actions))
+
+	if version := results.GetVersion(); version != nil && (version.GetPatches() != nil || version.Name != nil) {
+		for _, e := range wi.State.NewEvents {
+			if os := e.GetWorkflowStarted(); os != nil {
+				os.Version = version
+				if len(version.GetPatches()) > 0 {
+					t.span.SetAttributes(attribute.StringSlice("applied_patches", version.GetPatches()))
+				}
+				break
+			}
+		}
+	}
+
+	applyResult, err := w.applier.Actions(wi.State, results.CustomStatus, results.Actions, helpers.TraceContextFromSpan(t.span), execOpts.PropagatedHistory)
+	if err != nil {
+		t.finish(fmt.Errorf("failed to apply the execution result actions: %w", err))
+		return
+	}
+
+	wi.OutgoingHistory = applyResult.OutgoingHistory
+
+	if applyResult.ContinuedAsNew {
+		if t.continueAsNewCount >= maxContinueAsNewCount {
+			t.finish(fmt.Errorf("exceeded tight-loop continue-as-new limit of %d iterations", maxContinueAsNewCount))
+			return
+		}
+
+		if applyResult.NewIncomingHistory != nil {
+			wi.IncomingHistory = applyResult.NewIncomingHistory
+		}
+
+		w.endWorkflowSpan(t.ctx, wi, t.span, true)
+		t.ctx, t.span = w.startOrResumeWorkflowSpan(t.ctx, wi)
+		t.continueAsNewCount++
+		t.execute()
+		return
+	}
+
+	if runtimestate.IsCompleted(wi.State) {
+		name, _ := runtimestate.Name(wi.State)
+		w.logger.Infof("%v: '%s' completed with a %s status.", wi.InstanceID, name, helpers.ToRuntimeStatusString(runtimestate.RuntimeStatus(wi.State)))
+	}
+	t.finish(nil)
+}
+
+func (t *workflowTurn) finish(err error) {
+	t.processor.endWorkflowSpan(t.ctx, t.wi, t.span, false)
+	if err == nil && t.terminateEvent != nil && runtimestate.IsCompleted(t.wi.State) {
+		appendCascadeTerminateMessages(t.wi.State, t.terminateEvent)
+	}
+	t.done(err)
 }
 
 // CompleteWorkItem implements TaskProcessor

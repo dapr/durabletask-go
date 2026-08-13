@@ -12,11 +12,13 @@ import (
 type pendingWorkflow struct {
 	response *protos.WorkflowResponse
 	complete chan struct{}
+	cb       func(*protos.WorkflowResponse, error)
 }
 
 type pendingActivity struct {
 	response *protos.ActivityResponse
 	complete chan struct{}
+	cb       func(*protos.ActivityResponse, error)
 }
 
 type TasksBackend struct {
@@ -67,6 +69,17 @@ func (be *TasksBackend) WaitForActivityCompletion(request *protos.ActivityReques
 	}
 }
 
+// OnActivityCompletion implements backend.CompletionCallbackBackend.
+func (be *TasksBackend) OnActivityCompletion(request *protos.ActivityRequest, cb func(*protos.ActivityResponse, error)) func() {
+	key := backend.GetActivityExecutionKey(request.GetWorkflowInstance().GetInstanceId(), request.GetTaskId())
+	pending := &pendingActivity{cb: cb}
+	be.pendingActivities.Store(key, pending)
+
+	return func() {
+		be.pendingActivities.CompareAndDelete(key, pending)
+	}
+}
+
 func (be *TasksBackend) CompleteWorkflowTask(ctx context.Context, response *protos.WorkflowResponse) error {
 	if be.deletePendingWorkflow(response.GetInstanceId(), response) {
 		return nil
@@ -101,6 +114,17 @@ func (be *TasksBackend) WaitForWorkflowTaskCompletion(request *protos.WorkflowRe
 	}
 }
 
+// OnWorkflowTaskCompletion implements backend.CompletionCallbackBackend.
+func (be *TasksBackend) OnWorkflowTaskCompletion(request *protos.WorkflowRequest, cb func(*protos.WorkflowResponse, error)) func() {
+	key := request.GetInstanceId()
+	pending := &pendingWorkflow{cb: cb}
+	be.pendingWorkflows.Store(key, pending)
+
+	return func() {
+		be.pendingWorkflows.CompareAndDelete(key, pending)
+	}
+}
+
 func (be *TasksBackend) deletePendingActivityTask(iid string, taskID int32, res *protos.ActivityResponse) bool {
 	key := backend.GetActivityExecutionKey(iid, taskID)
 	p, ok := be.pendingActivities.LoadAndDelete(key)
@@ -110,6 +134,14 @@ func (be *TasksBackend) deletePendingActivityTask(iid string, taskID int32, res 
 
 	// Note that res can be nil in case of certain failures
 	pending := p.(*pendingActivity)
+	if pending.cb != nil {
+		if res == nil {
+			pending.cb(nil, api.ErrTaskCancelled)
+		} else {
+			pending.cb(res, nil)
+		}
+		return true
+	}
 	pending.response = res
 	close(pending.complete)
 	return true
@@ -123,6 +155,14 @@ func (be *TasksBackend) deletePendingWorkflow(instanceID string, res *protos.Wor
 
 	// Note that res can be nil in case of certain failures
 	pending := p.(*pendingWorkflow)
+	if pending.cb != nil {
+		if res == nil {
+			pending.cb(nil, api.ErrTaskCancelled)
+		} else {
+			pending.cb(res, nil)
+		}
+		return true
+	}
 	pending.response = res
 	close(pending.complete)
 	return true
