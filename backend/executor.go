@@ -128,12 +128,31 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 }
 
 // ExecuteWorkflow implements Executor
+// executionID returns the execution ID of the run these events belong to,
+// taken from the ExecutionStarted event. New events are scanned first so a
+// recreated or continued-as-new run reports its own execution rather than a
+// stale one. SDKs use this to discriminate schedulings across executions of
+// the same instance ID (e.g. the .NET SDK seeds its deterministic
+// TaskExecutionId derivation with it); without it, SDKs that derive
+// deterministically fall back to the instance ID as the seed, and two
+// executions of a recreated instance produce colliding TaskExecutionIds.
+func executionID(oldEvents, newEvents []*protos.HistoryEvent) *wrapperspb.StringValue {
+	for _, events := range [2][]*protos.HistoryEvent{newEvents, oldEvents} {
+		for _, e := range events {
+			if id := e.GetExecutionStarted().GetWorkflowInstance().GetExecutionId(); id != nil {
+				return id
+			}
+		}
+	}
+	return nil
+}
+
 func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error) {
 	executor.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
 
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
-		ExecutionId:       nil,
+		ExecutionId:       executionID(oldEvents, newEvents),
 		PastEvents:        oldEvents,
 		NewEvents:         newEvents,
 		PropagatedHistory: opts.PropagatedHistory,
