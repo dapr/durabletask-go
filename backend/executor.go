@@ -237,10 +237,10 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 	deliver = func(resp *protos.WorkflowResponse, err error) {
 		if err == nil && resp.GetCompletionToken() != "" && resp.GetCompletionToken() != token {
 			g.logger.Warnf("%s: discarding stale workflow task response (completion token mismatch); waiting for the current dispatch's response", iid)
-			// Re-register for the real response; registration drains any
-			// parked payload so a response displaced by the stale one is
-			// re-arbitrated rather than stranding on the executor actor.
-			wait.setDeregister(cbBackend.OnWorkflowTaskCompletion(req, deliver))
+			// The registration stays armed: the backend must only remove it
+			// via the deregister closure (run when a delivery settles), never
+			// on delivery itself, so the genuine response cannot race into an
+			// unregistered window while a stale one is being discarded.
 			return
 		}
 		if !wait.settle() {
@@ -308,7 +308,7 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 	deliver = func(resp *protos.ActivityResponse, err error) {
 		if err == nil && resp.GetCompletionToken() != "" && resp.GetCompletionToken() != token {
 			g.logger.Warnf("%s/%s#%d: discarding stale activity response (completion token mismatch); waiting for the current dispatch's response", iid, task.Name, e.EventId)
-			wait.setDeregister(cbBackend.OnActivityCompletion(req, deliver))
+			// Registration stays armed; see the workflow deliver above.
 			return
 		}
 		if !wait.settle() {

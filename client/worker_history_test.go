@@ -297,3 +297,29 @@ func TestWorkflowHistoryCache_TTLSlidingOnPut(t *testing.T) {
 	assert.True(t, ok)
 	assert.Len(t, got, 3, "the refreshed entry survives and holds the latest history")
 }
+
+func TestHistoryCache_SupersededDispatchCannotWrite(t *testing.T) {
+	// A handler whose dispatch has been superseded (redelivery, or a new
+	// dispatch after a stream reconnect while the old handler still runs)
+	// must not commit its prefix over the newer dispatch's: the sidecar
+	// rejects its RESPONSE by completion token, but the local cache write
+	// would otherwise poison the next delta reconstruction.
+	cache := newWorkflowHistoryCache(workflowHistoryCacheConfig{})
+	iid := api.InstanceID("wf1")
+
+	cache.noteDispatch(iid, "token-1")
+	require.True(t, cache.isLatestDispatch(iid, "token-1"))
+
+	// A newer dispatch supersedes token-1, even across a stream reset.
+	cache.reset()
+	cache.noteDispatch(iid, "token-2")
+	require.False(t, cache.isLatestDispatch(iid, "token-1"))
+	require.True(t, cache.isLatestDispatch(iid, "token-2"))
+
+	// Terminal state clears the marker; anything routes again.
+	cache.forgetDispatch(iid)
+	require.True(t, cache.isLatestDispatch(iid, "token-1"))
+
+	// Instances never noted (non-streamed paths) always pass the gate.
+	require.True(t, cache.isLatestDispatch(api.InstanceID("other"), "any"))
+}

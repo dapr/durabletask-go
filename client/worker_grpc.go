@@ -184,6 +184,9 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 				// Capture this stream's cancel so the handler tears down the
 				// stream it arrived on, not a later reconnected one.
 				teardownStream := streamCancel
+				if c.statefulHistoryEnabled() {
+					historyCache.noteDispatch(api.InstanceID(orchReq.GetInstanceId()), workItem.GetCompletionToken())
+				}
 				go c.processWorkflowWorkItem(ctx, executor, historyCache, orchReq, workItem.GetCompletionToken(), teardownStream)
 			} else if actReq := workItem.GetActivityRequest(); actReq != nil {
 				go c.processActivityWorkItem(ctx, executor, actReq, workItem.GetCompletionToken())
@@ -234,10 +237,15 @@ func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 	// prefix is exactly the committed history we just replayed (never the
 	// not-yet-committed NewEvents). Drop it once the instance completes or
 	// continues-as-new, since its history no longer extends this prefix. Skipped
-	// entirely when the stateful-history optimization is disabled.
-	if err == nil && c.statefulHistoryEnabled() {
+	// entirely when the stateful-history optimization is disabled, and skipped
+	// when this dispatch has been superseded: the sidecar discards a stale
+	// handler's RESPONSE by completion token, but the cache write below would
+	// otherwise overwrite the newer dispatch's prefix and poison the next
+	// delta reconstruction.
+	if err == nil && c.statefulHistoryEnabled() && historyCache.isLatestDispatch(iid, completionToken) {
 		if workflowHistoryReset(results) {
 			historyCache.delete(iid)
+			historyCache.forgetDispatch(iid)
 		} else {
 			historyCache.put(iid, pastEvents)
 		}

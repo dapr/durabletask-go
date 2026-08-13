@@ -35,12 +35,18 @@ func Test_OnActivityCompletion_Delivers(t *testing.T) {
 	require.Same(t, resp, got)
 	require.NoError(t, gotErr)
 
-	// The registration is consumed: a second completion has no target.
-	require.Error(t, be.CompleteActivityTask(context.Background(), resp))
-	require.Equal(t, 1, calls)
+	// Delivery does NOT consume the registration: the executor's arbiter
+	// discards stale-token deliveries and keeps waiting on this registration,
+	// so a genuine response arriving after a discarded stale one must still
+	// route (pre-fix, the stale delivery consumed the entry and the genuine
+	// response was dropped as unknown, stranding the waiter forever).
+	require.NoError(t, be.CompleteActivityTask(context.Background(), resp))
+	require.Equal(t, 2, calls)
 
-	// Deregistering after delivery is a no-op.
+	// Only the deregister closure removes the registration.
 	dereg()
+	require.Error(t, be.CompleteActivityTask(context.Background(), resp))
+	require.Equal(t, 2, calls)
 }
 
 func Test_OnActivityCompletion_Cancelled(t *testing.T) {
@@ -87,6 +93,10 @@ func Test_OnWorkflowTaskCompletion_Delivers(t *testing.T) {
 	require.Equal(t, 1, calls)
 	require.Same(t, resp, got)
 	require.NoError(t, gotErr)
+
+	// See the activity variant: delivery must not consume the registration.
+	require.NoError(t, be.CompleteWorkflowTask(context.Background(), resp))
+	require.Equal(t, 2, calls)
 }
 
 func Test_OnWorkflowTaskCompletion_Cancelled(t *testing.T) {

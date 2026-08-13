@@ -176,6 +176,13 @@ type Backend interface {
 // replaces any pending wait or callback for the same task. The returned
 // deregister function removes the registration; calling it after delivery, or
 // more than once, is a no-op.
+// CompletionCallbackBackend registers completion callbacks for dispatched
+// work items. Contract: a registration is removed ONLY by the returned
+// deregister closure, never by delivering to the callback. The executor
+// discards stale-token deliveries and keeps waiting on the same
+// registration, so an implementation that consumes the registration on
+// delivery opens a window where the genuine response arrives unroutable and
+// the waiter strands forever.
 type CompletionCallbackBackend interface {
 	OnWorkflowTaskCompletion(*protos.WorkflowRequest, func(*protos.WorkflowResponse, error)) func()
 
