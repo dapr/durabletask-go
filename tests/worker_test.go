@@ -340,3 +340,183 @@ func Test_StartAndStop(t *testing.T) {
 	require.Equal(t, first, tp.AbandonedWorkItems()[0])
 	require.Len(t, tp.CompletedWorkItems(), 0)
 }
+
+// Verifies that the runtime forces a workflow to TERMINATED when the batch contains an
+// ExecutionTerminated event but the executor (SDK) fails to return a completion action,
+// e.g. because the terminate was not the last event in the batch.
+func Test_TryProcessSingleWorkflowWorkItem_ForcesTerminateWhenExecutorIgnoresIt(t *testing.T) {
+	workflowID := "test123"
+	wi := &backend.WorkflowWorkItem{
+		InstanceID: api.InstanceID(workflowID),
+		NewEvents: []*protos.HistoryEvent{
+			{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_ExecutionStarted{
+					ExecutionStarted: &protos.ExecutionStartedEvent{
+						Name: "MyOrch",
+						WorkflowInstance: &protos.WorkflowInstance{
+							InstanceId:  workflowID,
+							ExecutionId: wrapperspb.String(uuid.New().String()),
+						},
+					},
+				},
+			},
+			{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_ExecutionTerminated{
+					ExecutionTerminated: &protos.ExecutionTerminatedEvent{
+						Input: wrapperspb.String(`"reason"`),
+					},
+				},
+			},
+			{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_TaskCompleted{
+					TaskCompleted: &protos.TaskCompletedEvent{TaskScheduledId: 0},
+				},
+			},
+		},
+		State: runtimestate.NewWorkflowRuntimeState(workflowID, nil, []*protos.HistoryEvent{}),
+	}
+
+	// The executor ignores the terminate and keeps the workflow running with a timer.
+	result := &protos.WorkflowResponse{
+		Actions: []*protos.WorkflowAction{
+			{
+				Id: 2,
+				WorkflowActionType: &protos.WorkflowAction_CreateTimer{
+					CreateTimer: &protos.CreateTimerAction{
+						FireAt: timestamppb.New(time.Now().Add(time.Second)),
+					},
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	completed := atomic.Bool{}
+	be := mocks.NewBackend(t)
+	be.EXPECT().NextWorkflowWorkItem(anyContext).Return(wi, nil).Once()
+	be.EXPECT().NextWorkflowWorkItem(anyContext).Return(nil, errors.New("")).Once().Run(func(mock.Arguments) {
+		cancel()
+	})
+	be.EXPECT().CompleteWorkflowWorkItem(anyContext, wi).RunAndReturn(func(ctx context.Context, owi *backend.WorkflowWorkItem) error {
+		completed.Store(true)
+		return nil
+	}).Once()
+
+	ex := mocks.NewExecutor(t)
+	ex.EXPECT().ExecuteWorkflow(anyContext, wi.InstanceID, wi.State.OldEvents, mock.Anything, mock.Anything).Return(result, nil).Once()
+
+	worker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
+		Backend:  be,
+		Executor: ex,
+		Logger:   logger,
+		AppID:    "testapp",
+	})
+	worker.Start(ctx)
+
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		assert.True(collect, completed.Load())
+	}, 1*time.Second, 100*time.Millisecond)
+
+	worker.StopAndDrain()
+
+	require.True(t, runtimestate.IsCompleted(wi.State))
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, runtimestate.RuntimeStatus(wi.State))
+	output, err := runtimestate.Output(wi.State)
+	require.NoError(t, err)
+	require.Equal(t, `"reason"`, output.GetValue())
+	require.Empty(t, wi.State.PendingTasks)
+	require.Empty(t, wi.State.PendingTimers)
+}
+
+// Verifies that a ContinueAsNew returned by the executor cannot override a terminate
+// present in the same batch: the runtime must not start a new generation and must
+// finish the instance as TERMINATED without re-invoking the executor.
+func Test_TryProcessSingleWorkflowWorkItem_TerminateBeatsContinueAsNewFromExecutor(t *testing.T) {
+	workflowID := "test123"
+	wi := &backend.WorkflowWorkItem{
+		InstanceID: api.InstanceID(workflowID),
+		NewEvents: []*protos.HistoryEvent{
+			{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_ExecutionStarted{
+					ExecutionStarted: &protos.ExecutionStartedEvent{
+						Name: "MyOrch",
+						WorkflowInstance: &protos.WorkflowInstance{
+							InstanceId:  workflowID,
+							ExecutionId: wrapperspb.String(uuid.New().String()),
+						},
+					},
+				},
+			},
+			{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_ExecutionTerminated{
+					ExecutionTerminated: &protos.ExecutionTerminatedEvent{
+						Input: wrapperspb.String(`"reason"`),
+					},
+				},
+			},
+			{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_TaskCompleted{
+					TaskCompleted: &protos.TaskCompletedEvent{TaskScheduledId: 0},
+				},
+			},
+		},
+		State: runtimestate.NewWorkflowRuntimeState(workflowID, nil, []*protos.HistoryEvent{}),
+	}
+
+	result := &protos.WorkflowResponse{
+		Actions: []*protos.WorkflowAction{
+			{
+				Id: 2,
+				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+					CompleteWorkflow: &protos.CompleteWorkflowAction{
+						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW,
+					},
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	completed := atomic.Bool{}
+	be := mocks.NewBackend(t)
+	be.EXPECT().NextWorkflowWorkItem(anyContext).Return(wi, nil).Once()
+	be.EXPECT().NextWorkflowWorkItem(anyContext).Return(nil, errors.New("")).Once().Run(func(mock.Arguments) {
+		cancel()
+	})
+	be.EXPECT().CompleteWorkflowWorkItem(anyContext, wi).RunAndReturn(func(ctx context.Context, owi *backend.WorkflowWorkItem) error {
+		completed.Store(true)
+		return nil
+	}).Once()
+
+	ex := mocks.NewExecutor(t)
+	ex.EXPECT().ExecuteWorkflow(anyContext, wi.InstanceID, mock.Anything, mock.Anything, mock.Anything).Return(result, nil).Once()
+
+	worker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
+		Backend:  be,
+		Executor: ex,
+		Logger:   logger,
+		AppID:    "testapp",
+	})
+	worker.Start(ctx)
+
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		assert.True(collect, completed.Load())
+	}, 1*time.Second, 100*time.Millisecond)
+
+	worker.StopAndDrain()
+
+	require.True(t, runtimestate.IsCompleted(wi.State))
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, runtimestate.RuntimeStatus(wi.State))
+}
