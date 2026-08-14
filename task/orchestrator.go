@@ -1096,6 +1096,13 @@ func (ctx *WorkflowContext) actions() []*protos.WorkflowAction {
 
 	var actions []*protos.WorkflowAction
 	for _, a := range ctx.pendingActions {
+		// A terminated workflow must not start any new work: emit only the
+		// completion action and keep everything else withheld, in particular
+		// tasks and timers that suspension had suppressed before the
+		// terminate arrived.
+		if ctx.isTerminated && a.GetCompleteWorkflow() == nil {
+			continue
+		}
 		actions = append(actions, a)
 		if ctx.continuedAsNew && ctx.saveBufferedExternalEvents {
 			if co := a.GetCompleteWorkflow(); co != nil {

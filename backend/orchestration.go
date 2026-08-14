@@ -139,6 +139,23 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 				}
 			}
 
+			// A terminate in this batch must never be lost to ContinueAsNew.
+			// Strip any continue-as-new completion before applying actions:
+			// applying it would replace the state with a fresh generation,
+			// so the forced termination below would terminate that synthetic
+			// generation and the wipe would discard the child workflow
+			// history that cascade termination reads.
+			if terminateEvent != nil {
+				actions := results.Actions[:0]
+				for _, a := range results.Actions {
+					if co := a.GetCompleteWorkflow(); co != nil && co.WorkflowStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
+						continue
+					}
+					actions = append(actions, a)
+				}
+				results.Actions = actions
+			}
+
 			// Apply the workflow outputs to the workflow state. The received
 			// propagated history is passed through so the applier can assemble
 			// outgoing lineage propagation for children/activities.
@@ -158,12 +175,6 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 			// When continuing-as-new, we re-execute the workflow from the beginning with a truncated state in a tight loop
 			// until the workflow performs some non-continue-as-new action.
 			if applyResult.ContinuedAsNew {
-				if terminateEvent != nil {
-					// A terminate in this batch must never be lost to
-					// ContinueAsNew; fall through to the forced termination
-					// below instead of starting a new generation.
-					break
-				}
 				const MaxContinueAsNewCount = 20
 				if continueAsNewCount >= MaxContinueAsNewCount {
 					return fmt.Errorf("exceeded tight-loop continue-as-new limit of %d iterations", MaxContinueAsNewCount)

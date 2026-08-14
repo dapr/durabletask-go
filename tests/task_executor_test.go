@@ -1225,9 +1225,8 @@ func Test_Executor_TerminateWhileSuspended(t *testing.T) {
 	executor := task.NewTaskExecutor(r)
 	results, err := executor.ExecuteWorkflow(ctx, iid, []*protos.HistoryEvent{}, newEvents, backend.ExecuteOptions{})
 	require.NoError(t, err)
-	require.Len(t, results.Actions, 2, "Expected the pending timer and the termination action")
-	require.NotNil(t, results.Actions[0].GetCreateTimer())
-	complete := results.Actions[1].GetCompleteWorkflow()
+	require.Len(t, results.Actions, 1, "Expected only the termination action; work withheld by the suspension must stay withheld")
+	complete := results.Actions[0].GetCompleteWorkflow()
 	require.NotNil(t, complete)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, complete.WorkflowStatus)
 }
