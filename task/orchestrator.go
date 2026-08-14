@@ -45,6 +45,7 @@ type WorkflowContext struct {
 	newEvents           []*protos.HistoryEvent
 	suspendedEvents     []*protos.HistoryEvent
 	isSuspended         bool
+	isTerminated        bool
 	historyIndex        int
 	sequenceNumber      int32
 	pendingActions      map[int32]*protos.WorkflowAction
@@ -246,6 +247,13 @@ func (ctx *WorkflowContext) getNextHistoryEvent() (*protos.HistoryEvent, bool) {
 }
 
 func (ctx *WorkflowContext) processEvent(e *backend.HistoryEvent) error {
+	// A terminated workflow must not process any further events; in particular
+	// it must never resume the workflow function, which would otherwise emit
+	// actions competing with the termination.
+	if ctx.isTerminated {
+		return nil
+	}
+
 	// Buffer certain events if we're in a suspended state
 	if ctx.isSuspended && (e.GetExecutionResumed() == nil && e.GetExecutionTerminated() == nil) {
 		ctx.suspendedEvents = append(ctx.suspendedEvents, e)
@@ -895,10 +903,23 @@ func (ctx *WorkflowContext) onExecutionResumed(er *protos.ExecutionResumedEvent)
 }
 
 func (ctx *WorkflowContext) onExecutionTerminated(et *protos.ExecutionTerminatedEvent) error {
-	if err := ctx.setCompleteInternal(et.Input, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, nil); err != nil {
-		return err
+	ctx.isTerminated = true
+	for id, a := range ctx.pendingActions {
+		co := a.GetCompleteWorkflow()
+		if co == nil {
+			continue
+		}
+		if co.WorkflowStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
+			// ContinueAsNew must never override a terminate.
+			delete(ctx.pendingActions, id)
+			break
+		}
+		// A completion recorded before the terminate wins, matching the
+		// behavior across work items where a completed workflow drops
+		// subsequent terminate events.
+		return nil
 	}
-	return nil
+	return ctx.setCompleteInternal(et.Input, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, nil)
 }
 
 func (ctx *WorkflowContext) setComplete(output any) error {
@@ -1067,12 +1088,21 @@ func (ctx *WorkflowContext) dropOptionalExternalEventTimerAt(atID int32) bool {
 }
 
 func (ctx *WorkflowContext) actions() []*protos.WorkflowAction {
-	if ctx.isSuspended {
+	// A suspended workflow returns no actions, unless it was terminated while
+	// suspended: the termination action must still be emitted.
+	if ctx.isSuspended && !ctx.isTerminated {
 		return nil
 	}
 
 	var actions []*protos.WorkflowAction
 	for _, a := range ctx.pendingActions {
+		// A terminated workflow must not start any new work: emit only the
+		// completion action and keep everything else withheld, in particular
+		// tasks and timers that suspension had suppressed before the
+		// terminate arrived.
+		if ctx.isTerminated && a.GetCompleteWorkflow() == nil {
+			continue
+		}
 		actions = append(actions, a)
 		if ctx.continuedAsNew && ctx.saveBufferedExternalEvents {
 			if co := a.GetCompleteWorkflow(); co != nil {
@@ -1085,6 +1115,9 @@ func (ctx *WorkflowContext) actions() []*protos.WorkflowAction {
 			}
 		}
 	}
+	sort.Slice(actions, func(i, j int) bool {
+		return actions[i].Id < actions[j].Id
+	})
 	return actions
 }
 
