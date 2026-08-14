@@ -819,3 +819,469 @@ func Test_Executor_Replay_PrePatchIndefiniteWaitForEvent_Multiple(t *testing.T) 
 		require.Nil(t, a.GetCreateTimer(), "No optional CreateTimer must leak through")
 	}
 }
+
+// Verifies that events arriving after an ExecutionTerminated in the same batch do not
+// resume the workflow: the terminate must be the final word regardless of its position.
+func Test_Executor_TerminateStopsSubsequentEvents(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddActivityN("Ping", func(ctx task.ActivityContext) (any, error) {
+		return "pong", nil
+	})
+	r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
+		if err := ctx.CallActivity("Ping").Await(nil); err != nil {
+			return nil, err
+		}
+		if err := ctx.CallActivity("Ping").Await(nil); err != nil {
+			return nil, err
+		}
+		return "done", nil
+	})
+
+	iid := api.InstanceID("abc123")
+	oldEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Workflow",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  string(iid),
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+		{
+			EventId:   0,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_TaskScheduled{
+				TaskScheduled: &protos.TaskScheduledEvent{Name: "Ping"},
+			},
+		},
+	}
+	newEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionTerminated{
+				ExecutionTerminated: &protos.ExecutionTerminatedEvent{
+					Input: wrapperspb.String(`"stop"`),
+				},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_TaskCompleted{
+				TaskCompleted: &protos.TaskCompletedEvent{
+					TaskScheduledId: 0,
+					Result:          wrapperspb.String(`"pong"`),
+				},
+			},
+		},
+	}
+
+	executor := task.NewTaskExecutor(r)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	require.Len(t, results.Actions, 1, "Expected only the termination action")
+	complete := results.Actions[0].GetCompleteWorkflow()
+	require.NotNil(t, complete)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, complete.WorkflowStatus)
+	require.Equal(t, `"stop"`, complete.Result.GetValue())
+}
+
+// Verifies that a TimerFired arriving after an ExecutionTerminated in the same batch
+// does not resume the workflow.
+func Test_Executor_TerminateBeforeTimerFired(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddActivityN("Ping", func(ctx task.ActivityContext) (any, error) {
+		return "pong", nil
+	})
+	r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
+		if err := ctx.CreateTimer(5 * time.Second).Await(nil); err != nil {
+			return nil, err
+		}
+		if err := ctx.CallActivity("Ping").Await(nil); err != nil {
+			return nil, err
+		}
+		return "done", nil
+	})
+
+	iid := api.InstanceID("abc123")
+	startTime := time.Now()
+	oldEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(startTime),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(startTime),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Workflow",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  string(iid),
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+		{
+			EventId:   0,
+			Timestamp: timestamppb.New(startTime),
+			EventType: &protos.HistoryEvent_TimerCreated{
+				TimerCreated: &protos.TimerCreatedEvent{
+					FireAt: timestamppb.New(startTime.Add(5 * time.Second)),
+				},
+			},
+		},
+	}
+	newEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(startTime.Add(5 * time.Second)),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(startTime.Add(5 * time.Second)),
+			EventType: &protos.HistoryEvent_ExecutionTerminated{
+				ExecutionTerminated: &protos.ExecutionTerminatedEvent{
+					Input: wrapperspb.String(`"stop"`),
+				},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(startTime.Add(5 * time.Second)),
+			EventType: &protos.HistoryEvent_TimerFired{
+				TimerFired: &protos.TimerFiredEvent{
+					TimerId: 0,
+					FireAt:  timestamppb.New(startTime.Add(5 * time.Second)),
+				},
+			},
+		},
+	}
+
+	executor := task.NewTaskExecutor(r)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	require.Len(t, results.Actions, 1, "Expected only the termination action")
+	complete := results.Actions[0].GetCompleteWorkflow()
+	require.NotNil(t, complete)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, complete.WorkflowStatus)
+}
+
+// Verifies that ContinueAsNew never overrides a terminate delivered in the same batch,
+// regardless of which side of the activity completion the terminate lands on.
+func Test_Executor_TerminateBeatsContinueAsNew(t *testing.T) {
+	newRegistry := func() *task.TaskRegistry {
+		r := task.NewTaskRegistry()
+		r.AddActivityN("Ping", func(ctx task.ActivityContext) (any, error) {
+			return "pong", nil
+		})
+		r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
+			if err := ctx.CallActivity("Ping").Await(nil); err != nil {
+				return nil, err
+			}
+			ctx.ContinueAsNew(nil)
+			return nil, nil
+		})
+		return r
+	}
+
+	iid := api.InstanceID("abc123")
+	oldEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Workflow",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  string(iid),
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+		{
+			EventId:   0,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_TaskScheduled{
+				TaskScheduled: &protos.TaskScheduledEvent{Name: "Ping"},
+			},
+		},
+	}
+	terminated := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_ExecutionTerminated{
+			ExecutionTerminated: &protos.ExecutionTerminatedEvent{
+				Input: wrapperspb.String(`"stop"`),
+			},
+		},
+	}
+	taskCompleted := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_TaskCompleted{
+			TaskCompleted: &protos.TaskCompletedEvent{
+				TaskScheduledId: 0,
+				Result:          wrapperspb.String(`"pong"`),
+			},
+		},
+	}
+	workflowStarted := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_WorkflowStarted{
+			WorkflowStarted: &protos.WorkflowStartedEvent{},
+		},
+	}
+
+	for name, newEvents := range map[string][]*protos.HistoryEvent{
+		"terminate first": {workflowStarted, terminated, taskCompleted},
+		"terminate last":  {workflowStarted, taskCompleted, terminated},
+	} {
+		t.Run(name, func(t *testing.T) {
+			executor := task.NewTaskExecutor(newRegistry())
+			results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
+			require.NoError(t, err)
+			require.Len(t, results.Actions, 1, "Expected only the termination action")
+			complete := results.Actions[0].GetCompleteWorkflow()
+			require.NotNil(t, complete)
+			require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, complete.WorkflowStatus)
+		})
+	}
+}
+
+// Verifies that a workflow which completed normally earlier in the batch keeps its
+// completion when a terminate arrives later in the same batch, matching the behavior
+// across work items where a completed workflow drops subsequent terminates.
+func Test_Executor_CompletionBeforeTerminateWins(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddActivityN("Ping", func(ctx task.ActivityContext) (any, error) {
+		return "pong", nil
+	})
+	r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
+		if err := ctx.CallActivity("Ping").Await(nil); err != nil {
+			return nil, err
+		}
+		return "done", nil
+	})
+
+	iid := api.InstanceID("abc123")
+	oldEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Workflow",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  string(iid),
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+		{
+			EventId:   0,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_TaskScheduled{
+				TaskScheduled: &protos.TaskScheduledEvent{Name: "Ping"},
+			},
+		},
+	}
+	newEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_TaskCompleted{
+				TaskCompleted: &protos.TaskCompletedEvent{
+					TaskScheduledId: 0,
+					Result:          wrapperspb.String(`"pong"`),
+				},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionTerminated{
+				ExecutionTerminated: &protos.ExecutionTerminatedEvent{
+					Input: wrapperspb.String(`"stop"`),
+				},
+			},
+		},
+	}
+
+	executor := task.NewTaskExecutor(r)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	require.Len(t, results.Actions, 1, "Expected only the completion action")
+	complete := results.Actions[0].GetCompleteWorkflow()
+	require.NotNil(t, complete)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, complete.WorkflowStatus)
+	require.Equal(t, `"done"`, complete.Result.GetValue())
+}
+
+// Verifies that a terminate delivered while the workflow is suspended still produces
+// the termination action. Suspension buffers other events but must not swallow the
+// terminate, and the suspended state must not suppress the returned actions.
+func Test_Executor_TerminateWhileSuspended(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
+		var value int
+		if err := ctx.WaitForSingleEvent("MyEvent", 5*time.Second).Await(&value); err != nil {
+			return nil, err
+		}
+		return value, nil
+	})
+
+	iid := api.InstanceID("abc123")
+	newEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Workflow",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  string(iid),
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionSuspended{
+				ExecutionSuspended: &protos.ExecutionSuspendedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionTerminated{
+				ExecutionTerminated: &protos.ExecutionTerminatedEvent{
+					Input: wrapperspb.String(`"stop"`),
+				},
+			},
+		},
+	}
+
+	executor := task.NewTaskExecutor(r)
+	results, err := executor.ExecuteWorkflow(ctx, iid, []*protos.HistoryEvent{}, newEvents, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	require.Len(t, results.Actions, 2, "Expected the pending timer and the termination action")
+	require.NotNil(t, results.Actions[0].GetCreateTimer())
+	complete := results.Actions[1].GetCompleteWorkflow()
+	require.NotNil(t, complete)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, complete.WorkflowStatus)
+}
+
+// Verifies that the executor returns actions ordered by their sequence number rather
+// than in map iteration order.
+func Test_Executor_ActionsDeterministicOrder(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddActivityN("Ping", func(ctx task.ActivityContext) (any, error) {
+		return "pong", nil
+	})
+	r.AddWorkflowN("Workflow", func(ctx *task.WorkflowContext) (any, error) {
+		tasks := make([]task.Task, 0, 5)
+		for i := 0; i < 5; i++ {
+			tasks = append(tasks, ctx.CallActivity("Ping"))
+		}
+		for _, tk := range tasks {
+			if err := tk.Await(nil); err != nil {
+				return nil, err
+			}
+		}
+		return nil, nil
+	})
+
+	iid := api.InstanceID("abc123")
+	newEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Workflow",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  string(iid),
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	}
+
+	executor := task.NewTaskExecutor(r)
+	results, err := executor.ExecuteWorkflow(ctx, iid, []*protos.HistoryEvent{}, newEvents, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	require.Len(t, results.Actions, 5)
+	for i, a := range results.Actions {
+		require.Equal(t, int32(i), a.Id, "Actions must be ordered by sequence number")
+		require.NotNil(t, a.GetScheduleTask())
+	}
+}

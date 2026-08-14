@@ -74,6 +74,12 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 		}
 
 		if completedAction := action.GetCompleteWorkflow(); completedAction != nil {
+			// A completion already applied in this pass wins: a later
+			// completion, including ContinueAsNew, must not override or
+			// wipe it.
+			if s.CompletedEvent != nil {
+				continue
+			}
 			if completedAction.WorkflowStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
 				// Capture a propagated chunk from the prior generation BEFORE we
 				// wipe state, so the new generation can continue the chain

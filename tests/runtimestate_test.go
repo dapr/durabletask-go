@@ -1757,3 +1757,113 @@ func Test_DuplicateEvents(t *testing.T) {
 		return
 	}
 }
+
+// Verifies that a ContinueAsNew action cannot wipe a state that was already completed
+// earlier in the same apply pass, e.g. by a termination.
+func Test_RuntimeState_TerminatedThenContinueAsNew(t *testing.T) {
+	s := runtimestate.NewWorkflowRuntimeState("abc", nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "MyWorkflow",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  "abc",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+	})
+
+	actions := []*protos.WorkflowAction{
+		{
+			Id: 1,
+			WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+				CompleteWorkflow: &protos.CompleteWorkflowAction{
+					WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED,
+					Result:         wrapperspb.String(`"stop"`),
+				},
+			},
+		},
+		{
+			Id: 2,
+			WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+				CompleteWorkflow: &protos.CompleteWorkflowAction{
+					WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW,
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("example", "")
+	result, err := applier.Actions(s, nil, actions, nil, nil)
+	require.NoError(t, err)
+	require.False(t, result.ContinuedAsNew)
+	require.True(t, runtimestate.IsCompleted(s))
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, runtimestate.RuntimeStatus(s))
+	completions := 0
+	for _, e := range s.NewEvents {
+		if e.GetExecutionCompleted() != nil {
+			completions++
+		}
+	}
+	require.Equal(t, 1, completions)
+}
+
+// Verifies that a duplicate completion action in the same apply pass neither overrides
+// the first completion nor queues a second parent notification message.
+func Test_RuntimeState_DuplicateCompletionSingleParentNotification(t *testing.T) {
+	s := runtimestate.NewWorkflowRuntimeState("child_id", nil, []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.New(time.Now()),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Child",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  "child_id",
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+					ParentInstance: &protos.ParentInstanceInfo{
+						TaskScheduledId:  3,
+						Name:             wrapperspb.String("Parent"),
+						WorkflowInstance: &protos.WorkflowInstance{InstanceId: "parent_id"},
+					},
+				},
+			},
+		},
+	})
+
+	actions := []*protos.WorkflowAction{
+		{
+			Id: 1,
+			WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+				CompleteWorkflow: &protos.CompleteWorkflowAction{
+					WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED,
+					Result:         wrapperspb.String(`"done"`),
+				},
+			},
+		},
+		{
+			Id: 2,
+			WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+				CompleteWorkflow: &protos.CompleteWorkflowAction{
+					WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED,
+					Result:         wrapperspb.String(`"stop"`),
+				},
+			},
+		},
+	}
+
+	applier := runtimestate.NewApplier("example", "")
+	result, err := applier.Actions(s, nil, actions, nil, nil)
+	require.NoError(t, err)
+	require.False(t, result.ContinuedAsNew)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, runtimestate.RuntimeStatus(s))
+	output, err := runtimestate.Output(s)
+	require.NoError(t, err)
+	require.Equal(t, `"done"`, output.GetValue())
+	require.Len(t, s.PendingMessages, 1)
+}
