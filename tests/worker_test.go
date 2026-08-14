@@ -460,7 +460,8 @@ func Test_TryProcessSingleWorkflowWorkItem_TerminateBeatsContinueAsNewFromExecut
 				Timestamp: timestamppb.New(time.Now()),
 				EventType: &protos.HistoryEvent_ExecutionTerminated{
 					ExecutionTerminated: &protos.ExecutionTerminatedEvent{
-						Input: wrapperspb.String(`"reason"`),
+						Input:   wrapperspb.String(`"reason"`),
+						Recurse: true,
 					},
 				},
 			},
@@ -472,7 +473,34 @@ func Test_TryProcessSingleWorkflowWorkItem_TerminateBeatsContinueAsNewFromExecut
 				},
 			},
 		},
-		State: runtimestate.NewWorkflowRuntimeState(workflowID, nil, []*protos.HistoryEvent{}),
+		// The committed history already contains a child workflow: the
+		// terminate must cascade to it, which requires the ContinueAsNew wipe
+		// to never happen (the wipe would discard this event).
+		State: runtimestate.NewWorkflowRuntimeState(workflowID, nil, []*protos.HistoryEvent{
+			{
+				EventId:   -1,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_ExecutionStarted{
+					ExecutionStarted: &protos.ExecutionStartedEvent{
+						Name: "MyOrch",
+						WorkflowInstance: &protos.WorkflowInstance{
+							InstanceId:  workflowID,
+							ExecutionId: wrapperspb.String(uuid.New().String()),
+						},
+					},
+				},
+			},
+			{
+				EventId:   0,
+				Timestamp: timestamppb.New(time.Now()),
+				EventType: &protos.HistoryEvent_ChildWorkflowInstanceCreated{
+					ChildWorkflowInstanceCreated: &protos.ChildWorkflowInstanceCreatedEvent{
+						Name:       "MyChild",
+						InstanceId: "child1",
+					},
+				},
+			},
+		}),
 	}
 
 	result := &protos.WorkflowResponse{
@@ -519,4 +547,9 @@ func Test_TryProcessSingleWorkflowWorkItem_TerminateBeatsContinueAsNewFromExecut
 
 	require.True(t, runtimestate.IsCompleted(wi.State))
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, runtimestate.RuntimeStatus(wi.State))
+	require.False(t, wi.State.ContinuedAsNew, "the ContinueAsNew must not have started a new generation")
+	require.Len(t, wi.State.PendingMessages, 1, "the recursive terminate must cascade to the child")
+	cascade := wi.State.PendingMessages[0]
+	require.Equal(t, "child1", cascade.TargetInstanceId)
+	require.NotNil(t, cascade.HistoryEvent.GetExecutionTerminated())
 }
