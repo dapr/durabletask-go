@@ -42,7 +42,7 @@ func (c *TaskHubGrpcClient) startKeepaliveLoop(ctx context.Context) context.Canc
 				_, err := c.client.Hello(callCtx, &emptypb.Empty{})
 				callCancel()
 				if err != nil && ctx.Err() == nil {
-					c.logger.Debugf("keepalive failed: %v", err)
+					c.logger.Debug("keepalive failed", "error", err)
 				}
 			}
 		}
@@ -102,7 +102,7 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 		return nil
 	}
 
-	c.logger.Infof("connecting work item listener stream")
+	c.logger.Info("connecting work item listener stream")
 	err := initStream()
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 			// We must use a background context here as the stream's context is likely canceled
 			shutdownErr := executor.Shutdown(context.Background())
 			if shutdownErr != nil {
-				c.logger.Warnf("error while shutting down background processor: %v", shutdownErr)
+				c.logger.Warn("error while shutting down background processor", "error", shutdownErr)
 			}
 		}()
 		for {
@@ -126,18 +126,18 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 			if err != nil {
 				// user wants to stop the listener
 				if ctx.Err() != nil {
-					c.logger.Infof("stopping background processor: %v", err)
+					c.logger.Info("stopping background processor", "error", err)
 					return
 				}
 
 				retriable := false
 
-				c.logger.Errorf("background processor received stream error: %v", err)
+				c.logger.Error("background processor received stream error", "error", err)
 
 				if errors.Is(err, io.EOF) {
 					retriable = true
 				} else if grpcStatus, ok := status.FromError(err); ok {
-					c.logger.Warnf("received grpc error code %v", grpcStatus.Code().String())
+					c.logger.Warn("received grpc error code", "code", grpcStatus.Code().String())
 					switch grpcStatus.Code() {
 					case codes.Unavailable, codes.Canceled:
 						retriable = true
@@ -147,7 +147,7 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 				}
 
 				if !retriable {
-					c.logger.Infof("stopping background processor, non retriable error: %v", err)
+					c.logger.Info("stopping background processor, non retriable error", "error", err)
 					return
 				}
 
@@ -158,10 +158,10 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 							return backoff.Permanent(ctx.Err())
 						}
 
-						c.logger.Infof("reconnecting work item listener stream")
+						c.logger.Info("reconnecting work item listener stream")
 						streamErr := initStream()
 						if streamErr != nil {
-							c.logger.Errorf("error initializing work item listener stream %v", streamErr)
+							c.logger.Error("error initializing work item listener stream", "error", streamErr)
 							return streamErr
 						}
 						return nil
@@ -170,10 +170,10 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 					newInfiniteRetries(),
 				)
 				if err != nil {
-					c.logger.Infof("stopping background processor, unable to reconnect stream: %v", err)
+					c.logger.Info("stopping background processor, unable to reconnect stream", "error", err)
 					return
 				}
-				c.logger.Infof("successfully reconnected work item listener stream...")
+				c.logger.Info("successfully reconnected work item listener stream...")
 				cancelKeepalive()
 				cancelKeepalive = c.startKeepaliveLoop(ctx)
 				// continue iterating
@@ -188,7 +188,7 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 			} else if actReq := workItem.GetActivityRequest(); actReq != nil {
 				go c.processActivityWorkItem(ctx, executor, actReq)
 			} else {
-				c.logger.Warnf("received unknown work item type: %v", workItem)
+				c.logger.Warn("received unknown work item type", "work_item", fmt.Sprintf("%v", workItem))
 			}
 		}
 	}()
@@ -217,7 +217,7 @@ func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 		// the fresh (cold) stream, which needs no cache. This also redelivers the
 		// stream's other in-flight tasks, which is acceptable for this rare path
 		// (the fetch almost only fails when the connection is already gone).
-		c.logger.Errorf("%s: failed to resolve workflow history, resetting stream: %v", iid, err)
+		c.logger.Error("failed to resolve workflow history, resetting stream", "instance_id", string(iid), "error", err)
 		if teardownStream != nil {
 			teardownStream()
 		}
@@ -271,7 +271,7 @@ func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 		if ctx.Err() != nil {
 			c.logger.Warn("failed to complete workflow task: context canceled")
 		} else {
-			c.logger.Errorf("failed to complete workflow task: %v", err)
+			c.logger.Error("failed to complete workflow task", "error", err)
 		}
 	}
 }
@@ -287,7 +287,7 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 	var ptc *protos.TraceContext = req.ParentTraceContext
 	ctx, err := helpers.ContextFromTraceContext(ctx, ptc)
 	if err != nil {
-		c.logger.Warnf("%s: failed to parse trace context: %v", req.Name, err)
+		c.logger.Warn("failed to parse trace context", "activity", req.Name, "error", err)
 	}
 
 	event := &protos.HistoryEvent{
@@ -326,7 +326,7 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 		if ctx.Err() != nil {
 			c.logger.Warn("failed to complete activity task: context canceled")
 		} else {
-			c.logger.Errorf("failed to complete activity task: %v", err)
+			c.logger.Error("failed to complete activity task", "error", err)
 		}
 	}
 }

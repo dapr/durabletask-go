@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,7 +57,7 @@ type grpcExecutor struct {
 	pendingActivities        *sync.Map // map[string]*pendingActivity
 	streams                  *sync.Map // map[string]*streamState
 	backend                  Backend
-	logger                   Logger
+	logger                   *slog.Logger
 	onWorkItemConnection     func(context.Context) error
 	onWorkItemDisconnect     func(context.Context) error
 	streamShutdownChan       <-chan any
@@ -120,7 +121,7 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 		// turn-timeout retry path that covers a mid-send disconnect.
 		workItemQueue:     make(chan *protos.WorkItem, 512),
 		backend:           be,
-		logger:            logger,
+		logger:            SlogFromLogger(logger),
 		pendingWorkflows:  &sync.Map{},
 		pendingActivities: &sync.Map{},
 		streams:           &sync.Map{},
@@ -164,7 +165,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 	// The item prefers the stream that owns this instance under affinity (so the next
 	// turn can be a delta), falling back to any connected stream.
 	if err := executor.dispatchWorkflowWorkItem(ctx, iid, workItem); err != nil {
-		executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
+		executor.logger.Warn("context canceled before dispatching workflow work item", "instance_id", string(iid))
 		return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", err)
 	}
 
@@ -176,7 +177,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 		if errors.Is(err, api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
 		}
-		executor.logger.Warnf("%s: failed before receiving workflow result", iid)
+		executor.logger.Warn("failed before receiving workflow result", "instance_id", string(iid))
 		return nil, err
 	}
 
@@ -215,7 +216,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
-		executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
+		executor.logger.Warn("context canceled before dispatching activity work item", "instance_id", string(iid), "activity", task.Name, "event_id", e.EventId)
 		return nil, fmt.Errorf("context canceled before dispatching activity work item: %w", ctx.Err())
 	case executor.workItemQueue <- workItem:
 	}
@@ -228,7 +229,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		if errors.Is(err, api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
 		}
-		executor.logger.Warnf("%s/%s#%d: failed before receiving activity result", iid, task.Name, e.EventId)
+		executor.logger.Warn("failed before receiving activity result", "instance_id", string(iid), "activity", task.Name, "event_id", e.EventId)
 		return nil, err
 	}
 
@@ -275,7 +276,7 @@ func (g *grpcExecutor) Shutdown(ctx context.Context) error {
 		if ok {
 			err := g.backend.CancelActivityTask(ctx, p.instanceID, p.taskID)
 			if err != nil {
-				g.logger.Warnf("failed to cancel activity task: %v", err)
+				g.logger.Warn("failed to cancel activity task", "error", err)
 			}
 		}
 		return true
@@ -285,7 +286,7 @@ func (g *grpcExecutor) Shutdown(ctx context.Context) error {
 		if ok {
 			err := g.backend.CancelWorkflowTask(ctx, p.instanceID)
 			if err != nil {
-				g.logger.Warnf("failed to cancel workflow task: %v", err)
+				g.logger.Warn("failed to cancel workflow task", "error", err)
 			}
 		}
 		return true
@@ -302,7 +303,7 @@ func (grpcExecutor) Hello(ctx context.Context, empty *emptypb.Empty) (*emptypb.E
 // GetWorkItems implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream protos.TaskHubSidecarService_GetWorkItemsServer) error {
 	if md, ok := metadata.FromIncomingContext(stream.Context()); ok {
-		g.logger.Infof("work item stream established by user-agent: %v", md.Get("user-agent"))
+		g.logger.Info("work item stream established", "useragent", md.Get("user-agent"))
 	}
 
 	streamID := uuid.NewString()
@@ -318,10 +319,10 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 	// for auto-starting the worker. The app also has an opportunity to set itself as unavailable by returning an error.
 	if err := g.executeOnWorkItemConnection(stream.Context()); err != nil {
 		message := "unable to establish work item stream at this time: " + err.Error()
-		g.logger.Warn(message)
+		g.logger.Warn("unable to establish work item stream at this time", "error", err)
 
 		if derr := g.executeOnWorkItemDisconnect(stream.Context()); derr != nil {
-			g.logger.Warnf("error while disconnecting work item stream: %v", derr)
+			g.logger.Warn("error while disconnecting work item stream", "error", derr)
 		}
 
 		return status.Errorf(codes.Unavailable, "%s", message)
@@ -331,10 +332,10 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 		// If there's any pending activity left, remove them
 		g.pendingActivities.Range(func(key, value any) bool {
 			if p, ok := value.(*pendingActivity); ok && p.streamID == streamID {
-				g.logger.Debugf("cleaning up pending activity: %s", key)
+				g.logger.Debug("cleaning up pending activity", "key", key)
 				err := g.backend.CancelActivityTask(context.Background(), p.instanceID, p.taskID)
 				if err != nil {
-					g.logger.Warnf("failed to cancel activity task: %v", err)
+					g.logger.Warn("failed to cancel activity task", "error", err)
 				}
 				g.pendingActivities.Delete(key)
 			}
@@ -342,16 +343,16 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 		})
 		g.pendingWorkflows.Range(func(key, value any) bool {
 			if p, ok := value.(*pendingWorkflow); ok && p.streamID == streamID {
-				g.logger.Debugf("cleaning up pending workflow: %s", key)
+				g.logger.Debug("cleaning up pending workflow", "key", key)
 				err := g.backend.CancelWorkflowTask(context.Background(), p.instanceID)
 				if err != nil {
-					g.logger.Warnf("failed to cancel workflow task: %v", err)
+					g.logger.Warn("failed to cancel workflow task", "error", err)
 				}
 			}
 			return true
 		})
 		if err := g.executeOnWorkItemDisconnect(stream.Context()); err != nil {
-			g.logger.Warnf("error while disconnecting work item stream: %v", err)
+			g.logger.Warn("error while disconnecting work item stream", "error", err)
 		}
 	}()
 
@@ -427,7 +428,7 @@ func (g *grpcExecutor) dispatchToStream(
 	}
 
 	if err := g.sendWorkItem(stream, wi, ch, errCh); err != nil {
-		g.logger.Errorf("encountered an error while sending work item: %v", err)
+		g.logger.Error("encountered an error while sending work item", "error", err)
 		return err
 	}
 	return nil
@@ -451,7 +452,7 @@ func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkI
 
 	select {
 	case <-ctx.Done():
-		g.logger.Errorf("timed out while sending work item")
+		g.logger.Error("timed out while sending work item")
 		return fmt.Errorf("timed out while sending work item: %w", ctx.Err())
 	case err := <-errCh:
 		return err

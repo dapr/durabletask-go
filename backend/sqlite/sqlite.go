@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -44,7 +45,7 @@ type sqliteBackend struct {
 	dsn        string
 	db         *sql.DB
 	workerName string
-	logger     backend.Logger
+	logger     *slog.Logger
 	options    *SqliteOptions
 	*local.TasksBackend
 }
@@ -75,7 +76,7 @@ func NewSqliteBackend(opts *SqliteOptions, logger backend.Logger) backend.Backen
 		db:           nil,
 		workerName:   fmt.Sprintf("%s,%d,%s", hostname, pid, uuidStr),
 		options:      opts,
-		logger:       logger,
+		logger:       backend.SlogFromLogger(logger),
 		TasksBackend: local.NewTasksBackend(),
 	}
 
@@ -351,15 +352,15 @@ func (be *sqliteBackend) CompleteWorkflowWorkItem(ctx context.Context, wi *backe
 					if err == runtimestate.ErrDuplicateEvent || errors.Is(err, api.ErrDuplicateInstance) {
 						// Clean up existing instance and retry
 						if cleanupErr := be.cleanupWorkflowStateInternal(ctx, tx, api.InstanceID(es.WorkflowInstance.InstanceId), true); cleanupErr != nil {
-							be.logger.Warnf(
-								"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
-								wi.InstanceID,
-								es.WorkflowInstance.InstanceId)
+							be.logger.Warn("dropping child workflow creation event: cleanup of existing instance with the target ID failed",
+								"instance_id", string(wi.InstanceID),
+								"target_instance_id", es.WorkflowInstance.InstanceId,
+								"error", cleanupErr)
 						} else if _, retryErr := be.createWorkflowInstanceInternal(ctx, msg.HistoryEvent, tx); retryErr != nil {
-							be.logger.Warnf(
-								"%v: dropping child workflow creation event because an instance with the target ID (%v) already exists.",
-								wi.InstanceID,
-								es.WorkflowInstance.InstanceId)
+							be.logger.Warn("dropping child workflow creation event: an instance with the target ID already exists",
+								"instance_id", string(wi.InstanceID),
+								"target_instance_id", es.WorkflowInstance.InstanceId,
+								"error", retryErr)
 						}
 					} else {
 						return err
@@ -715,7 +716,6 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 	if err != nil {
 		return nil, err
 	}
-
 
 	startEvent, err := be.getStartEvent(ctx, iid)
 	if err != nil {

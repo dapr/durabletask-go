@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -48,7 +49,7 @@ type workflowProcessor struct {
 	executor            WorkflowExecutor
 	inProcessExecutor   WorkflowExecutor
 	inProcessNamePrefix string
-	logger              Logger
+	logger              *slog.Logger
 
 	applier *runtimestate.Applier
 }
@@ -59,7 +60,7 @@ func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOpti
 		executor:            opts.Executor,
 		inProcessExecutor:   opts.InProcessExecutor,
 		inProcessNamePrefix: opts.InProcessNamePrefix,
-		logger:              opts.Logger,
+		logger:              SlogFromLogger(opts.Logger),
 		applier:             runtimestate.NewApplier(opts.AppID, opts.Namespace),
 	}
 	return NewTaskWorker[*WorkflowWorkItem](processor, opts.Logger, taskopts...)
@@ -77,7 +78,10 @@ func (p *workflowProcessor) NextWorkItem(ctx context.Context) (*WorkflowWorkItem
 
 // ProcessWorkItem implements TaskProcessor
 func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWorkItem) error {
-	w.logger.Debugf("%v: received work item with %d new event(s): %v", wi.InstanceID, len(wi.NewEvents), helpers.HistoryListSummary(wi.NewEvents))
+	log := w.logger.With("instance_id", string(wi.InstanceID))
+	log.Debug("received work item",
+		"new_events", len(wi.NewEvents),
+		"events", lazyString(func() string { return helpers.HistoryListSummary(wi.NewEvents) }))
 
 	// TODO: Caching
 	// In the fullness of time, we should consider caching executors and runtime state
@@ -90,7 +94,7 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 			wi.State = state
 		}
 	}
-	w.logger.Debugf("%v: got workflow runtime state: %s", wi.InstanceID, getWorkflowStateDescription(wi))
+	log.Debug("got workflow runtime state", "state", lazyString(func() string { return getWorkflowStateDescription(wi) }))
 
 	var terminateEvent *protos.ExecutionTerminatedEvent = nil
 	for _, e := range wi.NewEvents {
@@ -107,9 +111,11 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 
 		for continueAsNewCount := 0; ; continueAsNewCount++ {
 			if continueAsNewCount > 0 {
-				w.logger.Debugf("%v: continuing-as-new with %d event(s): %s", wi.InstanceID, len(wi.State.NewEvents), helpers.HistoryListSummary(wi.State.NewEvents))
+				log.Debug("continuing-as-new",
+					"new_events", len(wi.State.NewEvents),
+					"events", lazyString(func() string { return helpers.HistoryListSummary(wi.State.NewEvents) }))
 			} else {
-				w.logger.Debugf("%v: invoking workflow", wi.InstanceID)
+				log.Debug("invoking workflow")
 			}
 
 			execOpts := ExecuteOptions{PropagatedHistory: wi.IncomingHistory}
@@ -125,7 +131,9 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 			if err != nil {
 				return fmt.Errorf("error executing workflow: %w", err)
 			}
-			w.logger.Debugf("%v: workflow returned %d action(s): %s", wi.InstanceID, len(results.Actions), helpers.ActionListSummary(results.Actions))
+			log.Debug("workflow returned actions",
+				"actions", len(results.Actions),
+				"summary", lazyString(func() string { return helpers.ActionListSummary(results.Actions) }))
 
 			if version := results.GetVersion(); version != nil && (version.GetPatches() != nil || version.Name != nil) {
 				for _, e := range wi.State.NewEvents {
@@ -196,7 +204,7 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 
 			if runtimestate.IsCompleted(wi.State) {
 				name, _ := runtimestate.Name(wi.State)
-				w.logger.Infof("%v: '%s' completed with a %s status.", wi.InstanceID, name, helpers.ToRuntimeStatusString(runtimestate.RuntimeStatus(wi.State)))
+				log.Info("workflow completed", "name", name, "status", helpers.ToRuntimeStatusString(runtimestate.RuntimeStatus(wi.State)))
 			}
 			break
 		}
@@ -243,15 +251,16 @@ func (p *workflowProcessor) AbandonWorkItem(ctx context.Context, wi *WorkflowWor
 }
 
 func (w *workflowProcessor) applyWorkItem(ctx context.Context, wi *WorkflowWorkItem) (context.Context, trace.Span, bool) {
+	log := w.logger.With("instance_id", string(wi.InstanceID))
 	// Ignore work items for workflows that are completed or are in a corrupted state.
 	if !runtimestate.IsValid(wi.State) {
-		w.logger.Warnf("%v: workflow state is invalid; dropping work item", wi.InstanceID)
+		log.Warn("workflow state is invalid; dropping work item")
 		return nil, nil, false
 	} else if runtimestate.IsCompleted(wi.State) {
-		w.logger.Warnf("%v: workflow already completed; dropping work item", wi.InstanceID)
+		log.Warn("workflow already completed; dropping work item")
 		return nil, nil, false
 	} else if len(wi.NewEvents) == 0 {
-		w.logger.Warnf("%v: the work item had no events!", wi.InstanceID)
+		log.Warn("the work item had no events")
 	}
 
 	// The workflow started event is used primarily for updating the current time as reported
@@ -277,26 +286,26 @@ func (w *workflowProcessor) applyWorkItem(ctx context.Context, wi *WorkflowWorkI
 	for i, e := range wi.NewEvents {
 		if err := errs[i]; err != nil {
 			if err == runtimestate.ErrDuplicateEvent {
-				w.logger.Warnf("%v: dropping duplicate event: %v", wi.InstanceID, e)
+				log.Warn("dropping duplicate event", "event", stringer{e})
 			} else {
-				w.logger.Warnf("%v: dropping event: %v, %v", wi.InstanceID, e, err)
+				log.Warn("dropping event", "event", stringer{e}, "error", err)
 			}
 		}
 
 		// Special case logic for specific event types
 		if es := e.GetExecutionStarted(); es != nil {
-			w.logger.Infof("%v: starting new '%s' instance with ID = '%s'.", wi.InstanceID, es.Name, es.WorkflowInstance.InstanceId)
+			log.Info("starting new workflow instance", "name", es.Name, "new_instance_id", es.WorkflowInstance.InstanceId)
 		} else if timerFired := e.GetTimerFired(); timerFired != nil {
 			// Timer spans are created and completed once the TimerFired event is received.
 			// TODO: Ideally we don't emit spans for cancelled timers. Is there a way to support this?
 			if err := helpers.StartAndEndNewTimerSpan(ctx, timerFired, e.Timestamp.AsTime(), string(wi.InstanceID)); err != nil {
-				w.logger.Warnf("%v: failed to generate distributed trace span for durable timer: %v", wi.InstanceID, err)
+				log.Warn("failed to generate distributed trace span for durable timer", "error", err)
 			}
 		}
 	}
 
 	if len(wi.State.NewEvents) == 0 {
-		w.logger.Warnf("%v: no new events to process", wi.InstanceID)
+		log.Warn("no new events to process")
 		return ctx, span, false
 	}
 
@@ -348,7 +357,7 @@ func (w *workflowProcessor) startOrResumeWorkflowSpan(ctx context.Context, wi *W
 
 	ctx, err := helpers.ContextFromTraceContext(ctx, ptc)
 	if err != nil {
-		w.logger.Warnf("%v: failed to parse trace context: %v", wi.InstanceID, err)
+		w.logger.Warn("failed to parse trace context", "instance_id", string(wi.InstanceID), "error", err)
 		return ctx, helpers.NoopSpan()
 	}
 

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 )
 
@@ -22,7 +23,7 @@ type TaskProcessor[T WorkItem] interface {
 }
 
 type worker[T WorkItem] struct {
-	logger Logger
+	logger *slog.Logger
 
 	processor    TaskProcessor[T]
 	closeCh      chan struct{}
@@ -60,7 +61,7 @@ func NewTaskWorker[T WorkItem](p TaskProcessor[T], logger Logger, opts ...NewTas
 
 	return &worker[T]{
 		processor:    p,
-		logger:       logger,
+		logger:       SlogFromLogger(logger).With("worker", p.Name()),
 		workItems:    make(chan T),
 		parallelLock: parallelLock,
 		closeCh:      make(chan struct{}),
@@ -88,7 +89,7 @@ func (w *worker[T]) Start(ctx context.Context) {
 
 	go func() {
 		defer w.wg.Done()
-		defer w.logger.Infof("%v: worker stopped", w.Name())
+		defer w.logger.Info("worker stopped")
 
 		for {
 
@@ -110,7 +111,7 @@ func (w *worker[T]) Start(ctx context.Context) {
 					return
 				}
 
-				w.logger.Errorf("%v: failed to get next work item: %v", w.Name(), err)
+				w.logger.Error("failed to get next work item", "error", err)
 				continue
 			}
 
@@ -134,23 +135,23 @@ func (w *worker[T]) StopAndDrain() {
 }
 
 func (w *worker[T]) processWorkItem(ctx context.Context, wi T) {
-	w.logger.Debugf("%v: processing work item: %s", w.Name(), wi)
+	w.logger.Debug("processing work item", "work_item", stringer{wi})
 
 	if err := w.processor.ProcessWorkItem(ctx, wi); err != nil {
-		w.logger.Errorf("%v: failed to process work item: %v", w.Name(), err)
+		w.logger.Error("failed to process work item", "error", err)
 		if err = w.processor.AbandonWorkItem(context.Background(), wi); err != nil {
-			w.logger.Errorf("%v: failed to abandon work item: %v", w.Name(), err)
+			w.logger.Error("failed to abandon work item", "error", err)
 		}
 		return
 	}
 
 	if err := w.processor.CompleteWorkItem(ctx, wi); err != nil {
-		w.logger.Errorf("%v: failed to complete work item: %v", w.Name(), err)
+		w.logger.Error("failed to complete work item", "error", err)
 		if err = w.processor.AbandonWorkItem(context.Background(), wi); err != nil {
-			w.logger.Errorf("%v: failed to abandon work item: %v", w.Name(), err)
+			w.logger.Error("failed to abandon work item", "error", err)
 		}
 		return
 	}
 
-	w.logger.Debugf("%v: work item processed successfully", w.Name())
+	w.logger.Debug("work item processed successfully")
 }
