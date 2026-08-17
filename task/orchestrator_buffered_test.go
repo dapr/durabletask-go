@@ -734,3 +734,42 @@ func Benchmark_ReplaySequentialActivities(b *testing.B) {
 		}
 	}
 }
+
+func Test_BufferedResolution_KindGuardOnOccupiedID(t *testing.T) {
+	// A TaskCompleted whose id is occupied by a pending TIMER (here the
+	// synthetic external event timer at id 0) must buffer rather than
+	// complete the timer, which would wrongly cancel the external event wait.
+	actions, cl := runBuffered(t, waitThenActivityRegistry(t), nil, []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		evTaskCompleted(0, `"x"`),
+		evEventRaised("go"),
+	})
+
+	assert.Nil(t, completeAction(t, actions),
+		"the wait must complete via the event, not fail via a wrongly cancelled timer")
+	assert.Equal(t, 1, countActions(actions, isScheduleTask),
+		"the activity dispatch proceeds normally")
+	assert.Equal(t, 1, cl.warnsContaining("TaskCompleted for id 0"))
+}
+
+func Test_BufferedResolution_PreSyntheticTimerMigration(t *testing.T) {
+	// A history produced before WaitForSingleEvent emitted its synthetic
+	// timer numbers the activity as id 0, which the current replay assigns
+	// to the synthetic timer. The early completion for id 0 must buffer past
+	// the timer (kind mismatch), and when the historical TaskScheduled(0)
+	// drops the optional timer and shifts the activity onto id 0, the
+	// buffered completion must be delivered to it.
+	actions, cl := runBuffered(t, waitThenActivityRegistry(t), nil, []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		evTaskCompleted(0, `"migrated"`),
+		evEventRaised("go"),
+		evTaskScheduled(0, "act"),
+	})
+
+	co := completeAction(t, actions)
+	require.NotNil(t, co)
+	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
+	assert.Equal(t, `"migrated"`, co.GetResult().GetValue())
+	assert.Zero(t, countActions(actions, isScheduleTask))
+	assert.Empty(t, cl.warns)
+}

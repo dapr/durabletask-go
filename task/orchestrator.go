@@ -441,6 +441,7 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 	ctx.pendingActions[scheduleTaskAction.Id] = scheduleTaskAction
 
 	task := newTask(ctx)
+	task.kind = dedup.KindTask
 	ctx.pendingTasks[scheduleTaskAction.Id] = task
 	ctx.consumeBufferedResolution(dedup.KindTask, scheduleTaskAction.Id)
 	return task
@@ -529,6 +530,7 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 	ctx.pendingActions[createChildWorkflowAction.Id] = createChildWorkflowAction
 
 	task := newTask(ctx)
+	task.kind = dedup.KindChild
 	ctx.pendingTasks[createChildWorkflowAction.Id] = task
 	ctx.consumeBufferedResolution(dedup.KindChild, createChildWorkflowAction.Id)
 	return task
@@ -622,6 +624,7 @@ func (ctx *WorkflowContext) createTimerInternal(name *string, delay time.Duratio
 	ctx.pendingActions[timerAction.Id] = timerAction
 
 	task := newTask(ctx)
+	task.kind = dedup.KindTimer
 	ctx.pendingTasks[timerAction.Id] = task
 	ctx.consumeBufferedResolution(dedup.KindTimer, timerAction.Id)
 	return task, createTimer
@@ -645,6 +648,7 @@ func (ctx *WorkflowContext) createExternalEventTimerInternal(eventName string, f
 	ctx.pendingActions[timerAction.Id] = timerAction
 
 	task := newTask(ctx)
+	task.kind = dedup.KindTimer
 	ctx.pendingTasks[timerAction.Id] = task
 	ctx.consumeBufferedResolution(dedup.KindTimer, timerAction.Id)
 	return task
@@ -880,7 +884,7 @@ func (ctx *WorkflowContext) onTaskCompleted(tc *protos.TaskCompletedEvent) error
 	taskID := tc.TaskScheduledId
 	key := resolutionKey{kind: dedup.KindTask, id: taskID}
 	task, ok := ctx.pendingTasks[taskID]
-	if !ok {
+	if !ok || task.kind != dedup.KindTask {
 		ctx.bufferResolution(key, "TaskCompleted", func() error { return ctx.onTaskCompleted(tc) })
 		return nil
 	}
@@ -899,7 +903,7 @@ func (ctx *WorkflowContext) onTaskFailed(tf *protos.TaskFailedEvent) error {
 	taskID := tf.TaskScheduledId
 	key := resolutionKey{kind: dedup.KindTask, id: taskID}
 	task, ok := ctx.pendingTasks[taskID]
-	if !ok {
+	if !ok || task.kind != dedup.KindTask {
 		ctx.bufferResolution(key, "TaskFailed", func() error { return ctx.onTaskFailed(tf) })
 		return nil
 	}
@@ -934,7 +938,7 @@ func (ctx *WorkflowContext) onChildWorkflowCompleted(soc *protos.ChildWorkflowIn
 	taskID := soc.TaskScheduledId
 	key := resolutionKey{kind: dedup.KindChild, id: taskID}
 	task, ok := ctx.pendingTasks[taskID]
-	if !ok {
+	if !ok || task.kind != dedup.KindChild {
 		ctx.bufferResolution(key, "ChildWorkflowInstanceCompleted", func() error { return ctx.onChildWorkflowCompleted(soc) })
 		return nil
 	}
@@ -954,7 +958,7 @@ func (ctx *WorkflowContext) onChildWorkflowFailed(sof *protos.ChildWorkflowInsta
 	taskID := sof.TaskScheduledId
 	key := resolutionKey{kind: dedup.KindChild, id: taskID}
 	task, ok := ctx.pendingTasks[taskID]
-	if !ok {
+	if !ok || task.kind != dedup.KindChild {
 		ctx.bufferResolution(key, "ChildWorkflowInstanceFailed", func() error { return ctx.onChildWorkflowFailed(sof) })
 		return nil
 	}
@@ -991,7 +995,7 @@ func (ctx *WorkflowContext) onTimerFired(tf *protos.TimerFiredEvent) error {
 	timerID := tf.TimerId
 	key := resolutionKey{kind: dedup.KindTimer, id: timerID}
 	task, ok := ctx.pendingTasks[timerID]
-	if !ok {
+	if !ok || task.kind != dedup.KindTimer {
 		ctx.bufferResolution(key, "TimerFired", func() error { return ctx.onTimerFired(tf) })
 		return nil
 	}
@@ -1245,6 +1249,16 @@ func (ctx *WorkflowContext) dropOptionalExternalEventTimerAt(atID int32) bool {
 	}
 
 	ctx.sequenceNumber--
+
+	// The shift moved pending entries onto their history numbering, so a
+	// resolution buffered under a history id may now match a shifted entry;
+	// deliver any that do.
+	for _, id := range taskIDs {
+		newID := id - 1
+		if t, ok := ctx.pendingTasks[newID]; ok {
+			ctx.consumeBufferedResolution(t.kind, newID)
+		}
+	}
 	return true
 }
 
