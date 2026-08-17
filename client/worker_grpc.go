@@ -51,7 +51,7 @@ func (c *TaskHubGrpcClient) startKeepaliveLoop(ctx context.Context) context.Canc
 }
 
 func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.TaskRegistry) error {
-	executor := task.NewTaskExecutor(r)
+	executor := task.NewTaskExecutorWithLogger(r, c.logger)
 
 	var stream workItemsStream
 	// streamCancel cancels the context of the current GetWorkItems stream. It lets

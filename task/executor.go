@@ -18,12 +18,23 @@ import (
 
 type taskExecutor struct {
 	Registry *TaskRegistry
+	logger   backend.Logger
 }
 
 // NewTaskExecutor returns a [backend.Executor] implementation that executes workflow and activity functions in-memory.
 func NewTaskExecutor(registry *TaskRegistry) backend.Executor {
+	return NewTaskExecutorWithLogger(registry, backend.DefaultLogger())
+}
+
+// NewTaskExecutorWithLogger is NewTaskExecutor with a caller-supplied logger
+// used for replay diagnostics.
+func NewTaskExecutorWithLogger(registry *TaskRegistry, logger backend.Logger) backend.Executor {
+	if logger == nil {
+		logger = backend.DefaultLogger()
+	}
 	return &taskExecutor{
 		Registry: registry,
+		logger:   logger,
 	}
 }
 
@@ -149,6 +160,7 @@ func (te *taskExecutor) ExecuteActivity(ctx context.Context, id api.InstanceID, 
 // ExecuteWorkflow implements backend.Executor and executes a workflow function in the current goroutine.
 func (te *taskExecutor) ExecuteWorkflow(ctx context.Context, id api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts backend.ExecuteOptions) (*protos.WorkflowResponse, error) {
 	workflowCtx := NewWorkflowContext(te.Registry, id, oldEvents, newEvents)
+	workflowCtx.SetLogger(te.logger)
 
 	if opts.PropagatedHistory != nil {
 		ph, err := api.PropagatedHistoryFromProto(opts.PropagatedHistory)
