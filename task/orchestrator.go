@@ -17,8 +17,26 @@ import (
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
+	"github.com/dapr/durabletask-go/backend/runtimestate/dedup"
 	"github.com/dapr/kit/ptr"
 )
+
+// resolutionKey correlates a resolution event
+// (TaskCompleted/TaskFailed/TimerFired/ChildWorkflowInstance{Completed,Failed})
+// with the pending entry it resolves, using the same (kind, id) semantics as
+// backend/runtimestate/dedup.
+type resolutionKey struct {
+	kind dedup.Kind
+	id   int32
+}
+
+// bufferedResolution holds a resolution event that arrived before the
+// workflow scheduled the matching work in this execution, so it can be
+// delivered once the matching pending entry is registered.
+type bufferedResolution struct {
+	redeliver func() error
+	desc      string
+}
 
 // externalEventIndefiniteFireAt is the sentinel fire-at value used for the
 // synthetic timer backing WaitForExternalEvent calls with a negative
@@ -57,6 +75,10 @@ type WorkflowContext struct {
 	bufferedExternalEvents     map[string]*list.List
 	pendingExternalEventTasks  map[string]*list.List
 	saveBufferedExternalEvents bool
+	bufferedResolutions        map[resolutionKey]bufferedResolution
+	resolvedResolutions        map[resolutionKey]struct{}
+	suppressedActionIDs        map[int32]struct{}
+	logger                     backend.Logger
 	historyPatches             map[string]bool
 	appliedPatches             map[string]bool
 	encounteredPatches         []string
@@ -186,6 +208,17 @@ func NewWorkflowContext(registry *TaskRegistry, id api.InstanceID, oldEvents []*
 		historyPatches:            make(map[string]bool),
 		appliedPatches:            make(map[string]bool),
 		encounteredPatches:        make([]string, 0),
+		bufferedResolutions:       make(map[resolutionKey]bufferedResolution),
+		resolvedResolutions:       make(map[resolutionKey]struct{}),
+		suppressedActionIDs:       make(map[int32]struct{}),
+		logger:                    backend.DefaultLogger(),
+	}
+}
+
+// SetLogger sets the logger used for replay diagnostics on the context.
+func (octx *WorkflowContext) SetLogger(l backend.Logger) {
+	if l != nil {
+		octx.logger = l
 	}
 }
 
@@ -195,6 +228,13 @@ func (ctx *WorkflowContext) start() (actions []*protos.WorkflowAction) {
 	ctx.defaultDetachedWorkflowCounter = 0
 	ctx.pendingActions = make(map[int32]*protos.WorkflowAction)
 	ctx.pendingTasks = make(map[int32]*completableTask)
+	clear(ctx.bufferedResolutions)
+	clear(ctx.resolvedResolutions)
+	clear(ctx.suppressedActionIDs)
+
+	// Registered before the recover defer so it runs on both the normal exit
+	// and the ErrTaskBlocked path.
+	defer ctx.warnUnconsumedResolutions()
 
 	defer func() {
 		result := recover()
@@ -401,7 +441,9 @@ func (ctx *WorkflowContext) internalScheduleActivity(activityName, taskExecution
 	ctx.pendingActions[scheduleTaskAction.Id] = scheduleTaskAction
 
 	task := newTask(ctx)
+	task.kind = dedup.KindTask
 	ctx.pendingTasks[scheduleTaskAction.Id] = task
+	ctx.consumeBufferedResolution(dedup.KindTask, scheduleTaskAction.Id)
 	return task
 }
 
@@ -488,7 +530,9 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 	ctx.pendingActions[createChildWorkflowAction.Id] = createChildWorkflowAction
 
 	task := newTask(ctx)
+	task.kind = dedup.KindChild
 	ctx.pendingTasks[createChildWorkflowAction.Id] = task
+	ctx.consumeBufferedResolution(dedup.KindChild, createChildWorkflowAction.Id)
 	return task
 }
 
@@ -580,7 +624,9 @@ func (ctx *WorkflowContext) createTimerInternal(name *string, delay time.Duratio
 	ctx.pendingActions[timerAction.Id] = timerAction
 
 	task := newTask(ctx)
+	task.kind = dedup.KindTimer
 	ctx.pendingTasks[timerAction.Id] = task
+	ctx.consumeBufferedResolution(dedup.KindTimer, timerAction.Id)
 	return task, createTimer
 }
 
@@ -602,7 +648,9 @@ func (ctx *WorkflowContext) createExternalEventTimerInternal(eventName string, f
 	ctx.pendingActions[timerAction.Id] = timerAction
 
 	task := newTask(ctx)
+	task.kind = dedup.KindTimer
 	ctx.pendingTasks[timerAction.Id] = task
+	ctx.consumeBufferedResolution(dedup.KindTimer, timerAction.Id)
 	return task
 }
 
@@ -770,16 +818,78 @@ func (ctx *WorkflowContext) onTaskScheduled(taskID int32, ts *protos.TaskSchedul
 	return nil
 }
 
+// bufferResolution records a resolution event that arrived before the
+// workflow scheduled the matching work in this execution, so it can be
+// delivered when the matching pending entry is registered. True duplicates
+// (the id was already resolved this execution, or an identical early
+// resolution is already buffered) are dropped; runtime state dedup upstream
+// makes those unreachable in practice, this is defense in depth.
+func (ctx *WorkflowContext) bufferResolution(key resolutionKey, eventName string, redeliver func() error) {
+	if _, resolved := ctx.resolvedResolutions[key]; resolved {
+		ctx.logger.Debugf("%v: dropping duplicate %s for id %d: already resolved this execution", ctx.ID, eventName, key.id)
+		return
+	}
+	if _, buffered := ctx.bufferedResolutions[key]; buffered {
+		ctx.logger.Debugf("%v: dropping duplicate %s for id %d: already buffered this execution", ctx.ID, eventName, key.id)
+		return
+	}
+	ctx.logger.Debugf("%v: buffering early %s for id %d until the workflow schedules the matching work", ctx.ID, eventName, key.id)
+	ctx.bufferedResolutions[key] = bufferedResolution{
+		redeliver: redeliver,
+		desc:      fmt.Sprintf("%s for id %d", eventName, key.id),
+	}
+}
+
+// consumeBufferedResolution delivers a buffered early resolution to the
+// pending entry that was just registered for (kind, id). The pending action
+// is left in place so a late scheduled event in history can still match it,
+// but it is suppressed from actions() so already resolved work is never
+// dispatched.
+func (ctx *WorkflowContext) consumeBufferedResolution(kind dedup.Kind, id int32) {
+	key := resolutionKey{kind: kind, id: id}
+	br, ok := ctx.bufferedResolutions[key]
+	if !ok {
+		return
+	}
+	delete(ctx.bufferedResolutions, key)
+	ctx.suppressedActionIDs[id] = struct{}{}
+	ctx.logger.Debugf("%v: delivering buffered %s to newly scheduled work; the action will not be dispatched", ctx.ID, br.desc)
+	// The handler cannot re-buffer on this path: the pending entry exists.
+	_ = br.redeliver()
+}
+
+// warnUnconsumedResolutions surfaces resolution events that were buffered
+// this execution but never matched any scheduled work.
+func (ctx *WorkflowContext) warnUnconsumedResolutions() {
+	if len(ctx.bufferedResolutions) == 0 {
+		return
+	}
+	keys := make([]resolutionKey, 0, len(ctx.bufferedResolutions))
+	for key := range ctx.bufferedResolutions {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].kind != keys[j].kind {
+			return keys[i].kind < keys[j].kind
+		}
+		return keys[i].id < keys[j].id
+	})
+	for _, key := range keys {
+		br := ctx.bufferedResolutions[key]
+		ctx.logger.Warnf("%v: %s arrived before the matching work was scheduled and was not consumed by the end of this execution; the event stays in history and is re-evaluated next turn, but if it never matches this indicates a non-deterministic workflow or an out-of-order history", ctx.ID, br.desc)
+	}
+}
+
 func (ctx *WorkflowContext) onTaskCompleted(tc *protos.TaskCompletedEvent) error {
 	taskID := tc.TaskScheduledId
+	key := resolutionKey{kind: dedup.KindTask, id: taskID}
 	task, ok := ctx.pendingTasks[taskID]
-	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
-		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       workflow should probably fail with an error.
+	if !ok || task.kind != dedup.KindTask {
+		ctx.bufferResolution(key, "TaskCompleted", func() error { return ctx.onTaskCompleted(tc) })
 		return nil
 	}
 	delete(ctx.pendingTasks, taskID)
+	ctx.resolvedResolutions[key] = struct{}{}
 
 	if tc.Result != nil {
 		task.complete([]byte(tc.Result.Value))
@@ -791,14 +901,14 @@ func (ctx *WorkflowContext) onTaskCompleted(tc *protos.TaskCompletedEvent) error
 
 func (ctx *WorkflowContext) onTaskFailed(tf *protos.TaskFailedEvent) error {
 	taskID := tf.TaskScheduledId
+	key := resolutionKey{kind: dedup.KindTask, id: taskID}
 	task, ok := ctx.pendingTasks[taskID]
-	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
-		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       workflow should probably fail with an error.
+	if !ok || task.kind != dedup.KindTask {
+		ctx.bufferResolution(key, "TaskFailed", func() error { return ctx.onTaskFailed(tf) })
 		return nil
 	}
 	delete(ctx.pendingTasks, taskID)
+	ctx.resolvedResolutions[key] = struct{}{}
 
 	// completing a task will resume the corresponding Await() call
 	task.fail(tf.FailureDetails)
@@ -826,14 +936,14 @@ func (ctx *WorkflowContext) onChildWorkflowScheduled(taskID int32, ts *protos.Ch
 
 func (ctx *WorkflowContext) onChildWorkflowCompleted(soc *protos.ChildWorkflowInstanceCompletedEvent) error {
 	taskID := soc.TaskScheduledId
+	key := resolutionKey{kind: dedup.KindChild, id: taskID}
 	task, ok := ctx.pendingTasks[taskID]
-	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
-		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       workflow should probably fail with an error.
+	if !ok || task.kind != dedup.KindChild {
+		ctx.bufferResolution(key, "ChildWorkflowInstanceCompleted", func() error { return ctx.onChildWorkflowCompleted(soc) })
 		return nil
 	}
 	delete(ctx.pendingTasks, taskID)
+	ctx.resolvedResolutions[key] = struct{}{}
 
 	// completing a task will resume the corresponding Await() call
 	if soc.Result != nil {
@@ -846,14 +956,14 @@ func (ctx *WorkflowContext) onChildWorkflowCompleted(soc *protos.ChildWorkflowIn
 
 func (ctx *WorkflowContext) onChildWorkflowFailed(sof *protos.ChildWorkflowInstanceFailedEvent) error {
 	taskID := sof.TaskScheduledId
+	key := resolutionKey{kind: dedup.KindChild, id: taskID}
 	task, ok := ctx.pendingTasks[taskID]
-	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
-		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       workflow should probably fail with an error.
+	if !ok || task.kind != dedup.KindChild {
+		ctx.bufferResolution(key, "ChildWorkflowInstanceFailed", func() error { return ctx.onChildWorkflowFailed(sof) })
 		return nil
 	}
 	delete(ctx.pendingTasks, taskID)
+	ctx.resolvedResolutions[key] = struct{}{}
 
 	// completing a task will resume the corresponding Await() call
 	task.fail(sof.FailureDetails)
@@ -883,14 +993,14 @@ func (ctx *WorkflowContext) onTimerCreated(e *protos.HistoryEvent) error {
 
 func (ctx *WorkflowContext) onTimerFired(tf *protos.TimerFiredEvent) error {
 	timerID := tf.TimerId
+	key := resolutionKey{kind: dedup.KindTimer, id: timerID}
 	task, ok := ctx.pendingTasks[timerID]
-	if !ok {
-		// TODO: This could be a duplicate event or it could be a non-deterministic workflow.
-		//       Duplicate events should be handled gracefully with a warning. Otherwise, the
-		//       workflow should probably fail with an error.
+	if !ok || task.kind != dedup.KindTimer {
+		ctx.bufferResolution(key, "TimerFired", func() error { return ctx.onTimerFired(tf) })
 		return nil
 	}
 	delete(ctx.pendingTasks, timerID)
+	ctx.resolvedResolutions[key] = struct{}{}
 
 	// completing a task will resume the corresponding Await() call
 	task.complete(nil)
@@ -1121,7 +1231,34 @@ func (ctx *WorkflowContext) dropOptionalExternalEventTimerAt(atID int32) bool {
 		ctx.pendingTasks[id-1] = t
 	}
 
+	// Suppressed action ids track pendingActions entries, so they shift with
+	// them. bufferedResolutions keys are numbered by history events and must
+	// NOT be shifted: this drop exists precisely to align the current ids to
+	// the history numbering.
+	delete(ctx.suppressedActionIDs, atID)
+	suppressedIDs := make([]int32, 0, len(ctx.suppressedActionIDs))
+	for id := range ctx.suppressedActionIDs {
+		if id > atID {
+			suppressedIDs = append(suppressedIDs, id)
+		}
+	}
+	sort.Slice(suppressedIDs, func(i, j int) bool { return suppressedIDs[i] < suppressedIDs[j] })
+	for _, id := range suppressedIDs {
+		delete(ctx.suppressedActionIDs, id)
+		ctx.suppressedActionIDs[id-1] = struct{}{}
+	}
+
 	ctx.sequenceNumber--
+
+	// The shift moved pending entries onto their history numbering, so a
+	// resolution buffered under a history id may now match a shifted entry;
+	// deliver any that do.
+	for _, id := range taskIDs {
+		newID := id - 1
+		if t, ok := ctx.pendingTasks[newID]; ok {
+			ctx.consumeBufferedResolution(t.kind, newID)
+		}
+	}
 	return true
 }
 
@@ -1134,6 +1271,13 @@ func (ctx *WorkflowContext) actions() []*protos.WorkflowAction {
 
 	var actions []*protos.WorkflowAction
 	for _, a := range ctx.pendingActions {
+		// Actions whose resolution was already delivered from the buffered
+		// early resolutions are withheld: the work is resolved, so it must
+		// never be dispatched. The pending action itself is retained so a
+		// late scheduled event in history can still match it.
+		if _, ok := ctx.suppressedActionIDs[a.Id]; ok {
+			continue
+		}
 		// A terminated workflow must not start any new work: emit only the
 		// completion action and keep everything else withheld, in particular
 		// tasks and timers that suspension had suppressed before the

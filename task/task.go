@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend/runtimestate/dedup"
 )
 
 // ErrTaskBlocked is not an error, but rather a control flow signal indicating that a workflow
@@ -30,6 +31,12 @@ type completableTask struct {
 	failureDetails    *protos.TaskFailureDetails
 	completedCallback func()
 	taskExecutionId   string
+	// kind is the resolution correlator family this task belongs to when it
+	// is registered in pendingTasks (task, timer or child). A resolution
+	// event only completes a pending entry of its own kind; anything else is
+	// buffered. Zero (KindNone) for tasks never held in pendingTasks, such
+	// as external event wait tasks.
+	kind dedup.Kind
 }
 
 func newTask(ctx *WorkflowContext) *completableTask {
@@ -82,6 +89,13 @@ func (t *completableTask) TaskExecutionId() string {
 }
 
 func (t *completableTask) onCompleted(callback func()) {
+	// A task can already be completed at registration time when a buffered
+	// early resolution was delivered as the task was scheduled; fire the
+	// callback immediately so completion side effects are not lost.
+	if t.isCompleted {
+		callback()
+		return
+	}
 	t.completedCallback = callback
 }
 
