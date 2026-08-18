@@ -309,3 +309,83 @@ func TestDispatchWorkflowWorkItem_OwnerBusyFallsBackAfterGrace(t *testing.T) {
 	require.NoError(t, g.dispatchWorkflowWorkItem(t.Context(), "stuck-owner", wi))
 	assert.Len(t, g.workItemQueue, 1)
 }
+
+// TestGetWorkItems_SendTimeoutCancelsPending exercises the
+// WithStreamSendTimeout path: a Send that never returns must fail the stream
+// with the timeout error, and the disconnect cleanup must cancel BOTH the
+// item stuck in the in-flight send and the items still buffered in the
+// outbox behind it.
+func TestGetWorkItems_SendTimeoutCancelsPending(t *testing.T) {
+	fb := newFakeExecBackend()
+	exec, _ := NewGrpcExecutor(fb, defaultLogger, WithStreamSendTimeout(3*time.Second))
+	g, ok := exec.(*grpcExecutor)
+	require.True(t, ok)
+
+	sendEntered := make(chan struct{})
+	unblockSend := make(chan struct{})
+	var sendOnce sync.Once
+	stream := &fakeWorkItemsStream{
+		ctx: t.Context(),
+		send: func(*protos.WorkItem) error {
+			sendOnce.Do(func() { close(sendEntered) })
+			<-unblockSend
+			return errors.New("stream torn down")
+		},
+	}
+	defer close(unblockSend)
+
+	streamDone := make(chan error, 1)
+	go func() {
+		streamDone <- g.GetWorkItems(statefulWorkItemsRequest(), stream)
+	}()
+
+	execDone := make(chan error, 3)
+	launch := func(iid string) {
+		go func() {
+			_, err := g.ExecuteWorkflow(t.Context(), api.InstanceID(iid), nil,
+				[]*protos.HistoryEvent{{EventId: 0}}, ExecuteOptions{})
+			execDone <- err
+		}()
+	}
+
+	// First item occupies the writer goroutine inside the blocked Send; the
+	// send timeout is now armed and counting.
+	launch("stuck-in-send")
+	select {
+	case <-sendEntered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("first work item never reached Send")
+	}
+
+	// Two more items must be dispatched (stamped with this stream and queued
+	// in its outbox) before the armed timeout fires, so the cleanup below is
+	// provably covering buffered items and not just the in-flight one. An
+	// empty shared queue means the dispatch loop has picked both up; the
+	// bound is deliberately inside the 3s timeout so exceeding it fails here
+	// with a clear message instead of a confusing cancellation miss later.
+	launch("buffered-1")
+	launch("buffered-2")
+	require.Eventually(t, func() bool {
+		return len(g.workItemQueue) == 0
+	}, 2*time.Second, time.Millisecond, "buffered items were not dispatched before the send timeout")
+
+	select {
+	case err := <-streamDone:
+		require.ErrorContains(t, err, "timed out while sending work item")
+	case <-time.After(30 * time.Second):
+		t.Fatal("GetWorkItems did not return after the send timeout")
+	}
+
+	for range 3 {
+		select {
+		case err := <-execDone:
+			require.EqualError(t, err, "operation aborted")
+		case <-time.After(30 * time.Second):
+			t.Fatal("ExecuteWorkflow did not return after the send timeout")
+		}
+	}
+
+	assert.ElementsMatch(t,
+		[]api.InstanceID{"stuck-in-send", "buffered-1", "buffered-2"},
+		fb.canceledInstances())
+}

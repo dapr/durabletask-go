@@ -645,15 +645,17 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 	// Items reach this stream either by affinity (its own ss.ch) or off the shared queue
 	// (work not pinned to a warm stream, plus all activities).
 	for {
-		// Drain affinity items first: the select below picks randomly among
-		// ready cases, which would let the shared queue starve a warm turn
-		// parked on ss.ch into spilling to a full-history resend elsewhere.
+		// Prefer one affinity item per pass: the select below picks randomly
+		// among ready cases, which would let the shared queue starve a warm
+		// turn parked on ss.ch into spilling to a full-history resend
+		// elsewhere. One item, not a full drain: an unbounded drain would let
+		// sustained affinity traffic monopolize the loop and starve the
+		// shared queue, which is the only path activities travel.
 		select {
 		case wi := <-ss.ch:
 			if err := g.dispatchToStream(stream, streamID, ss, wi, outCh, sendFailed); err != nil {
 				return err
 			}
-			continue
 		default:
 		}
 
