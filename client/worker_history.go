@@ -165,9 +165,10 @@ func (h *workflowHistoryCache) noteDispatch(iid api.InstanceID, token string) {
 	h.latestTokens.Store(iid, token)
 }
 
-// isLatestDispatch reports whether token still belongs to the newest received
-// dispatch for iid. An empty stored token (never noted) accepts any token so
-// non-streamed paths keep their previous behavior.
+// isLatestDispatch reports whether token still belongs to the newest
+// dispatch received for iid. An instance with no recorded dispatch accepts
+// any token, so paths that never call noteDispatch keep their previous
+// behavior.
 func (h *workflowHistoryCache) isLatestDispatch(iid api.InstanceID, token string) bool {
 	v, ok := h.latestTokens.Load(iid)
 	if !ok {

@@ -170,19 +170,19 @@ type Backend interface {
 // CompletionCallbackBackend is an optional interface a Backend can implement
 // to deliver task completions through a registered callback instead of waking
 // a goroutine blocked in WaitForWorkflowTaskCompletion or
-// WaitForActivityCompletion. The callback is invoked exactly once, on the
-// goroutine that delivers the completion or cancellation, with the response,
-// or with [api.ErrTaskCancelled] if the task was cancelled. Registration
-// replaces any pending wait or callback for the same task. The returned
-// deregister function removes the registration; calling it after delivery, or
-// more than once, is a no-op.
-// CompletionCallbackBackend registers completion callbacks for dispatched
-// work items. Contract: a registration is removed ONLY by the returned
-// deregister closure, never by delivering to the callback. The executor
-// discards stale-token deliveries and keeps waiting on the same
-// registration, so an implementation that consumes the registration on
-// delivery opens a window where the genuine response arrives unroutable and
-// the waiter strands forever.
+// WaitForActivityCompletion. The callback runs on the goroutine that delivers
+// the completion or cancellation, with the response, or with
+// [api.ErrTaskCancelled] if the task was cancelled. Registering replaces any
+// pending wait or callback for the same task.
+//
+// A registration is removed ONLY by the returned deregister closure, never by
+// delivering to the callback: the executor discards stale-token deliveries
+// and keeps waiting on the same registration, so an implementation that
+// consumed the registration on delivery would open a window where the
+// genuine response arrives unroutable and the waiter strands forever. The
+// callback may therefore be invoked more than once (stale deliveries
+// included); the executor's arbiter settles exactly one. Calling the
+// deregister closure after delivery, or more than once, is a no-op.
 type CompletionCallbackBackend interface {
 	OnWorkflowTaskCompletion(*protos.WorkflowRequest, func(*protos.WorkflowResponse, error)) func()
 
