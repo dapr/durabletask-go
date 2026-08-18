@@ -27,6 +27,12 @@ var emptyCompleteTaskResponse = &protos.CompleteTaskResponse{}
 
 var errShuttingDown error = status.Error(codes.Canceled, "shutting down")
 
+// streamOutboxSize bounds how many dispatched work items may queue behind a
+// stream's in-flight Send before the dispatch loop blocks. It only needs to
+// cover the dispatch-to-wire gap of one stream; backpressure past it lands on
+// ss.ch and the shared queue as before.
+const streamOutboxSize = 64
+
 type pendingWorkflow struct {
 	instanceID api.InstanceID
 	streamID   string
@@ -594,15 +600,43 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 		}
 	}()
 
-	ch := make(chan *protos.WorkItem)
-	errCh := make(chan error, 1)
+	// One writer goroutine per stream keeps gRPC's one-Send-at-a-time rule
+	// while the dispatch loop below hands items off without waiting for the
+	// send to drain (the outbox bounds how far dispatch runs ahead of the
+	// wire). Per-instance ordering is enforced upstream by the actor turn
+	// lock (at most one in-flight turn per instance), and the single writer
+	// preserves FIFO within the stream regardless. A failed or timed-out
+	// send surfaces on sendFailed, tearing the stream down so the disconnect
+	// cleanup above recovers every pending item stamped with this stream,
+	// exactly as the synchronous send path did.
+	outCh := make(chan *protos.WorkItem, streamOutboxSize)
+	sendFailed := make(chan error, 1)
 	go func() {
 		for {
 			select {
 			case <-stream.Context().Done():
 				return
-			case wi := <-ch:
-				errCh <- stream.Send(wi)
+			case wi := <-outCh:
+				var timer *time.Timer
+				if g.streamSendTimeout != nil {
+					timer = time.AfterFunc(*g.streamSendTimeout, func() {
+						select {
+						case sendFailed <- errors.New("timed out while sending work item"):
+						default:
+						}
+					})
+				}
+				err := stream.Send(wi)
+				if timer != nil {
+					timer.Stop()
+				}
+				if err != nil {
+					select {
+					case sendFailed <- err:
+					default:
+					}
+					return
+				}
 			}
 		}
 	}()
@@ -611,19 +645,36 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 	// Items reach this stream either by affinity (its own ss.ch) or off the shared queue
 	// (work not pinned to a warm stream, plus all activities).
 	for {
+		// Prefer one affinity item per pass: the select below picks randomly
+		// among ready cases, which would let the shared queue starve a warm
+		// turn parked on ss.ch into spilling to a full-history resend
+		// elsewhere. One item, not a full drain: an unbounded drain would let
+		// sustained affinity traffic monopolize the loop and starve the
+		// shared queue, which is the only path activities travel.
+		select {
+		case wi := <-ss.ch:
+			if err := g.dispatchToStream(stream, streamID, ss, wi, outCh, sendFailed); err != nil {
+				return err
+			}
+		default:
+		}
+
 		select {
 		case <-stream.Context().Done():
 			g.logger.Info("work item stream closed")
 			return nil
+		case err := <-sendFailed:
+			g.logger.Errorf("encountered an error while sending work item: %v", err)
+			return err
 		case wi := <-ss.ch:
-			if err := g.dispatchToStream(stream, streamID, ss, wi, ch, errCh); err != nil {
+			if err := g.dispatchToStream(stream, streamID, ss, wi, outCh, sendFailed); err != nil {
 				return err
 			}
 		case wi, ok := <-g.workItemQueue:
 			if !ok {
 				continue
 			}
-			if err := g.dispatchToStream(stream, streamID, ss, wi, ch, errCh); err != nil {
+			if err := g.dispatchToStream(stream, streamID, ss, wi, outCh, sendFailed); err != nil {
 				return err
 			}
 		case <-g.streamShutdownChan:
@@ -642,8 +693,8 @@ func (g *grpcExecutor) dispatchToStream(
 	streamID string,
 	ss *streamState,
 	wi *protos.WorkItem,
-	ch chan *protos.WorkItem,
-	errCh chan error,
+	outCh chan *protos.WorkItem,
+	sendFailed chan error,
 ) error {
 	switch x := wi.Request.(type) {
 	case *protos.WorkItem_WorkflowRequest:
@@ -665,35 +716,26 @@ func (g *grpcExecutor) dispatchToStream(
 		}
 	}
 
-	if err := g.sendWorkItem(stream, wi, ch, errCh); err != nil {
+	if err := g.sendWorkItem(stream, wi, outCh, sendFailed); err != nil {
 		g.logger.Errorf("encountered an error while sending work item: %v", err)
 		return err
 	}
 	return nil
 }
 
+// sendWorkItem hands the work item to the stream's writer goroutine and
+// returns once it is queued: sends are pipelined, so dispatch does not
+// rendezvous with the wire.
 func (g *grpcExecutor) sendWorkItem(stream protos.TaskHubSidecarService_GetWorkItemsServer, wi *protos.WorkItem,
-	ch chan *protos.WorkItem, errCh chan error,
+	outCh chan *protos.WorkItem, sendFailed chan error,
 ) error {
 	select {
 	case <-stream.Context().Done():
 		return stream.Context().Err()
-	case ch <- wi:
-	}
-
-	ctx := stream.Context()
-	if g.streamSendTimeout != nil {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, *g.streamSendTimeout)
-		defer cancel()
-	}
-
-	select {
-	case <-ctx.Done():
-		g.logger.Errorf("timed out while sending work item")
-		return fmt.Errorf("timed out while sending work item: %w", ctx.Err())
-	case err := <-errCh:
+	case err := <-sendFailed:
 		return err
+	case outCh <- wi:
+		return nil
 	}
 }
 
