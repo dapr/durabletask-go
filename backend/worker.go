@@ -21,6 +21,19 @@ type TaskProcessor[T WorkItem] interface {
 	CompleteWorkItem(context.Context, T) error
 }
 
+// AsyncTaskProcessor is an optional extension of TaskProcessor for processors
+// that can hand off a work item without a goroutine parked on the completion.
+//
+// When ProcessWorkItemAsync returns true it has taken ownership of the work
+// item and invokes done exactly once, with the same error ProcessWorkItem
+// would have returned, possibly before returning and possibly from the
+// goroutine that delivers the work item's completion. When it returns false it
+// has had no side effects and the caller must fall back to ProcessWorkItem.
+type AsyncTaskProcessor[T WorkItem] interface {
+	TaskProcessor[T]
+	ProcessWorkItemAsync(ctx context.Context, wi T, done func(error)) bool
+}
+
 type worker[T WorkItem] struct {
 	logger Logger
 
@@ -116,13 +129,29 @@ func (w *worker[T]) Start(ctx context.Context) {
 
 			w.wg.Add(1)
 			go func() {
-				defer func() {
-					if w.parallelLock != nil {
-						<-w.parallelLock
-					}
-					w.wg.Done()
-				}()
-				w.processWorkItem(ctx, wi)
+				// finish runs the completion tail exactly once on whichever
+				// goroutine delivers the result: this one for the blocking
+				// path, the completion-delivering goroutine for the async
+				// path. The parallelLock slot acquired above is held until
+				// then and released here on every path.
+				var once sync.Once
+				finish := func(err error) {
+					once.Do(func() {
+						w.finishWorkItem(ctx, wi, err)
+						if w.parallelLock != nil {
+							<-w.parallelLock
+						}
+						w.wg.Done()
+					})
+				}
+
+				w.logger.Debugf("%v: processing work item: %s", w.Name(), wi)
+
+				if ap, ok := w.processor.(AsyncTaskProcessor[T]); ok && ap.ProcessWorkItemAsync(ctx, wi, finish) {
+					return
+				}
+
+				finish(w.processor.ProcessWorkItem(ctx, wi))
 			}()
 		}
 	}()
@@ -133,10 +162,8 @@ func (w *worker[T]) StopAndDrain() {
 	w.wg.Wait()
 }
 
-func (w *worker[T]) processWorkItem(ctx context.Context, wi T) {
-	w.logger.Debugf("%v: processing work item: %s", w.Name(), wi)
-
-	if err := w.processor.ProcessWorkItem(ctx, wi); err != nil {
+func (w *worker[T]) finishWorkItem(ctx context.Context, wi T, err error) {
+	if err != nil {
 		w.logger.Errorf("%v: failed to process work item: %v", w.Name(), err)
 		if err = w.processor.AbandonWorkItem(context.Background(), wi); err != nil {
 			w.logger.Errorf("%v: failed to abandon work item: %v", w.Name(), err)

@@ -116,8 +116,15 @@ func historyBytes(events []*protos.HistoryEvent) int64 {
 // reclaimed by a TTL janitor (see runJanitor), on completion, and by least-recently-
 // used eviction once either the instance-count cap or the byte budget is exceeded.
 type workflowHistoryCache struct {
-	mu            sync.Mutex
-	entries       map[api.InstanceID]*cachedWorkflowHistory
+	mu      sync.Mutex
+	entries map[api.InstanceID]*cachedWorkflowHistory
+	// latestTokens maps an instance to the completion token of its most
+	// recently received dispatch. Cache writes are gated on it: a handler
+	// whose dispatch has been superseded (redelivery, or a dispatch on a
+	// reconnected stream while the old handler still runs) must not commit
+	// its prefix over the newer dispatch's. Deliberately NOT cleared by
+	// reset(): it must survive reconnects to fence exactly those handlers.
+	latestTokens  sync.Map
 	totalBytes    int64
 	ttl           time.Duration
 	sweepInterval time.Duration
@@ -151,6 +158,29 @@ func newWorkflowHistoryCache(cfg workflowHistoryCacheConfig) *workflowHistoryCac
 		maxBytes:      maxBytes,
 		now:           time.Now,
 	}
+}
+
+// noteDispatch records that token is the newest dispatch for iid.
+func (h *workflowHistoryCache) noteDispatch(iid api.InstanceID, token string) {
+	h.latestTokens.Store(iid, token)
+}
+
+// isLatestDispatch reports whether token still belongs to the newest
+// dispatch received for iid. An instance with no recorded dispatch accepts
+// any token, so paths that never call noteDispatch keep their previous
+// behavior.
+func (h *workflowHistoryCache) isLatestDispatch(iid api.InstanceID, token string) bool {
+	v, ok := h.latestTokens.Load(iid)
+	if !ok {
+		return true
+	}
+	return v.(string) == token
+}
+
+// forgetDispatch drops the newest-dispatch marker, for instances whose
+// history reached a terminal state.
+func (h *workflowHistoryCache) forgetDispatch(iid api.InstanceID) {
+	h.latestTokens.Delete(iid)
 }
 
 func (h *workflowHistoryCache) get(iid api.InstanceID) ([]*protos.HistoryEvent, bool) {

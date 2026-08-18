@@ -184,9 +184,12 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 				// Capture this stream's cancel so the handler tears down the
 				// stream it arrived on, not a later reconnected one.
 				teardownStream := streamCancel
-				go c.processWorkflowWorkItem(ctx, executor, historyCache, orchReq, teardownStream)
+				if c.statefulHistoryEnabled() {
+					historyCache.noteDispatch(api.InstanceID(orchReq.GetInstanceId()), workItem.GetCompletionToken())
+				}
+				go c.processWorkflowWorkItem(ctx, executor, historyCache, orchReq, workItem.GetCompletionToken(), teardownStream)
 			} else if actReq := workItem.GetActivityRequest(); actReq != nil {
-				go c.processActivityWorkItem(ctx, executor, actReq)
+				go c.processActivityWorkItem(ctx, executor, actReq, workItem.GetCompletionToken())
 			} else {
 				c.logger.Warnf("received unknown work item type: %v", workItem)
 			}
@@ -200,6 +203,7 @@ func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 	executor backend.Executor,
 	historyCache *workflowHistoryCache,
 	workItem *protos.WorkflowRequest,
+	completionToken string,
 	teardownStream context.CancelFunc,
 ) {
 	iid := api.InstanceID(workItem.InstanceId)
@@ -233,16 +237,24 @@ func (c *TaskHubGrpcClient) processWorkflowWorkItem(
 	// prefix is exactly the committed history we just replayed (never the
 	// not-yet-committed NewEvents). Drop it once the instance completes or
 	// continues-as-new, since its history no longer extends this prefix. Skipped
-	// entirely when the stateful-history optimization is disabled.
-	if err == nil && c.statefulHistoryEnabled() {
+	// entirely when the stateful-history optimization is disabled, and skipped
+	// when this dispatch has been superseded: the sidecar discards a stale
+	// handler's RESPONSE by completion token, but the cache write below would
+	// otherwise overwrite the newer dispatch's prefix and poison the next
+	// delta reconstruction.
+	if err == nil && c.statefulHistoryEnabled() && historyCache.isLatestDispatch(iid, completionToken) {
 		if workflowHistoryReset(results) {
 			historyCache.delete(iid)
+			historyCache.forgetDispatch(iid)
 		} else {
 			historyCache.put(iid, pastEvents)
 		}
 	}
 
-	resp := protos.WorkflowResponse{InstanceId: workItem.InstanceId}
+	// Echo the dispatch's completion token so the sidecar can correlate this
+	// response with the dispatch that requested it and discard stale or
+	// duplicate deliveries.
+	resp := protos.WorkflowResponse{InstanceId: workItem.InstanceId, CompletionToken: completionToken}
 	if err != nil {
 		// NOTE: At the time of writing, there's no known case where this error is returned.
 		//       We add error handling here anyways, just in case.
@@ -280,6 +292,7 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 	ctx context.Context,
 	executor backend.Executor,
 	req *protos.ActivityRequest,
+	completionToken string,
 ) {
 	opts := backend.ExecuteOptions{
 		PropagatedHistory: req.GetPropagatedHistory(),
@@ -305,7 +318,7 @@ func (c *TaskHubGrpcClient) processActivityWorkItem(
 	}
 	result, err := executor.ExecuteActivity(ctx, api.InstanceID(req.WorkflowInstance.InstanceId), event, opts)
 
-	resp := protos.ActivityResponse{InstanceId: req.WorkflowInstance.InstanceId, TaskId: req.TaskId}
+	resp := protos.ActivityResponse{InstanceId: req.WorkflowInstance.InstanceId, TaskId: req.TaskId, CompletionToken: completionToken}
 	if err != nil {
 		resp.FailureDetails = &protos.TaskFailureDetails{
 			ErrorType:    fmt.Sprintf("%T", err),
