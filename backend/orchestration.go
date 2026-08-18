@@ -15,6 +15,7 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend/payloadstore"
 	"github.com/dapr/durabletask-go/backend/runtimestate"
 )
 
@@ -41,6 +42,10 @@ type WorkflowWorkerOptions struct {
 	// InProcessNamePrefix is the workflow-name prefix that selects InProcessExecutor.
 	// Empty string disables prefix-based dispatch.
 	InProcessNamePrefix string
+	// PayloadStore, when non-nil, resolves payload-store references in the
+	// history handed to the executor back to the payloads, so workflow
+	// code always sees full payloads. Nil disables dereferencing.
+	PayloadStore payloadstore.Store
 }
 
 type workflowProcessor struct {
@@ -48,6 +53,7 @@ type workflowProcessor struct {
 	executor            WorkflowExecutor
 	inProcessExecutor   WorkflowExecutor
 	inProcessNamePrefix string
+	payloadStore        payloadstore.Store
 	logger              Logger
 
 	applier *runtimestate.Applier
@@ -57,12 +63,13 @@ func NewWorkflowWorker(opts WorkflowWorkerOptions, taskopts ...NewTaskWorkerOpti
 	processor := &workflowProcessor{
 		be:                  opts.Backend,
 		executor:            opts.Executor,
+		payloadStore:        opts.PayloadStore,
 		inProcessExecutor:   opts.InProcessExecutor,
 		inProcessNamePrefix: opts.InProcessNamePrefix,
 		logger:              opts.Logger,
 		applier:             runtimestate.NewApplier(opts.AppID, opts.Namespace),
 	}
-	return NewTaskWorker[*WorkflowWorkItem](processor, opts.Logger, taskopts...)
+	return NewTaskWorker(processor, opts.Logger, taskopts...)
 }
 
 // Name implements TaskProcessor
@@ -121,7 +128,20 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 					executor = w.inProcessExecutor
 				}
 			}
-			results, err := executor.ExecuteWorkflow(ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts)
+			// Resolve offloaded payloads on copies of the events so the
+			// executor sees full payloads while the runtime state (which
+			// the backend persists, and may sign) keeps its references.
+			oldEvents, newEvents := wi.State.OldEvents, wi.State.NewEvents
+			if w.payloadStore != nil {
+				var derr error
+				if oldEvents, derr = payloadstore.Dereference(ctx, w.payloadStore, string(wi.InstanceID), oldEvents); derr != nil {
+					return fmt.Errorf("failed to resolve offloaded payloads: %w", derr)
+				}
+				if newEvents, derr = payloadstore.Dereference(ctx, w.payloadStore, string(wi.InstanceID), newEvents); derr != nil {
+					return fmt.Errorf("failed to resolve offloaded payloads: %w", derr)
+				}
+			}
+			results, err := executor.ExecuteWorkflow(ctx, wi.InstanceID, oldEvents, newEvents, execOpts)
 			if err != nil {
 				return fmt.Errorf("error executing workflow: %w", err)
 			}

@@ -51,7 +51,11 @@ func TestMain(m *testing.M) {
 		AppID:    "testapp",
 	})
 
-	activityWorker := backend.NewActivityTaskWorker(be, grpcExecutor, logger)
+	activityWorker := backend.NewActivityWorker(backend.ActivityWorkerOptions{
+		Backend:  be,
+		Executor: grpcExecutor,
+		Logger:   logger,
+	})
 	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 	if err := taskHubWorker.Start(ctx); err != nil {
 		log.Fatalf("failed to start worker: %v", err)

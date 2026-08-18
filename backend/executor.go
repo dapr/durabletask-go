@@ -21,6 +21,7 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend/payloadstore"
 )
 
 var emptyCompleteTaskResponse = &protos.CompleteTaskResponse{}
@@ -62,6 +63,7 @@ type grpcExecutor struct {
 	streamShutdownChan       <-chan any
 	streamSendTimeout        *time.Duration
 	skipWaitForInstanceStart bool
+	payloadStore             payloadstore.Store
 }
 
 type grpcExecutorOptions func(g *grpcExecutor)
@@ -93,6 +95,15 @@ func WithOnGetWorkItemsDisconnectCallback(callback func(context.Context) error) 
 func WithStreamShutdownChannel(c <-chan any) grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.streamShutdownChan = c
+	}
+}
+
+// WithExecutorPayloadStore makes the executor resolve offloaded payload
+// references in workflow metadata responses (GetInstance and the
+// WaitForInstance* calls) back to full payloads, best-effort.
+func WithExecutorPayloadStore(store payloadstore.Store) grpcExecutorOptions {
+	return func(g *grpcExecutor) {
+		g.payloadStore = store
 	}
 }
 
@@ -529,6 +540,7 @@ func (g *grpcExecutor) GetInstance(ctx context.Context, req *protos.GetInstanceR
 		return &protos.GetInstanceResponse{Exists: false}, nil
 	}
 
+	resolveMetadataPayloads(ctx, g.payloadStore, g.logger, metadata)
 	return createGetInstanceResponse(req, metadata), nil
 }
 
@@ -752,6 +764,9 @@ func (g *grpcExecutor) waitForInstance(ctx context.Context, req *protos.GetInsta
 		return &protos.GetInstanceResponse{Exists: false}, nil
 	}
 
+	// Resolve once on the final metadata rather than on every status
+	// update observed while waiting.
+	resolveMetadataPayloads(ctx, g.payloadStore, g.logger, metadata)
 	return createGetInstanceResponse(req, metadata), nil
 }
 

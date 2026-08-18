@@ -2079,7 +2079,6 @@ func Test_StartedAt_AfterExecution(t *testing.T) {
 		"StartedAt %v should be >= CreatedAt %v", startedAt, metadata.CreatedAt.AsTime())
 }
 
-
 func Test_StartedAt_WithScheduleTime(t *testing.T) {
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("StartedAtAfterExec", func(ctx *task.WorkflowContext) (any, error) {
@@ -2184,7 +2183,11 @@ func initTaskHubWorker(ctx context.Context, r *task.TaskRegistry, opts ...backen
 		Logger:   logger,
 		AppID:    "testapp",
 	}, opts...)
-	activityWorker := backend.NewActivityTaskWorker(be, executor, logger, opts...)
+	activityWorker := backend.NewActivityWorker(backend.ActivityWorkerOptions{
+		Backend:  be,
+		Executor: executor,
+		Logger:   logger,
+	}, opts...)
 	taskHubWorker := backend.NewTaskHubWorker(be, workflowWorker, activityWorker, logger)
 	if err := taskHubWorker.Start(ctx); err != nil {
 		panic(err)

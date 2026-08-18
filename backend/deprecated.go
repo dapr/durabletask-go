@@ -82,3 +82,23 @@ func (c *backendClient) ResumeOrchestration(ctx context.Context, id api.Instance
 func (c *backendClient) PurgeOrchestrationState(ctx context.Context, id api.InstanceID, opts ...api.PurgeOptions) error {
 	return c.PurgeWorkflowState(ctx, id, opts...)
 }
+
+// Deprecated: Use NewActivityWorker instead.
+func NewActivityTaskWorker(be Backend, executor ActivityExecutor, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
+	return NewActivityWorker(ActivityWorkerOptions{
+		Backend:  be,
+		Executor: executor,
+		Logger:   logger,
+	}, opts...)
+}
+
+// Deprecated: Use NewActivityWorker instead.
+func NewActivityTaskWorkerWithInProcess(be Backend, executor, inProcessExecutor ActivityExecutor, inProcessNamePrefix string, logger Logger, opts ...NewTaskWorkerOptions) TaskWorker[*ActivityWorkItem] {
+	return NewActivityWorker(ActivityWorkerOptions{
+		Backend:             be,
+		Executor:            executor,
+		InProcessExecutor:   inProcessExecutor,
+		InProcessNamePrefix: inProcessNamePrefix,
+		Logger:              logger,
+	}, opts...)
+}
