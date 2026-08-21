@@ -85,7 +85,6 @@ func (p *workflowProcessor) NextWorkItem(ctx context.Context) (*WorkflowWorkItem
 	return p.be.NextWorkflowWorkItem(ctx)
 }
 
-// ProcessWorkItem implements TaskProcessor
 // ProcessWorkItemAsync implements TaskProcessor: the work that follows each
 // workflow execution is registered as a completion callback, so no goroutine
 // waits out the app roundtrip. A continue-as-new response starts its next
@@ -174,7 +173,16 @@ func (t *workflowTurn) execute() {
 		return
 	}
 
-	results, err := executor.ExecuteWorkflow(t.ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts)
+	var results *protos.WorkflowResponse
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				results, err = nil, fmt.Errorf("%v: workflow executor panicked: %v", wi.InstanceID, r)
+			}
+		}()
+		results, err = executor.ExecuteWorkflow(t.ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts)
+	}()
 	t.applyResponse(results, err, execOpts)
 }
 
