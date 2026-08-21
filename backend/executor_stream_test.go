@@ -43,22 +43,24 @@ func newFakeExecBackend() *fakeExecBackend {
 	return &fakeExecBackend{waiters: make(map[string]chan *protos.WorkflowResponse)}
 }
 
-func (f *fakeExecBackend) WaitForWorkflowTaskCompletion(req *protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error) {
+func (f *fakeExecBackend) OnWorkflowTaskCompletion(req *protos.WorkflowRequest, cb func(*protos.WorkflowResponse, error)) func() {
 	ch := make(chan *protos.WorkflowResponse, 1)
 	f.mu.Lock()
 	f.waiters[req.GetInstanceId()] = ch
 	f.mu.Unlock()
-	return func(ctx context.Context) (*protos.WorkflowResponse, error) {
+	done := make(chan struct{})
+	go func() {
 		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		case <-done:
 		case resp := <-ch:
 			if resp == nil {
-				return nil, api.ErrTaskCancelled
+				cb(nil, api.ErrTaskCancelled)
+				return
 			}
-			return resp, nil
+			cb(resp, nil)
 		}
-	}
+	}()
+	return func() { close(done) }
 }
 
 func (f *fakeExecBackend) complete(iid string) {
@@ -105,7 +107,7 @@ type fakeWorkItemsStream struct {
 	send func(*protos.WorkItem) error
 }
 
-func (f *fakeWorkItemsStream) Context() context.Context      { return f.ctx }
+func (f *fakeWorkItemsStream) Context() context.Context       { return f.ctx }
 func (f *fakeWorkItemsStream) Send(wi *protos.WorkItem) error { return f.send(wi) }
 
 func statefulWorkItemsRequest() *protos.GetWorkItemsRequest {

@@ -31,12 +31,13 @@ func (f *fakeCallbackBackend) OnWorkflowTaskCompletion(*protos.WorkflowRequest, 
 // deterministic TaskExecutionId derivation with it, and a nil value makes a
 // recreated instance's activities collide with the prior run's.
 func Test_executeWorkflowAsync_carriesExecutionID(t *testing.T) {
+	fb := &fakeCallbackBackend{}
 	g := &grpcExecutor{
 		workItemQueue:     make(chan *protos.WorkItem, 1),
 		pendingWorkflows:  &sync.Map{},
 		pendingActivities: &sync.Map{},
 		streams:           &sync.Map{},
-		backend:           &fakeCallbackBackend{},
+		backend:           fb,
 		logger:            DefaultLogger(),
 	}
 

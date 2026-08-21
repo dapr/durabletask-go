@@ -193,12 +193,11 @@ func (a *asyncWait) settle() bool {
 	return true
 }
 
-// canExecuteAsync reports whether the backend can deliver completions by
-// callback, which is what the executeWorkflowAsync and executeActivityAsync
-// paths need.
+// canExecuteAsync reports that completions are always deliverable by
+// callback: callback registration is part of the Backend contract, so the
+// event-driven path is the only execution path.
 func (g *grpcExecutor) canExecuteAsync() bool {
-	_, ok := g.backend.(CompletionCallbackBackend)
-	return ok
+	return true
 }
 
 // executeWorkflowAsync is the event-driven form of ExecuteWorkflow. Instead of
@@ -208,11 +207,6 @@ func (g *grpcExecutor) canExecuteAsync() bool {
 // the goroutine that delivers the completion, the cancellation, the context
 // error, or the dispatch failure.
 func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions, done func(*protos.WorkflowResponse, error)) {
-	cbBackend, ok := g.backend.(CompletionCallbackBackend)
-	if !ok {
-		done(nil, errors.New("backend does not support completion callbacks"))
-		return
-	}
 
 	// Capture the tracked value: a superseded attempt settling late must not
 	// delete a newer attempt's entry (both share the instance key), or the
@@ -269,7 +263,7 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 		done(resp, nil)
 	}
 
-	wait.setDeregister(cbBackend.OnWorkflowTaskCompletion(req, deliver))
+	wait.setDeregister(g.backend.OnWorkflowTaskCompletion(req, deliver))
 	wait.setStop(context.AfterFunc(ctx, func() {
 		deliver(nil, ctx.Err())
 	}))
@@ -283,11 +277,6 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 // executeActivityAsync is the event-driven form of ExecuteActivity, with the
 // same contract as executeWorkflowAsync.
 func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions, done func(*protos.HistoryEvent, error)) {
-	cbBackend, ok := g.backend.(CompletionCallbackBackend)
-	if !ok {
-		done(nil, errors.New("backend does not support completion callbacks"))
-		return
-	}
 
 	key := GetActivityExecutionKey(string(iid), e.EventId)
 	// See executeWorkflowAsync: CompareAndDelete-able so a late-settling
@@ -340,7 +329,7 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 		done(activityResponseEvent(e, task, resp), nil)
 	}
 
-	wait.setDeregister(cbBackend.OnActivityCompletion(req, deliver))
+	wait.setDeregister(g.backend.OnActivityCompletion(req, deliver))
 	wait.setStop(context.AfterFunc(ctx, func() {
 		deliver(nil, ctx.Err())
 	}))
@@ -373,107 +362,34 @@ func executionID(oldEvents, newEvents []*protos.HistoryEvent) *wrapperspb.String
 	return nil
 }
 
+// ExecuteWorkflow implements Executor as a blocking wrapper over
+// executeWorkflowAsync: the event-driven form is the single implementation
+// of workflow dispatch and completion delivery.
 func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error) {
-	trackedWorkflow := &pendingWorkflow{instanceID: iid}
-	executor.pendingWorkflows.Store(iid, trackedWorkflow)
-
-	req := &protos.WorkflowRequest{
-		InstanceId:        string(iid),
-		ExecutionId:       executionID(oldEvents, newEvents),
-		PastEvents:        oldEvents,
-		NewEvents:         newEvents,
-		PropagatedHistory: opts.PropagatedHistory,
+	type result struct {
+		resp *protos.WorkflowResponse
+		err  error
 	}
-
-	workItem := &protos.WorkItem{
-		Request: &protos.WorkItem_WorkflowRequest{
-			WorkflowRequest: req,
-		},
-	}
-
-	wait := executor.backend.WaitForWorkflowTaskCompletion(req)
-
-	// Send the workflow execution work-item to the connected worker.
-	// This will block if the worker isn't listening for work items.
-	// Worker-level routing (gRPC stream vs in-process internal executor)
-	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.InProcess.
-	// In other words, this is always the external-stream path.
-	//
-	// The item prefers the stream that owns this instance under affinity (so the next
-	// turn can be a delta), falling back to any connected stream.
-	if err := executor.dispatchWorkflowWorkItem(ctx, iid, workItem); err != nil {
-		executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
-		return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", err)
-	}
-
-	resp, err := wait(ctx)
-
-	// This workflow is completed or cancelled and no longer pending. Remove
-	// only our own entry: a newer attempt may have re-stored the key.
-	executor.pendingWorkflows.CompareAndDelete(iid, trackedWorkflow)
-	if err != nil {
-		if errors.Is(err, api.ErrTaskCancelled) {
-			return nil, errors.New("operation aborted")
-		}
-		executor.logger.Warnf("%s: failed before receiving workflow result", iid)
-		return nil, err
-	}
-
-	return resp, nil
+	resultCh := make(chan result, 1)
+	executor.executeWorkflowAsync(ctx, iid, oldEvents, newEvents, opts, func(resp *protos.WorkflowResponse, err error) {
+		resultCh <- result{resp: resp, err: err}
+	})
+	r := <-resultCh
+	return r.resp, r.err
 }
 
 // ExecuteActivity implements Executor
 func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error) {
-	key := GetActivityExecutionKey(string(iid), e.EventId)
-	trackedActivity := &pendingActivity{instanceID: iid, taskID: e.EventId}
-	executor.pendingActivities.Store(key, trackedActivity)
-
-	task := e.GetTaskScheduled()
-
-	req := &protos.ActivityRequest{
-		Name:               task.Name,
-		Version:            task.Version,
-		Input:              task.Input,
-		WorkflowInstance:   &protos.WorkflowInstance{InstanceId: string(iid)},
-		TaskId:             e.EventId,
-		TaskExecutionId:    task.TaskExecutionId,
-		ParentTraceContext: task.ParentTraceContext,
-		PropagatedHistory:  opts.PropagatedHistory,
+	type result struct {
+		event *protos.HistoryEvent
+		err   error
 	}
-	workItem := &protos.WorkItem{
-		Request: &protos.WorkItem_ActivityRequest{
-			ActivityRequest: req,
-		},
-	}
-
-	wait := executor.backend.WaitForActivityCompletion(req)
-
-	// Send the activity execution work-item to the connected worker.
-	// This will block if the worker isn't listening for work items.
-	// Worker-level routing (gRPC stream vs in-process internal executor)
-	// is handled upstream of this method by the TaskHubWorker reading WorkflowWorkItem.InProcess.
-	// In other words, this is always the external-stream path.
-	select {
-	case <-ctx.Done():
-		executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
-		return nil, fmt.Errorf("context canceled before dispatching activity work item: %w", ctx.Err())
-	case executor.workItemQueue <- workItem:
-	}
-
-	resp, err := wait(ctx)
-
-	// This activity is completed or cancelled and no longer pending. Remove
-	// only our own entry: a newer attempt may have re-stored the key.
-	executor.pendingActivities.CompareAndDelete(key, trackedActivity)
-	if err != nil {
-		if errors.Is(err, api.ErrTaskCancelled) {
-			return nil, errors.New("operation aborted")
-		}
-		executor.logger.Warnf("%s/%s#%d: failed before receiving activity result", iid, task.Name, e.EventId)
-		return nil, err
-	}
-
-	return activityResponseEvent(e, task, resp), nil
+	resultCh := make(chan result, 1)
+	executor.executeActivityAsync(ctx, iid, e, opts, func(event *protos.HistoryEvent, err error) {
+		resultCh <- result{event: event, err: err}
+	})
+	r := <-resultCh
+	return r.event, r.err
 }
 
 // activityResponseEvent maps an activity response onto the TaskFailed or

@@ -1152,100 +1152,44 @@ func (_c *Backend_Stop_Call) RunAndReturn(run func(context.Context) error) *Back
 	return _c
 }
 
-// WaitForActivityCompletion provides a mock function with given fields: _a0
-func (_m *Backend) WaitForActivityCompletion(_a0 *protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error) {
-	ret := _m.Called(_a0)
+// OnActivityCompletion provides a mock function with given fields: _a0, _a1
+func (_m *Backend) OnActivityCompletion(_a0 *protos.ActivityRequest, _a1 func(*protos.ActivityResponse, error)) func() {
+	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
-		panic("no return value specified for WaitForActivityCompletion")
+		panic("no return value specified for OnActivityCompletion")
 	}
 
-	var r0 func(context.Context) (*protos.ActivityResponse, error)
-	if rf, ok := ret.Get(0).(func(*protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error)); ok {
-		r0 = rf(_a0)
+	var r0 func()
+	if rf, ok := ret.Get(0).(func(*protos.ActivityRequest, func(*protos.ActivityResponse, error)) func()); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(func(context.Context) (*protos.ActivityResponse, error))
+			r0 = ret.Get(0).(func())
 		}
 	}
 
 	return r0
 }
 
-// Backend_WaitForActivityCompletion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitForActivityCompletion'
-type Backend_WaitForActivityCompletion_Call struct {
-	*mock.Call
-}
-
-// WaitForActivityCompletion is a helper method to define mock.On call
-//   - _a0 *protos.ActivityRequest
-func (_e *Backend_Expecter) WaitForActivityCompletion(_a0 interface{}) *Backend_WaitForActivityCompletion_Call {
-	return &Backend_WaitForActivityCompletion_Call{Call: _e.mock.On("WaitForActivityCompletion", _a0)}
-}
-
-func (_c *Backend_WaitForActivityCompletion_Call) Run(run func(_a0 *protos.ActivityRequest)) *Backend_WaitForActivityCompletion_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*protos.ActivityRequest))
-	})
-	return _c
-}
-
-func (_c *Backend_WaitForActivityCompletion_Call) Return(_a0 func(context.Context) (*protos.ActivityResponse, error)) *Backend_WaitForActivityCompletion_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Backend_WaitForActivityCompletion_Call) RunAndReturn(run func(*protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error)) *Backend_WaitForActivityCompletion_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// WaitForWorkflowTaskCompletion provides a mock function with given fields: _a0
-func (_m *Backend) WaitForWorkflowTaskCompletion(_a0 *protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error) {
-	ret := _m.Called(_a0)
+// OnWorkflowTaskCompletion provides a mock function with given fields: _a0, _a1
+func (_m *Backend) OnWorkflowTaskCompletion(_a0 *protos.WorkflowRequest, _a1 func(*protos.WorkflowResponse, error)) func() {
+	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
-		panic("no return value specified for WaitForWorkflowTaskCompletion")
+		panic("no return value specified for OnWorkflowTaskCompletion")
 	}
 
-	var r0 func(context.Context) (*protos.WorkflowResponse, error)
-	if rf, ok := ret.Get(0).(func(*protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error)); ok {
-		r0 = rf(_a0)
+	var r0 func()
+	if rf, ok := ret.Get(0).(func(*protos.WorkflowRequest, func(*protos.WorkflowResponse, error)) func()); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(func(context.Context) (*protos.WorkflowResponse, error))
+			r0 = ret.Get(0).(func())
 		}
 	}
 
 	return r0
-}
-
-// Backend_WaitForWorkflowTaskCompletion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitForWorkflowTaskCompletion'
-type Backend_WaitForWorkflowTaskCompletion_Call struct {
-	*mock.Call
-}
-
-// WaitForWorkflowTaskCompletion is a helper method to define mock.On call
-//   - _a0 *protos.WorkflowRequest
-func (_e *Backend_Expecter) WaitForWorkflowTaskCompletion(_a0 interface{}) *Backend_WaitForWorkflowTaskCompletion_Call {
-	return &Backend_WaitForWorkflowTaskCompletion_Call{Call: _e.mock.On("WaitForWorkflowTaskCompletion", _a0)}
-}
-
-func (_c *Backend_WaitForWorkflowTaskCompletion_Call) Run(run func(_a0 *protos.WorkflowRequest)) *Backend_WaitForWorkflowTaskCompletion_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*protos.WorkflowRequest))
-	})
-	return _c
-}
-
-func (_c *Backend_WaitForWorkflowTaskCompletion_Call) Return(_a0 func(context.Context) (*protos.WorkflowResponse, error)) *Backend_WaitForWorkflowTaskCompletion_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *Backend_WaitForWorkflowTaskCompletion_Call) RunAndReturn(run func(*protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error)) *Backend_WaitForWorkflowTaskCompletion_Call {
-	_c.Call.Return(run)
-	return _c
 }
 
 // WatchWorkflowRuntimeStatus provides a mock function with given fields: ctx, id, router, condition
