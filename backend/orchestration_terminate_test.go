@@ -23,7 +23,7 @@ import (
 func newTerminatedTurn(t *testing.T, done func(error)) (*workflowTurn, *WorkflowWorkItem) {
 	t.Helper()
 
-	workflowID := "wf-terminate-async"
+	const workflowID = "wf-terminate-async"
 	state := runtimestate.NewWorkflowRuntimeState(workflowID, nil, nil)
 	terminate := &protos.ExecutionTerminatedEvent{Input: wrapperspb.String(`"reason"`)}
 	events := []*protos.HistoryEvent{
@@ -51,7 +51,7 @@ func newTerminatedTurn(t *testing.T, done func(error)) (*workflowTurn, *Workflow
 	}
 
 	wi := &WorkflowWorkItem{
-		InstanceID: "wf-terminate-async",
+		InstanceID: workflowID,
 		NewEvents:  events,
 		State:      state,
 	}
@@ -91,6 +91,7 @@ func Test_workflowTurn_applyResponse_forcesTerminateWhenExecutorIgnoresIt(t *tes
 	require.Equal(t, `"reason"`, output.GetValue())
 	require.Empty(t, wi.State.PendingTasks)
 	require.Empty(t, wi.State.PendingTimers)
+	require.Empty(t, wi.State.PendingMessages)
 }
 
 func Test_workflowTurn_applyResponse_terminateBeatsContinueAsNew(t *testing.T) {
