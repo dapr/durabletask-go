@@ -140,24 +140,24 @@ type Backend interface {
 	// CompleteWorkflowTask completes the workflow task by saving the updated runtime state to durable storage.
 	CompleteWorkflowTask(context.Context, *protos.WorkflowResponse) error
 
-	// CancelWorkflowTask cancels the workflow task so instances of WaitForWorkflowTaskCompletion will return an error.
+	// CancelWorkflowTask cancels the workflow task, delivering
+	// [api.ErrTaskCancelled] to its completion registration.
 	CancelWorkflowTask(context.Context, api.InstanceID) error
 
-	// WaitForWorkflowTaskCompletion blocks until the workflow completes and returns the final response.
-	//
-	// [api.ErrTaskCancelled] is returned if the task was cancelled.
-	WaitForWorkflowTaskCompletion(*protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error)
+	// OnWorkflowTaskCompletion registers a callback for the workflow task's
+	// completion; see the registration contract below.
+	OnWorkflowTaskCompletion(*protos.WorkflowRequest, func(*protos.WorkflowResponse, error)) func()
 
 	// CompleteActivityTask completes the activity task by saving the updated runtime state to durable storage.
 	CompleteActivityTask(context.Context, *protos.ActivityResponse) error
 
-	// CancelActivityTask cancels the activity task so instances of WaitForActivityCompletion will return an error.
+	// CancelActivityTask cancels the activity task, delivering
+	// [api.ErrTaskCancelled] to its completion registration.
 	CancelActivityTask(context.Context, api.InstanceID, int32) error
 
-	// WaitForActivityCompletion blocks until the activity completes and returns the final response.
-	//
-	// [api.ErrTaskCancelled] is returned if the task was cancelled.
-	WaitForActivityCompletion(*protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error)
+	// OnActivityCompletion registers a callback for the activity task's
+	// completion; see the registration contract below.
+	OnActivityCompletion(*protos.ActivityRequest, func(*protos.ActivityResponse, error)) func()
 
 	// ListInstanceIDs lists workflow instance IDs based on the provided
 	// query parameters.
@@ -167,13 +167,11 @@ type Backend interface {
 	GetInstanceHistory(ctx context.Context, req *protos.GetInstanceHistoryRequest) (*protos.GetInstanceHistoryResponse, error)
 }
 
-// CompletionCallbackBackend is an optional interface a Backend can implement
-// to deliver task completions through a registered callback instead of waking
-// a goroutine blocked in WaitForWorkflowTaskCompletion or
-// WaitForActivityCompletion. The callback runs on the goroutine that delivers
-// the completion or cancellation, with the response, or with
+// Completion registration contract for OnWorkflowTaskCompletion and
+// OnActivityCompletion: the callback runs on the goroutine that delivers the
+// completion or cancellation, with the response, or with
 // [api.ErrTaskCancelled] if the task was cancelled. Registering replaces any
-// pending wait or callback for the same task.
+// pending callback for the same task.
 //
 // A registration is removed ONLY by the returned deregister closure, never by
 // delivering to the callback: the executor discards stale-token deliveries
@@ -183,11 +181,6 @@ type Backend interface {
 // callback may therefore be invoked more than once (stale deliveries
 // included); the executor's arbiter settles exactly one. Calling the
 // deregister closure after delivery, or more than once, is a no-op.
-type CompletionCallbackBackend interface {
-	OnWorkflowTaskCompletion(*protos.WorkflowRequest, func(*protos.WorkflowResponse, error)) func()
-
-	OnActivityCompletion(*protos.ActivityRequest, func(*protos.ActivityResponse, error)) func()
-}
 
 // MarshalHistoryEvent serializes the [HistoryEvent] into a protobuf byte array.
 func MarshalHistoryEvent(e *HistoryEvent) ([]byte, error) {

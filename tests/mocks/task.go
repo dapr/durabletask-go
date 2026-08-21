@@ -90,18 +90,21 @@ func (t *TestTaskProcessor[T]) NextWorkItem(context.Context) (T, error) {
 	return wi, nil
 }
 
-func (t *TestTaskProcessor[T]) ProcessWorkItem(ctx context.Context, wi T) error {
+func (t *TestTaskProcessor[T]) ProcessWorkItemAsync(ctx context.Context, wi T, done func(error)) {
 	if !t.processingBlocked.Load() {
-		return nil
+		done(nil)
+		return
 	}
 	// wait for context cancellation or until processing is unblocked
 	for {
 		select {
 		case <-ctx.Done():
-			return errors.New("dummy error processing work item")
+			done(errors.New("dummy error processing work item"))
+			return
 		default:
 			if !t.processingBlocked.Load() {
-				return nil
+				done(nil)
+				return
 			}
 			time.Sleep(time.Millisecond)
 		}

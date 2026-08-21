@@ -64,74 +64,20 @@ func (ap *activityProcessor) NextWorkItem(ctx context.Context) (*ActivityWorkIte
 	return ap.be.NextActivityWorkItem(ctx)
 }
 
-// ProcessWorkItem implements TaskDispatcher
-func (p *activityProcessor) ProcessWorkItem(ctx context.Context, awi *ActivityWorkItem) error {
+// ProcessWorkItemAsync implements TaskProcessor: the post-execution work is
+// registered as a callback run by the goroutine that delivers the activity
+// result, so no goroutine waits out the app roundtrip. Executors that cannot
+// deliver by callback are invoked inline on the calling goroutine.
+func (p *activityProcessor) ProcessWorkItemAsync(ctx context.Context, awi *ActivityWorkItem, done func(error)) {
 	ts := awi.NewEvent.GetTaskScheduled()
-	if ts == nil {
-		return fmt.Errorf("%v: invalid TaskScheduled event", awi.InstanceID)
-	}
-	// Create span as child of spanContext found in TaskScheduledEvent
-	ctx, err := helpers.ContextFromTraceContext(ctx, ts.ParentTraceContext)
-	if err != nil {
-		return fmt.Errorf("%v: failed to parse activity trace context: %w", awi.InstanceID, err)
-	}
-	var span trace.Span
-	ctx, span = helpers.StartNewActivitySpan(ctx, ts.Name, ts.Version.GetValue(), string(awi.InstanceID), awi.NewEvent.EventId)
-	if span != nil {
-		defer func() {
-			if r := recover(); r != nil {
-				span.SetStatus(codes.Error, fmt.Sprintf("%v", r))
-			}
-			span.End()
-		}()
-	}
-
-	// set the parent trace context to be the newly created activity span
-	ts.ParentTraceContext = helpers.TraceContextFromSpan(span)
-
-	execOpts := ExecuteOptions{PropagatedHistory: awi.IncomingHistory}
-
-	// Execute the activity and get its result.
-	executor := p.executor
-	if p.inProcessExecutor != nil && p.inProcessNamePrefix != "" && strings.HasPrefix(ts.GetName(), p.inProcessNamePrefix) {
-		executor = p.inProcessExecutor
-	}
-	result, err := executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent, execOpts)
-	if err != nil {
-		if span != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-		}
-		return err
-	}
-	awi.Result = result
-	return nil
-}
-
-// ProcessWorkItemAsync implements AsyncTaskProcessor. It mirrors
-// ProcessWorkItem, with the post-execution work registered as a callback run
-// by the goroutine that delivers the activity result, so no goroutine waits
-// out the app roundtrip.
-func (p *activityProcessor) ProcessWorkItemAsync(ctx context.Context, awi *ActivityWorkItem, done func(error)) bool {
-	ts := awi.NewEvent.GetTaskScheduled()
-
-	executor := p.executor
-	if p.inProcessExecutor != nil && p.inProcessNamePrefix != "" && strings.HasPrefix(ts.GetName(), p.inProcessNamePrefix) {
-		executor = p.inProcessExecutor
-	}
-	asyncExecutor, ok := executor.(asyncActivityExecutor)
-	if !ok || !asyncExecutor.canExecuteAsync() {
-		return false
-	}
-
 	if ts == nil {
 		done(fmt.Errorf("%v: invalid TaskScheduled event", awi.InstanceID))
-		return true
+		return
 	}
 	ctx, err := helpers.ContextFromTraceContext(ctx, ts.ParentTraceContext)
 	if err != nil {
 		done(fmt.Errorf("%v: failed to parse activity trace context: %w", awi.InstanceID, err))
-		return true
+		return
 	}
 	var span trace.Span
 	ctx, span = helpers.StartNewActivitySpan(ctx, ts.Name, ts.Version.GetValue(), string(awi.InstanceID), awi.NewEvent.EventId)
@@ -141,7 +87,7 @@ func (p *activityProcessor) ProcessWorkItemAsync(ctx context.Context, awi *Activ
 
 	execOpts := ExecuteOptions{PropagatedHistory: awi.IncomingHistory}
 
-	asyncExecutor.executeActivityAsync(ctx, awi.InstanceID, awi.NewEvent, execOpts, func(result *protos.HistoryEvent, err error) {
+	settle := func(result *protos.HistoryEvent, err error) {
 		if span != nil {
 			if err != nil {
 				span.RecordError(err)
@@ -155,8 +101,25 @@ func (p *activityProcessor) ProcessWorkItemAsync(ctx context.Context, awi *Activ
 		}
 		awi.Result = result
 		done(nil)
-	})
-	return true
+	}
+
+	executor := p.executor
+	if p.inProcessExecutor != nil && p.inProcessNamePrefix != "" && strings.HasPrefix(ts.GetName(), p.inProcessNamePrefix) {
+		executor = p.inProcessExecutor
+	}
+	if asyncExecutor, ok := executor.(asyncActivityExecutor); ok && asyncExecutor.canExecuteAsync() {
+		asyncExecutor.executeActivityAsync(ctx, awi.InstanceID, awi.NewEvent, execOpts, settle)
+		return
+	}
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				settle(nil, fmt.Errorf("%v: activity executor panicked: %v", awi.InstanceID, r))
+			}
+		}()
+		settle(executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent, execOpts))
+	}()
 }
 
 // CompleteWorkItem implements TaskDispatcher

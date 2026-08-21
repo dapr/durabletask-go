@@ -47,29 +47,6 @@ func (be *TasksBackend) CancelActivityTask(ctx context.Context, instanceID api.I
 	}
 	return api.NewUnknownTaskIDError(instanceID.String(), taskID)
 }
-
-func (be *TasksBackend) WaitForActivityCompletion(request *protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error) {
-	key := backend.GetActivityExecutionKey(request.GetWorkflowInstance().GetInstanceId(), request.GetTaskId())
-	pending := &pendingActivity{
-		response: nil,
-		complete: make(chan struct{}, 1),
-	}
-	be.pendingActivities.Store(key, pending)
-
-	return func(ctx context.Context) (*protos.ActivityResponse, error) {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-pending.complete:
-			if pending.response == nil {
-				return nil, api.ErrTaskCancelled
-			}
-			return pending.response, nil
-		}
-	}
-}
-
-// OnActivityCompletion implements backend.CompletionCallbackBackend.
 func (be *TasksBackend) OnActivityCompletion(request *protos.ActivityRequest, cb func(*protos.ActivityResponse, error)) func() {
 	key := backend.GetActivityExecutionKey(request.GetWorkflowInstance().GetInstanceId(), request.GetTaskId())
 	pending := &pendingActivity{cb: cb}
@@ -93,28 +70,6 @@ func (be *TasksBackend) CancelWorkflowTask(ctx context.Context, instanceID api.I
 	}
 	return api.NewUnknownInstanceIDError(instanceID.String())
 }
-
-func (be *TasksBackend) WaitForWorkflowTaskCompletion(request *protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error) {
-	pending := &pendingWorkflow{
-		response: nil,
-		complete: make(chan struct{}, 1),
-	}
-	be.pendingWorkflows.Store(request.GetInstanceId(), pending)
-
-	return func(ctx context.Context) (*protos.WorkflowResponse, error) {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-pending.complete:
-			if pending.response == nil {
-				return nil, api.ErrTaskCancelled
-			}
-			return pending.response, nil
-		}
-	}
-}
-
-// OnWorkflowTaskCompletion implements backend.CompletionCallbackBackend.
 func (be *TasksBackend) OnWorkflowTaskCompletion(request *protos.WorkflowRequest, cb func(*protos.WorkflowResponse, error)) func() {
 	key := request.GetInstanceId()
 	pending := &pendingWorkflow{cb: cb}

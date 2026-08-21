@@ -34,7 +34,7 @@ func newAsyncTaskProcessor(cancelOnCtxDone bool) *asyncTaskProcessor {
 	}
 }
 
-func (p *asyncTaskProcessor) ProcessWorkItemAsync(ctx context.Context, wi *backend.ActivityWorkItem, done func(error)) bool {
+func (p *asyncTaskProcessor) ProcessWorkItemAsync(ctx context.Context, wi *backend.ActivityWorkItem, done func(error)) {
 	p.mu.Lock()
 	p.done = append(p.done, done)
 	p.mu.Unlock()
@@ -43,7 +43,6 @@ func (p *asyncTaskProcessor) ProcessWorkItemAsync(ctx context.Context, wi *backe
 			done(ctx.Err())
 		})
 	}
-	return true
 }
 
 func (p *asyncTaskProcessor) inFlight() int {

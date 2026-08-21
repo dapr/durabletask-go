@@ -15,23 +15,14 @@ type TaskWorker[T WorkItem] interface {
 
 type TaskProcessor[T WorkItem] interface {
 	Name() string
-	ProcessWorkItem(context.Context, T) error
+	// ProcessWorkItemAsync takes ownership of the work item and invokes done
+	// exactly once with the processing outcome, possibly before returning and
+	// possibly from the goroutine that delivers the work item's completion:
+	// no goroutine parks on the completion.
+	ProcessWorkItemAsync(ctx context.Context, wi T, done func(error))
 	NextWorkItem(context.Context) (T, error)
 	AbandonWorkItem(context.Context, T) error
 	CompleteWorkItem(context.Context, T) error
-}
-
-// AsyncTaskProcessor is an optional extension of TaskProcessor for processors
-// that can hand off a work item without a goroutine parked on the completion.
-//
-// When ProcessWorkItemAsync returns true it has taken ownership of the work
-// item and invokes done exactly once, with the same error ProcessWorkItem
-// would have returned, possibly before returning and possibly from the
-// goroutine that delivers the work item's completion. When it returns false it
-// has had no side effects and the caller must fall back to ProcessWorkItem.
-type AsyncTaskProcessor[T WorkItem] interface {
-	TaskProcessor[T]
-	ProcessWorkItemAsync(ctx context.Context, wi T, done func(error)) bool
 }
 
 type worker[T WorkItem] struct {
@@ -147,11 +138,7 @@ func (w *worker[T]) Start(ctx context.Context) {
 
 				w.logger.Debugf("%v: processing work item: %s", w.Name(), wi)
 
-				if ap, ok := w.processor.(AsyncTaskProcessor[T]); ok && ap.ProcessWorkItemAsync(ctx, wi, finish) {
-					return
-				}
-
-				finish(w.processor.ProcessWorkItem(ctx, wi))
+				w.processor.ProcessWorkItemAsync(ctx, wi, finish)
 			}()
 		}
 	}()
