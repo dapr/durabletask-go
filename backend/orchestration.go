@@ -231,8 +231,9 @@ func (t *workflowTurn) applyResponse(results *protos.WorkflowResponse, err error
 		return
 	}
 
-	// Mirror ProcessWorkItem: a consumed terminate the executor ignored is
-	// enforced here, since the event can never be re-delivered.
+	// A terminate in this batch that the executor did not honour is
+	// enforced here: the event is consumed with this work item and can
+	// never be re-delivered.
 	if t.terminateEvent != nil && !runtimestate.IsCompleted(wi.State) {
 		if ferr := w.forceTermination(wi, t.terminateEvent, t.span); ferr != nil {
 			t.finish(ferr)

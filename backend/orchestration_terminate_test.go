@@ -15,10 +15,10 @@ import (
 	"github.com/dapr/durabletask-go/backend/runtimestate"
 )
 
-// The async turn path (ProcessWorkItemAsync -> workflowTurn.applyResponse) is
-// what a callback-capable executor drives in production; these tests pin that
-// it enforces a mid-batch terminate exactly like the synchronous
-// ProcessWorkItem path.
+// The callback-driven turn (ProcessWorkItemAsync -> workflowTurn) is the
+// sole implementation of turn processing; these tests pin its mid-batch
+// terminate enforcement: a terminate the executor does not honour forces
+// TERMINATED and a ContinueAsNew cannot override it.
 
 func newTerminatedTurn(t *testing.T, done func(error)) (*workflowTurn, *WorkflowWorkItem) {
 	t.Helper()

@@ -1172,6 +1172,35 @@ func (_m *Backend) OnActivityCompletion(_a0 *protos.ActivityRequest, _a1 func(*p
 	return r0
 }
 
+// Backend_OnActivityCompletion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'OnActivityCompletion'
+type Backend_OnActivityCompletion_Call struct {
+	*mock.Call
+}
+
+// OnActivityCompletion is a helper method to define mock.On call
+//   - _a0 *protos.ActivityRequest
+//   - _a1 func(*protos.ActivityResponse, error)
+func (_e *Backend_Expecter) OnActivityCompletion(_a0 interface{}, _a1 interface{}) *Backend_OnActivityCompletion_Call {
+	return &Backend_OnActivityCompletion_Call{Call: _e.mock.On("OnActivityCompletion", _a0, _a1)}
+}
+
+func (_c *Backend_OnActivityCompletion_Call) Run(run func(_a0 *protos.ActivityRequest, _a1 func(*protos.ActivityResponse, error))) *Backend_OnActivityCompletion_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(*protos.ActivityRequest), args[1].(func(*protos.ActivityResponse, error)))
+	})
+	return _c
+}
+
+func (_c *Backend_OnActivityCompletion_Call) Return(_a0 func()) *Backend_OnActivityCompletion_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Backend_OnActivityCompletion_Call) RunAndReturn(run func(*protos.ActivityRequest, func(*protos.ActivityResponse, error)) func()) *Backend_OnActivityCompletion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // OnWorkflowTaskCompletion provides a mock function with given fields: _a0, _a1
 func (_m *Backend) OnWorkflowTaskCompletion(_a0 *protos.WorkflowRequest, _a1 func(*protos.WorkflowResponse, error)) func() {
 	ret := _m.Called(_a0, _a1)
@@ -1190,6 +1219,35 @@ func (_m *Backend) OnWorkflowTaskCompletion(_a0 *protos.WorkflowRequest, _a1 fun
 	}
 
 	return r0
+}
+
+// Backend_OnWorkflowTaskCompletion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'OnWorkflowTaskCompletion'
+type Backend_OnWorkflowTaskCompletion_Call struct {
+	*mock.Call
+}
+
+// OnWorkflowTaskCompletion is a helper method to define mock.On call
+//   - _a0 *protos.WorkflowRequest
+//   - _a1 func(*protos.WorkflowResponse, error)
+func (_e *Backend_Expecter) OnWorkflowTaskCompletion(_a0 interface{}, _a1 interface{}) *Backend_OnWorkflowTaskCompletion_Call {
+	return &Backend_OnWorkflowTaskCompletion_Call{Call: _e.mock.On("OnWorkflowTaskCompletion", _a0, _a1)}
+}
+
+func (_c *Backend_OnWorkflowTaskCompletion_Call) Run(run func(_a0 *protos.WorkflowRequest, _a1 func(*protos.WorkflowResponse, error))) *Backend_OnWorkflowTaskCompletion_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(*protos.WorkflowRequest), args[1].(func(*protos.WorkflowResponse, error)))
+	})
+	return _c
+}
+
+func (_c *Backend_OnWorkflowTaskCompletion_Call) Return(_a0 func()) *Backend_OnWorkflowTaskCompletion_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Backend_OnWorkflowTaskCompletion_Call) RunAndReturn(run func(*protos.WorkflowRequest, func(*protos.WorkflowResponse, error)) func()) *Backend_OnWorkflowTaskCompletion_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // WatchWorkflowRuntimeStatus provides a mock function with given fields: ctx, id, router, condition

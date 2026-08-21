@@ -26,10 +26,10 @@ func (f *fakeCallbackBackend) OnWorkflowTaskCompletion(*protos.WorkflowRequest, 
 	return func() {}
 }
 
-// The async dispatch path must derive the WorkflowRequest's ExecutionId from
-// the history exactly like the synchronous ExecuteWorkflow does: SDKs seed
-// deterministic TaskExecutionId derivation with it, and a nil value makes a
-// recreated instance's activities collide with the prior run's.
+// The dispatch must derive the WorkflowRequest's ExecutionId from the
+// history's ExecutionStarted event: SDKs seed deterministic TaskExecutionId
+// derivation with it, and a nil value makes a recreated instance's
+// activities collide with the prior run's.
 func Test_executeWorkflowAsync_carriesExecutionID(t *testing.T) {
 	fb := &fakeCallbackBackend{}
 	g := &grpcExecutor{
