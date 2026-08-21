@@ -222,7 +222,7 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
-		ExecutionId:       nil,
+		ExecutionId:       executionID(oldEvents, newEvents),
 		PastEvents:        oldEvents,
 		NewEvents:         newEvents,
 		PropagatedHistory: opts.PropagatedHistory,

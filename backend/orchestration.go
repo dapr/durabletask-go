@@ -149,21 +149,10 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 				}
 			}
 
-			// A terminate in this batch must never be lost to ContinueAsNew.
-			// Strip any continue-as-new completion before applying actions:
-			// applying it would replace the state with a fresh generation,
-			// so the forced termination below would terminate that synthetic
-			// generation and the wipe would discard the child workflow
-			// history that cascade termination reads.
+			// A terminate in this batch must never be lost to
+			// ContinueAsNew; see stripContinueAsNewOnTerminate.
 			if terminateEvent != nil {
-				actions := results.Actions[:0]
-				for _, a := range results.Actions {
-					if co := a.GetCompleteWorkflow(); co != nil && co.WorkflowStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
-						continue
-					}
-					actions = append(actions, a)
-				}
-				results.Actions = actions
+				stripContinueAsNewOnTerminate(results)
 			}
 
 			// Apply the workflow outputs to the workflow state. The received
@@ -217,21 +206,8 @@ func (w *workflowProcessor) ProcessWorkItem(ctx context.Context, wi *WorkflowWor
 		// item and can never be re-delivered, so enforce it here: drop the
 		// doomed execution's pending work and complete as TERMINATED.
 		if terminateEvent != nil && !runtimestate.IsCompleted(wi.State) {
-			w.logger.Warnf("%v: workflow was terminated but the executor did not complete it; forcing termination", wi.InstanceID)
-			wi.State.PendingTasks = nil
-			wi.State.PendingTimers = nil
-			wi.State.PendingMessages = nil
-			forced := []*protos.WorkflowAction{{
-				Id: -1,
-				WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
-					CompleteWorkflow: &protos.CompleteWorkflowAction{
-						WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED,
-						Result:         terminateEvent.Input,
-					},
-				},
-			}}
-			if _, err := w.applier.Actions(wi.State, wi.State.CustomStatus, forced, helpers.TraceContextFromSpan(span), nil); err != nil {
-				return fmt.Errorf("failed to apply forced termination: %w", err)
+			if err := w.forceTermination(wi, terminateEvent, span); err != nil {
+				return err
 			}
 		}
 	}
@@ -360,6 +336,12 @@ func (t *workflowTurn) applyResponse(results *protos.WorkflowResponse, err error
 		}
 	}
 
+	// A terminate in this batch must never be lost to ContinueAsNew; see
+	// stripContinueAsNewOnTerminate.
+	if t.terminateEvent != nil {
+		stripContinueAsNewOnTerminate(results)
+	}
+
 	applyResult, err := w.applier.Actions(wi.State, results.CustomStatus, results.Actions, helpers.TraceContextFromSpan(t.span), execOpts.PropagatedHistory)
 	if err != nil {
 		t.finish(fmt.Errorf("failed to apply the execution result actions: %w", err))
@@ -385,11 +367,60 @@ func (t *workflowTurn) applyResponse(results *protos.WorkflowResponse, err error
 		return
 	}
 
+	// Mirror ProcessWorkItem: a consumed terminate the executor ignored is
+	// enforced here, since the event can never be re-delivered.
+	if t.terminateEvent != nil && !runtimestate.IsCompleted(wi.State) {
+		if ferr := w.forceTermination(wi, t.terminateEvent, t.span); ferr != nil {
+			t.finish(ferr)
+			return
+		}
+	}
+
 	if runtimestate.IsCompleted(wi.State) {
 		name, _ := runtimestate.Name(wi.State)
 		w.logger.Infof("%v: '%s' completed with a %s status.", wi.InstanceID, name, helpers.ToRuntimeStatusString(runtimestate.RuntimeStatus(wi.State)))
 	}
 	t.finish(nil)
+}
+
+// stripContinueAsNewOnTerminate removes any continue-as-new completion from
+// the executor's actions when the work item carried a terminate: applying it
+// would replace the state with a fresh generation, so the forced termination
+// would terminate that synthetic generation and the wipe would discard the
+// child workflow history that cascade termination reads.
+func stripContinueAsNewOnTerminate(results *protos.WorkflowResponse) {
+	actions := results.Actions[:0]
+	for _, a := range results.Actions {
+		if co := a.GetCompleteWorkflow(); co != nil && co.WorkflowStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW {
+			continue
+		}
+		actions = append(actions, a)
+	}
+	results.Actions = actions
+}
+
+// forceTermination drops the doomed execution's pending work and completes
+// the workflow as TERMINATED: used when a work item carried an
+// ExecutionTerminated event the executor did not honour, which is consumed
+// with the work item and can never be re-delivered.
+func (w *workflowProcessor) forceTermination(wi *WorkflowWorkItem, terminateEvent *protos.ExecutionTerminatedEvent, span trace.Span) error {
+	w.logger.Warnf("%v: workflow was terminated but the executor did not complete it; forcing termination", wi.InstanceID)
+	wi.State.PendingTasks = nil
+	wi.State.PendingTimers = nil
+	wi.State.PendingMessages = nil
+	forced := []*protos.WorkflowAction{{
+		Id: -1,
+		WorkflowActionType: &protos.WorkflowAction_CompleteWorkflow{
+			CompleteWorkflow: &protos.CompleteWorkflowAction{
+				WorkflowStatus: protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED,
+				Result:         terminateEvent.Input,
+			},
+		},
+	}}
+	if _, err := w.applier.Actions(wi.State, wi.State.CustomStatus, forced, helpers.TraceContextFromSpan(span), nil); err != nil {
+		return fmt.Errorf("failed to apply forced termination: %w", err)
+	}
+	return nil
 }
 
 func (t *workflowTurn) finish(err error) {
