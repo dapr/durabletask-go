@@ -131,7 +131,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
-		ExecutionId:       nil,
+		ExecutionId:       executionID(oldEvents, newEvents),
 		PastEvents:        oldEvents,
 		NewEvents:         newEvents,
 		PropagatedHistory: opts.PropagatedHistory,
@@ -703,4 +703,15 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Workflo
 	}
 
 	return &protos.GetInstanceResponse{Exists: true, WorkflowState: state}
+}
+
+func executionID(oldEvents, newEvents []*protos.HistoryEvent) *wrapperspb.StringValue {
+	for _, events := range [2][]*protos.HistoryEvent{newEvents, oldEvents} {
+		for _, e := range events {
+			if id := e.GetExecutionStarted().GetWorkflowInstance().GetExecutionId(); id != nil {
+				return id
+			}
+		}
+	}
+	return nil
 }
