@@ -584,13 +584,13 @@ func Test_SingleChildWorkflow_Failed_Retries_AutoInstanceID(t *testing.T) {
 }
 
 // Test_DetachedWorkflow_HappyPath verifies that a workflow can spawn a
-// fully decoupled child via ScheduleNewWorkflow, the parent completes
+// fully decoupled child via ScheduleNewDetachedWorkflow, the parent completes
 // independently of the spawned instance, and the spawned instance runs
 // to completion under the requested instance ID.
 func Test_DetachedWorkflow_HappyPath(t *testing.T) {
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("Caller", func(ctx *task.WorkflowContext) (any, error) {
-		spawnedID, err := ctx.ScheduleNewWorkflow("Spawned",
+		spawnedID, err := ctx.ScheduleNewDetachedWorkflow("Spawned",
 			task.WithDetachedWorkflowInstanceID(string(ctx.ID)+"_spawned"),
 			task.WithDetachedWorkflowInput("payload"),
 		)
@@ -632,7 +632,7 @@ func Test_DetachedWorkflow_DefaultInstanceID(t *testing.T) {
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("Caller", func(ctx *task.WorkflowContext) (any, error) {
 		// First default-ID spawn → "<caller>-0".
-		spawnedID, err := ctx.ScheduleNewWorkflow("Spawned")
+		spawnedID, err := ctx.ScheduleNewDetachedWorkflow("Spawned")
 		if err != nil {
 			return nil, err
 		}
@@ -665,7 +665,7 @@ func Test_DetachedWorkflow_DefaultInstanceID(t *testing.T) {
 func Test_DetachedWorkflow_NoCompletionFlowsBack(t *testing.T) {
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("Caller", func(ctx *task.WorkflowContext) (any, error) {
-		_, err := ctx.ScheduleNewWorkflow("FailingSpawned",
+		_, err := ctx.ScheduleNewDetachedWorkflow("FailingSpawned",
 			task.WithDetachedWorkflowInstanceID(string(ctx.ID)+"_spawned"),
 		)
 		if err != nil {
@@ -707,7 +707,7 @@ func Test_DetachedWorkflow_NoCompletionFlowsBack(t *testing.T) {
 func Test_DetachedWorkflow_ReplayDeterminism(t *testing.T) {
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("Caller", func(ctx *task.WorkflowContext) (any, error) {
-		spawnedID, err := ctx.ScheduleNewWorkflow("Spawned",
+		spawnedID, err := ctx.ScheduleNewDetachedWorkflow("Spawned",
 			task.WithDetachedWorkflowInstanceID(string(ctx.ID)+"_spawned"),
 		)
 		if err != nil {
@@ -737,7 +737,7 @@ func Test_DetachedWorkflow_ReplayDeterminism(t *testing.T) {
 	_, err = client.WaitForWorkflowCompletion(ctx, spawnedID)
 	require.NoError(t, err)
 
-	// Resume the parent. After replay, ScheduleNewWorkflow should match
+	// Resume the parent. After replay, ScheduleNewDetachedWorkflow should match
 	// the existing DetachedWorkflowInstanceCreated event in history and
 	// NOT spawn a second instance.
 	require.NoError(t, client.RaiseEvent(ctx, id, "Continue"))

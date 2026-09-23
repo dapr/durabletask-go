@@ -84,7 +84,7 @@ type WorkflowContext struct {
 	encounteredPatches         []string
 	propagatedHistory          *api.PropagatedHistory
 
-	// defaultDetachedWorkflowCounter tracks how many ScheduleNewWorkflow
+	// defaultDetachedWorkflowCounter tracks how many ScheduleNewDetachedWorkflow
 	// calls have used the default-generated instance ID this execution.
 	// It is incremented only when the caller does not pass
 	// WithDetachedWorkflowInstanceID, so the suffix on generated IDs
