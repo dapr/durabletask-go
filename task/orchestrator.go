@@ -786,9 +786,11 @@ func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Du
 // error; the remaining tasks are left pending and may still be selected or awaited later (for
 // example, in a loop that repeatedly selects over the tasks that have not yet completed).
 //
-// A task that was already completed before Select was called is treated as an immediate winner. If
-// more than one of the given tasks is already completed at the time of the call, the one with the
-// lowest index wins.
+// Select polls the given tasks' completion state after each history event is processed, so if more
+// than one of them is found completed at the same time -- whether because they were already
+// completed before Select was called, or because a single history event completed several of them
+// at once (possible when a batch of events buffered during a suspended execution is replayed) --
+// the one with the lowest index wins; this is the only tie-break rule Select ever applies.
 //
 // Select requires at least one task and returns an error if no tasks are given, if any task is nil,
 // or if any task was not obtained from this same WorkflowContext (e.g. via CallActivity, CreateTimer,
@@ -823,33 +825,24 @@ func (ctx *WorkflowContext) Select(tasks ...Task) (int, error) {
 		completable[i] = ct
 	}
 
+	// Tasks complete only inside the single-threaded processing of a history event (see
+	// processNextEvent), so no task can transition to completed between one poll of completable and
+	// the next: polling here needs no completion callbacks, unlike WaitForSingleEvent's internal
+	// timer plumbing, which reacts to a specific other task's completion from outside this call
+	// entirely. A single history event can still complete more than one candidate at once -- e.g.
+	// onExecutionResumed replays a whole batch of events buffered during a suspension within one
+	// processNextEvent call -- so this always scans in index order and takes the first completed
+	// task it finds, rather than assuming at most one newly-completed candidate per poll.
 	winner := -1
-	unregister := make([]func(), 0, len(completable))
-	for i, ct := range completable {
-		unregister = append(unregister, ct.onCompleted(func() {
-			if winner == -1 {
+	if err := ctx.awaitUntil(func() bool {
+		for i, ct := range completable {
+			if ct.isCompleted {
 				winner = i
+				return true
 			}
-		}))
-		if winner != -1 {
-			// A task that was already completed at registration time invokes its
-			// callback synchronously above; no need to look at the rest just to
-			// find the lowest-index winner, since ties can only happen among
-			// already-completed tasks and those are visited in index order.
-			break
 		}
-	}
-
-	// Whichever task wins (or if none do because there's no more history to process), every
-	// registration made above must be undone so a losing task doesn't carry a dead callback
-	// into a future Select or WaitForSingleEvent call on it.
-	defer func() {
-		for _, u := range unregister {
-			u()
-		}
-	}()
-
-	if err := ctx.awaitUntil(func() bool { return winner != -1 }); err != nil {
+		return false
+	}); err != nil {
 		return -1, err
 	}
 	return winner, nil

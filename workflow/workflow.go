@@ -101,9 +101,9 @@ func (w *WorkflowContext) WaitForExternalEvent(eventName string, timeout time.Du
 // error; the remaining tasks are left pending and may still be selected or awaited later (for
 // example, in a loop that repeatedly selects over the tasks that have not yet completed).
 //
-// A task that was already completed before Select was called is treated as an immediate winner. If
-// more than one of the given tasks is already completed at the time of the call, the one with the
-// lowest index wins.
+// If more than one of the given tasks is found completed at the same time -- whether because they
+// were already completed before Select was called, or a single event completed several of them at
+// once -- the one with the lowest index wins; this is the only tie-break rule Select ever applies.
 //
 // Select requires at least one task and returns an error if no tasks are given, if any task is nil,
 // or if any task was not obtained from this same WorkflowContext (e.g. via CallActivity, CreateTimer,

@@ -700,47 +700,6 @@ func Test_CompletableTask_OnCompletedAfterCompletion(t *testing.T) {
 	assert.True(t, fired, "onCompleted on an already completed task must fire immediately")
 }
 
-// Test_CompletableTask_OnCompletedUnregister verifies that calling the unregister function
-// returned by onCompleted removes the callback before the task completes, and that unregistering
-// is safe to call again afterwards (a no-op) and safe even after the task has since completed.
-func Test_CompletableTask_OnCompletedUnregister(t *testing.T) {
-	task := newTask(newTestContext(t))
-
-	fired := false
-	unregister := task.onCompleted(func() { fired = true })
-	require.Len(t, task.completedCallbacks, 1)
-
-	unregister()
-	task.complete([]byte("x"))
-	assert.False(t, fired, "unregistered callback must not fire on completion")
-
-	// Calling it again, and calling it after completion, must not panic.
-	unregister()
-}
-
-// Test_Select_DoesNotLeakCallbacksOnLosingTasks is a regression test for a callback leak: Select
-// used to register a completion callback on every candidate task but only ever remove it when the
-// task itself completed, so a task that lost the same Select call repeatedly (e.g. selected in a
-// loop against a set of tasks that mostly haven't completed yet) accumulated one dead callback per
-// call. Select must unregister its callback from every losing task before returning.
-func Test_Select_DoesNotLeakCallbacksOnLosingTasks(t *testing.T) {
-	ctx := newTestContext(t)
-
-	done := newTask(ctx)
-	done.complete([]byte(`null`))
-
-	pending := newTask(ctx)
-
-	const iterations = 5
-	for i := 0; i < iterations; i++ {
-		winner, err := ctx.Select(pending, done)
-		require.NoError(t, err)
-		require.Equal(t, 1, winner)
-		require.Empty(t, pending.completedCallbacks,
-			"Select must not leave a dead callback behind on a task that didn't win")
-	}
-}
-
 // Test_Select_RejectsNilTask is a regression test: Select(a, nil) used to report the nil task as
 // ErrTaskNotSelectable (the same error as an unrelated, unsupported Task implementation), which
 // misidentified the actual problem.
@@ -753,9 +712,10 @@ func Test_Select_RejectsNilTask(t *testing.T) {
 }
 
 // Test_Select_RejectsTaskFromDifferentContext is a regression test: a *completableTask obtained
-// from a different WorkflowContext passes the underlyingCompletableTask type assertion, so without
-// this check Select would register a callback that can never fire (the task belongs to a workflow
-// execution ctx never processes events for), blocking the workflow indefinitely with no diagnostic.
+// from a different WorkflowContext passes the type assertion in Select's validation loop, so
+// without this check Select would poll a task that can never complete from this context's point of
+// view (its workflow execution belongs to a different ctx, whose history this ctx never processes),
+// blocking the workflow indefinitely with no diagnostic.
 func Test_Select_RejectsTaskFromDifferentContext(t *testing.T) {
 	ctx := newTestContext(t)
 	other := newTestContext(t)
@@ -765,6 +725,64 @@ func Test_Select_RejectsTaskFromDifferentContext(t *testing.T) {
 
 	_, err := ctx.Select(own, foreign)
 	require.EqualError(t, err, "task at index 1 belongs to a different WorkflowContext")
+}
+
+// Test_Select_DoesNotRegisterOnLosingTasks confirms Select's polling implementation never touches
+// a losing candidate's completedCallback: repeatedly Selecting a still-pending task against an
+// already-completed one must leave the pending task's callback field untouched (nil), since Select
+// only reads isCompleted -- it never calls onCompleted.
+func Test_Select_DoesNotRegisterOnLosingTasks(t *testing.T) {
+	ctx := newTestContext(t)
+
+	done := newTask(ctx)
+	done.complete([]byte(`null`))
+
+	pending := newTask(ctx)
+
+	const iterations = 5
+	for i := 0; i < iterations; i++ {
+		winner, err := ctx.Select(pending, done)
+		require.NoError(t, err)
+		require.Equal(t, 1, winner)
+		require.Nil(t, pending.completedCallback,
+			"Select must never register a callback on a task it only polls")
+	}
+}
+
+// Test_Select_TieBreak_LowestIndexWinsAcrossSuspendedBatch is a regression test for Select's
+// tie-break rule in the one scenario where it's actually observable: several candidates completing
+// within a single processNextEvent call. onExecutionResumed replays a whole batch of events
+// buffered during a suspension in one such call, so if the event for the higher-index candidate
+// (EventB, index 1) appears in that batch before the event for the lower-index one (EventA, index
+// 0), Select must still return index 0 -- history order must not win over argument order.
+func Test_Select_TieBreak_LowestIndexWinsAcrossSuspendedBatch(t *testing.T) {
+	r := NewTaskRegistry()
+	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+		taskA := ctx.WaitForSingleEvent("EventA", -1)
+		taskB := ctx.WaitForSingleEvent("EventB", -1)
+
+		winner, err := ctx.Select(taskA, taskB)
+		if err != nil {
+			return nil, err
+		}
+		return winner, nil
+	}))
+
+	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		evSuspended(),
+		// EventB (Select index 1) is raised first in the suspended batch; EventA (Select index 0)
+		// second. If Select's tie-break preferred history order, it would return 1 here.
+		evEventRaised("EventB"),
+		evEventRaised("EventA"),
+		evResumed(),
+	})
+
+	co := completeAction(t, actions)
+	require.NotNil(t, co)
+	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
+	assert.Equal(t, `0`, co.GetResult().GetValue(), "the lowest-index candidate (EventA) must win regardless of which event appeared first in the replayed batch")
+	assert.Empty(t, cl.warns)
 }
 
 // Benchmark_ReplaySequentialActivities measures a full replay of a workflow
@@ -791,6 +809,54 @@ func Benchmark_ReplaySequentialActivities(b *testing.B) {
 	events = append(events, evExecutionStarted("wf"))
 	for i := range int32(n) {
 		events = append(events, evTaskScheduled(i, "act"), evTaskCompleted(i, `null`))
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		ctx := NewWorkflowContext(r, "bench", events, nil)
+		if actions := ctx.start(); len(actions) != 1 {
+			b.Fatalf("expected 1 action, got %d", len(actions))
+		}
+	}
+}
+
+// Benchmark_SelectFanOut measures a full replay of a workflow that fans out 50 activities and then
+// repeatedly Selects over whichever ones haven't completed yet until all 50 have -- the shape
+// dominated by Select's own per-call cost, as opposed to Benchmark_ReplaySequentialActivities,
+// which is dominated by Await/CallActivity's per-schedule bookkeeping.
+func Benchmark_SelectFanOut(b *testing.B) {
+	const n = 50
+	r := NewTaskRegistry()
+	if err := r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+		pending := make([]Task, n)
+		for i := range pending {
+			pending[i] = ctx.CallActivity("act")
+		}
+		for len(pending) > 0 {
+			winner, err := ctx.Select(pending...)
+			if err != nil {
+				return nil, err
+			}
+			if err := pending[winner].Await(nil); err != nil {
+				return nil, err
+			}
+			pending = append(pending[:winner], pending[winner+1:]...)
+		}
+		return "done", nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+	if err := r.AddActivityN("act", func(ActivityContext) (any, error) { return nil, nil }); err != nil {
+		b.Fatal(err)
+	}
+
+	events := make([]*protos.HistoryEvent, 0, 2*n+1)
+	events = append(events, evExecutionStarted("wf"))
+	for i := range int32(n) {
+		events = append(events, evTaskScheduled(i, "act"))
+	}
+	for i := range int32(n) {
+		events = append(events, evTaskCompleted(i, `null`))
 	}
 
 	b.ReportAllocs()
