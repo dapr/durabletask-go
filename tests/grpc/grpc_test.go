@@ -26,13 +26,15 @@ import (
 	"github.com/dapr/durabletask-go/client"
 	"github.com/dapr/durabletask-go/task"
 	"github.com/dapr/durabletask-go/tests/utils"
+	"github.com/dapr/durabletask-go/workflow"
 	"go.opentelemetry.io/otel"
 )
 
 var (
-	grpcClient *client.TaskHubGrpcClient
-	ctx        = context.Background()
-	tracer     = otel.Tracer("grpc-test")
+	grpcClient     *client.TaskHubGrpcClient
+	workflowClient *workflow.Client
+	ctx            = context.Background()
+	tracer         = otel.Tracer("grpc-test")
 )
 
 // TestMain is the entry point for the test suite. We use this to set up a gRPC server and client instance
@@ -77,6 +79,7 @@ func TestMain(m *testing.M) {
 	}
 	defer conn.Close()
 	grpcClient = client.NewTaskHubGrpcClient(conn, logger)
+	workflowClient = workflow.NewClientWithLogger(conn, logger)
 
 	// Run the test exitCode
 	exitCode := m.Run()
@@ -100,6 +103,12 @@ func TestMain(m *testing.M) {
 func startGrpcListener(t *testing.T, r *task.TaskRegistry) context.CancelFunc {
 	cancelCtx, cancel := context.WithCancel(ctx)
 	require.NoError(t, grpcClient.StartWorkItemListener(cancelCtx, r))
+	return cancel
+}
+
+func startWorkflowListener(t *testing.T, r *workflow.Registry) context.CancelFunc {
+	cancelCtx, cancel := context.WithCancel(ctx)
+	require.NoError(t, workflowClient.StartWorker(cancelCtx, r))
 	return cancel
 }
 
@@ -661,4 +670,118 @@ func Test_Grpc_PatchedWorkflow(t *testing.T) {
 	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
 	assert.Equal(t, []bool{false}, patches1Found)
 	assert.Equal(t, []bool{true}, patches2Found)
+}
+
+// Test_Workflow_Select_ExternalEventRace demonstrates the scenario from
+// https://github.com/dapr/dapr/issues/10447 using only the public workflow package: a workflow
+// that must respond to whichever of several named external events arrives first, using
+// workflow.WorkflowContext.Select instead of polling.
+func Test_Workflow_Select_ExternalEventRace(t *testing.T) {
+	r := workflow.NewRegistry()
+	require.NoError(t, r.AddWorkflowN("SelectRaceWorkflow", func(ctx *workflow.WorkflowContext) (any, error) {
+		approve := ctx.WaitForExternalEvent("Approve", -1)
+		reject := ctx.WaitForExternalEvent("Reject", -1)
+		abort := ctx.WaitForExternalEvent("Abort", -1)
+
+		winner, err := ctx.Select(approve, reject, abort)
+		if err != nil {
+			return nil, err
+		}
+
+		tasks := []workflow.Task{approve, reject, abort}
+		names := []string{"Approve", "Reject", "Abort"}
+
+		var v string
+		if err := tasks[winner].Await(&v); err != nil {
+			return nil, err
+		}
+		return names[winner] + ":" + v, nil
+	}))
+
+	cancel := startWorkflowListener(t, r)
+	defer cancel()
+
+	id, err := workflowClient.ScheduleWorkflow(ctx, "SelectRaceWorkflow")
+	require.NoError(t, err)
+
+	_, err = workflowClient.WaitForWorkflowStart(ctx, id)
+	require.NoError(t, err)
+
+	// Only raise the event that should win the race; the workflow must not need the other two to
+	// ever be raised.
+	require.NoError(t, workflowClient.RaiseEvent(ctx, id, "Reject", workflow.WithEventPayload("nope")))
+
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+	metadata, err := workflowClient.WaitForWorkflowCompletion(timeoutCtx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	assert.Equal(t, `"Reject:nope"`, metadata.Output.Value)
+}
+
+// Test_Workflow_ErrTaskCanceledIsCheckable verifies that a consumer using only the public workflow
+// package can check a timed-out WaitForExternalEvent's error against workflow.ErrTaskCanceled with
+// errors.Is, since task.ErrTaskCanceled itself isn't reachable without importing the lower-level
+// task package.
+func Test_Workflow_ErrTaskCanceledIsCheckable(t *testing.T) {
+	r := workflow.NewRegistry()
+	require.NoError(t, r.AddWorkflowN("EventTimeoutWorkflow", func(ctx *workflow.WorkflowContext) (any, error) {
+		err := ctx.WaitForExternalEvent("NeverRaised", 50*time.Millisecond).Await(nil)
+		if !errors.Is(err, workflow.ErrTaskCanceled) {
+			return "wrong error: " + fmt.Sprint(err), nil
+		}
+		return "ok", nil
+	}))
+
+	cancel := startWorkflowListener(t, r)
+	defer cancel()
+
+	id, err := workflowClient.ScheduleWorkflow(ctx, "EventTimeoutWorkflow")
+	require.NoError(t, err)
+
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+	metadata, err := workflowClient.WaitForWorkflowCompletion(timeoutCtx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	assert.Equal(t, `"ok"`, metadata.Output.Value)
+}
+
+// foreignWorkflowTask is a workflow.Task implementation from outside the task/workflow packages,
+// used to exercise the ErrTaskNotSelectable path: only *completableTask (unexported, from package
+// task) is selectable.
+type foreignWorkflowTask struct{}
+
+func (foreignWorkflowTask) Await(v any) error       { return nil }
+func (foreignWorkflowTask) TaskExecutionId() string { return "" }
+
+// Test_Workflow_Select_ErrTaskNotSelectableIsCheckable verifies that a consumer using only the
+// public workflow package (not importing task directly) can check a Select error against
+// workflow.ErrTaskNotSelectable with errors.Is, since task.ErrTaskNotSelectable itself isn't
+// reachable without importing the lower-level task package.
+func Test_Workflow_Select_ErrTaskNotSelectableIsCheckable(t *testing.T) {
+	r := workflow.NewRegistry()
+	require.NoError(t, r.AddWorkflowN("SelectNotSelectableWorkflow", func(ctx *workflow.WorkflowContext) (any, error) {
+		_, err := ctx.Select(foreignWorkflowTask{})
+		if err == nil {
+			return "no error", nil
+		}
+		if !errors.Is(err, workflow.ErrTaskNotSelectable) {
+			return "wrong error: " + err.Error(), nil
+		}
+		return "ok", nil
+	}))
+
+	cancel := startWorkflowListener(t, r)
+	defer cancel()
+
+	id, err := workflowClient.ScheduleWorkflow(ctx, "SelectNotSelectableWorkflow")
+	require.NoError(t, err)
+
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+	metadata, err := workflowClient.WaitForWorkflowCompletion(timeoutCtx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	assert.Equal(t, `"ok"`, metadata.Output.Value)
 }

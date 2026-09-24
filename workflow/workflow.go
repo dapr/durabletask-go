@@ -96,6 +96,35 @@ func (w *WorkflowContext) WaitForExternalEvent(eventName string, timeout time.Du
 	return w.oc.WaitForSingleEvent(eventName, timeout)
 }
 
+// Select blocks until the first of the given [tasks] completes and returns its index. Once Select
+// returns, callers should call Await on the task at the returned index to obtain its result or
+// error; the remaining tasks are left pending and may still be selected or awaited later (for
+// example, in a loop that repeatedly selects over the tasks that have not yet completed).
+//
+// If more than one of the given tasks is found completed at the same time -- whether because they
+// were already completed before Select was called, or a single event completed several of them at
+// once -- the one with the lowest index wins; this is the only tie-break rule Select ever applies.
+//
+// Select requires at least one task and returns an error if no tasks are given, if any task is nil,
+// or if any task was not obtained from this same WorkflowContext (e.g. via CallActivity, CreateTimer,
+// or WaitForExternalEvent, with or without a retry policy) -- a task from a different WorkflowContext
+// can never complete from this context's point of view, which would otherwise block the workflow
+// indefinitely with no diagnostic. A Task implementation from outside this package is also rejected,
+// with [ErrTaskNotSelectable].
+//
+// Like Await, Select may panic with [task.ErrTaskBlocked] as the panic value when none of the tasks
+// have completed and there is no further history to process. This is normal control flow for
+// workflow functions, which must never recover from such panics: doing so prevents the workflow
+// runtime's own recovery from observing the signal, and the workflow will never emit its pending
+// actions.
+func (w *WorkflowContext) Select(tasks ...Task) (int, error) {
+	otasks := make([]task.Task, len(tasks))
+	for i, t := range tasks {
+		otasks[i] = t
+	}
+	return w.oc.Select(otasks...)
+}
+
 func (w *WorkflowContext) ContinueAsNew(newInput any, options ...ContinueAsNewOption) {
 	oopts := make([]task.ContinueAsNewOption, len(options))
 	for i, o := range options {

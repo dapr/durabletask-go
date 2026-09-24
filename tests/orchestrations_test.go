@@ -360,6 +360,65 @@ func Test_ActivityRetries(t *testing.T) {
 	)
 }
 
+// Test_ActivityRetries_FanOutAwaitedOutOfOrder fans out several retry-configured activities
+// together and awaits them in a different order than they were scheduled, replaying across
+// multiple turns as each one fails, backs off, and retries. Retries schedule their backoff timer
+// and next attempt reactively, as each attempt's TaskFailed event is processed, rather than lazily
+// at whatever later point the workflow calls Await on that particular task; this exercises that a
+// fan-out of several such tasks still assigns action sequence numbers consistently across replay
+// regardless of the order the workflow function later awaits them in.
+func Test_ActivityRetries_FanOutAwaitedOutOfOrder(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("ActivityRetriesFanOut", func(ctx *task.WorkflowContext) (any, error) {
+		retryPolicy := &task.RetryPolicy{
+			MaxAttempts:          2,
+			InitialRetryInterval: 10 * time.Millisecond,
+		}
+		// Scheduled in order A, B, C; B never fails, A and C each fail once then succeed.
+		a := ctx.CallActivity("FlakyActivity", task.WithActivityInput("A"), task.WithActivityRetryPolicy(retryPolicy))
+		b := ctx.CallActivity("FlakyActivity", task.WithActivityInput("B"), task.WithActivityRetryPolicy(retryPolicy))
+		c := ctx.CallActivity("FlakyActivity", task.WithActivityInput("C"), task.WithActivityRetryPolicy(retryPolicy))
+
+		// Awaited out of declaration order: C, then A, then B.
+		var results []string
+		for _, tk := range []task.Task{c, a, b} {
+			var v string
+			if err := tk.Await(&v); err != nil {
+				return nil, err
+			}
+			results = append(results, v)
+		}
+		return results, nil
+	})
+	var failedOnce sync.Map
+	r.AddActivityN("FlakyActivity", func(ctx task.ActivityContext) (any, error) {
+		var name string
+		if err := ctx.GetInput(&name); err != nil {
+			return nil, err
+		}
+		if name != "B" {
+			if _, alreadyFailed := failedOnce.LoadOrStore(name, true); !alreadyFailed {
+				return nil, fmt.Errorf("%s: not yet", name)
+			}
+		}
+		return name + "-done", nil
+	})
+
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewWorkflow(ctx, "ActivityRetriesFanOut")
+	require.NoError(t, err)
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	metadata, err := client.WaitForWorkflowCompletion(timeoutCtx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	assert.Equal(t, `["C-done","A-done","B-done"]`, metadata.Output.Value)
+}
+
 func Test_ActivityFanOut(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
@@ -2078,7 +2137,6 @@ func Test_StartedAt_AfterExecution(t *testing.T) {
 	assert.False(t, startedAt.Before(metadata.CreatedAt.AsTime()),
 		"StartedAt %v should be >= CreatedAt %v", startedAt, metadata.CreatedAt.AsTime())
 }
-
 
 func Test_StartedAt_WithScheduleTime(t *testing.T) {
 	r := task.NewTaskRegistry()
