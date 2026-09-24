@@ -28,6 +28,7 @@ import (
 
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
+	"github.com/dapr/durabletask-go/backend/runtimestate"
 )
 
 // captureLogger records formatted log lines per level for assertions.
@@ -209,6 +210,13 @@ func countActions(actions []*protos.WorkflowAction, pred func(*protos.WorkflowAc
 }
 
 func isScheduleTask(a *protos.WorkflowAction) bool { return a.GetScheduleTask() != nil }
+
+// A schedule whose resolution was delivered from the buffer is still emitted:
+// the backend must record its scheduling event so the history stays
+// replayable, and the applier withholds the dispatch because the resolution
+// is already in the state (see Test_BufferedResolution_ExecutorReplayRoundTrip
+// and the applier tests in backend/runtimestate).
+const emittedNotDispatched = "the resolved schedule must still be emitted; the applier withholds its dispatch"
 func isCreateChild(a *protos.WorkflowAction) bool  { return a.GetCreateChildWorkflow() != nil }
 
 // waitThenActivityRegistry registers a workflow that waits for the "go" event
@@ -243,7 +251,7 @@ func Test_BufferedResolution_EarlyTaskCompleted(t *testing.T) {
 	require.NotNil(t, co, "workflow must complete using the early completion")
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
 	assert.Equal(t, `"injected"`, co.GetResult().GetValue())
-	assert.Zero(t, countActions(actions, isScheduleTask), "the resolved activity must not be dispatched")
+	assert.Equal(t, 1, countActions(actions, isScheduleTask), emittedNotDispatched)
 	assert.Empty(t, cl.warns)
 }
 
@@ -271,7 +279,7 @@ func Test_BufferedResolution_EarlyTaskFailed(t *testing.T) {
 	require.NotNil(t, co)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, co.WorkflowStatus)
 	assert.Contains(t, co.GetFailureDetails().GetErrorMessage(), "injected failure")
-	assert.Zero(t, countActions(actions, isScheduleTask))
+	assert.Equal(t, 1, countActions(actions, isScheduleTask), emittedNotDispatched)
 	assert.Equal(t, "exec-x", gotExecID)
 	assert.Empty(t, cl.warns)
 }
@@ -297,9 +305,9 @@ func Test_BufferedResolution_EarlyTimerFired(t *testing.T) {
 	co := completeAction(t, actions)
 	require.NotNil(t, co)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
-	assert.Zero(t, countActions(actions, func(a *protos.WorkflowAction) bool {
+	assert.Equal(t, 1, countActions(actions, func(a *protos.WorkflowAction) bool {
 		return a.GetCreateTimer() != nil && a.Id == 1
-	}), "the resolved timer must not be dispatched")
+	}), emittedNotDispatched)
 	assert.Empty(t, cl.warns)
 }
 
@@ -327,7 +335,7 @@ func Test_BufferedResolution_EarlyChildCompleted(t *testing.T) {
 	require.NotNil(t, co)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
 	assert.Equal(t, `"injected-child"`, co.GetResult().GetValue())
-	assert.Zero(t, countActions(actions, isCreateChild))
+	assert.Equal(t, 1, countActions(actions, isCreateChild), emittedNotDispatched)
 	assert.Empty(t, cl.warns)
 }
 
@@ -350,7 +358,7 @@ func Test_BufferedResolution_EarlyChildFailed(t *testing.T) {
 	co := completeAction(t, actions)
 	require.NotNil(t, co)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, co.WorkflowStatus)
-	assert.Zero(t, countActions(actions, isCreateChild))
+	assert.Equal(t, 1, countActions(actions, isCreateChild), emittedNotDispatched)
 	assert.Empty(t, cl.warns)
 }
 
@@ -488,7 +496,7 @@ func Test_BufferedResolution_SuspensionPrecedence(t *testing.T) {
 	require.NotNil(t, co)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
 	assert.Equal(t, `"injected"`, co.GetResult().GetValue())
-	assert.Zero(t, countActions(actions, isScheduleTask))
+	assert.Equal(t, 1, countActions(actions, isScheduleTask), emittedNotDispatched)
 	assert.Empty(t, cl.warns)
 }
 
@@ -535,9 +543,10 @@ func Test_BufferedResolution_EarlyFailureWithRetryPolicy(t *testing.T) {
 	// The buffered failure resolves attempt one at scheduling time and the
 	// retry wrapper immediately arms the backoff timer: the workflow blocks
 	// on the retry timer instead of completing, the failed attempt's
-	// ScheduleTask is suppressed, and the retry timer action is emitted.
+	// ScheduleTask is emitted for the record, and the retry timer action is
+	// emitted.
 	assert.Nil(t, completeAction(t, actions))
-	assert.Zero(t, countActions(actions, isScheduleTask))
+	assert.Equal(t, 1, countActions(actions, isScheduleTask), emittedNotDispatched)
 	assert.Equal(t, 1, countActions(actions, func(a *protos.WorkflowAction) bool {
 		return a.GetCreateTimer() != nil && a.Id == 2
 	}), "the retry backoff timer must be armed")
@@ -575,7 +584,7 @@ func Test_BufferedResolution_FanOutTwoEarlyCompletions(t *testing.T) {
 	require.NotNil(t, co)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
 	assert.Equal(t, `"onetwo"`, co.GetResult().GetValue())
-	assert.Zero(t, countActions(actions, isScheduleTask))
+	assert.Equal(t, 2, countActions(actions, isScheduleTask), emittedNotDispatched)
 	assert.Empty(t, cl.warns)
 }
 
@@ -654,9 +663,7 @@ func Test_BufferedResolution_ExecutorSurfacesWarning(t *testing.T) {
 		evEventRaised("go"),
 	}, backend.ExecuteOptions{})
 	require.NoError(t, err)
-	for _, a := range resp.GetActions() {
-		assert.Nil(t, a.GetScheduleTask(), "the suppressed action must not reach the backend response")
-	}
+	assert.Equal(t, 1, countActions(resp.GetActions(), isScheduleTask), emittedNotDispatched)
 	assert.Empty(t, cl.warns)
 
 	_, err = ex.ExecuteWorkflow(t.Context(), "exec-test", nil, []*protos.HistoryEvent{
@@ -668,28 +675,66 @@ func Test_BufferedResolution_ExecutorSurfacesWarning(t *testing.T) {
 	assert.Equal(t, 1, cl.warnsContaining("TaskCompleted for id 42"))
 }
 
-func Test_BufferedResolution_DropShiftsSuppressedIDs(t *testing.T) {
-	ctx := newTestContext(t)
-	ctx.suppressedActionIDs = map[int32]struct{}{2: {}, 3: {}}
-	ctx.pendingActions[1] = &protos.WorkflowAction{
-		Id: 1,
-		WorkflowActionType: &protos.WorkflowAction_CreateTimer{
-			CreateTimer: &protos.CreateTimerAction{
-				FireAt: timestamppb.New(externalEventIndefiniteFireAt),
-				Origin: &protos.CreateTimerAction_ExternalEvent{
-					ExternalEvent: &protos.TimerOriginExternalEvent{Name: "e"},
-				},
-			},
-		},
+
+// Test_BufferedResolution_ExecutorReplayRoundTrip drives the dapr shape of
+// the bug end to end: the completion of the first activity reaches the
+// workflow before its TaskScheduled was committed, the turn re-emits that
+// schedule and dispatches the second activity, and the next turn must replay
+// the recorded history without a non-determinism error.
+func Test_BufferedResolution_ExecutorReplayRoundTrip(t *testing.T) {
+	r := NewTaskRegistry()
+	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+		if err := ctx.WaitForSingleEvent("go", -1).Await(nil); err != nil {
+			return nil, err
+		}
+		var out string
+		if err := ctx.CallActivity("act").Await(&out); err != nil {
+			return nil, err
+		}
+		if err := ctx.CallActivity("act2").Await(nil); err != nil {
+			return nil, err
+		}
+		return out, nil
+	}))
+	require.NoError(t, r.AddActivityN("act", func(ActivityContext) (any, error) { return nil, nil }))
+	require.NoError(t, r.AddActivityN("act2", func(ActivityContext) (any, error) { return nil, nil }))
+	ex := NewTaskExecutor(r)
+	applier := runtimestate.NewApplier("app", "ns")
+
+	state := runtimestate.NewWorkflowRuntimeState("exec-test", nil, nil)
+	for _, e := range []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		evTaskCompleted(1, `"injected"`),
+		evEventRaised("go"),
+	} {
+		require.NoError(t, runtimestate.AddEvent(state, e))
 	}
-	ctx.pendingActions[2] = &protos.WorkflowAction{Id: 2}
-	ctx.pendingActions[3] = &protos.WorkflowAction{Id: 3}
-	ctx.sequenceNumber = 4
+	resp, err := ex.ExecuteWorkflow(t.Context(), "exec-test", state.GetOldEvents(), state.GetNewEvents(), backend.ExecuteOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 2, countActions(resp.GetActions(), isScheduleTask), emittedNotDispatched)
+	_, err = applier.Actions(state, resp.GetCustomStatus(), resp.GetActions(), nil, nil)
+	require.NoError(t, err)
 
-	require.True(t, ctx.dropOptionalExternalEventTimerAt(1))
+	require.Len(t, state.GetPendingTasks(), 1, "only the unresolved activity is dispatched")
+	assert.Equal(t, int32(2), state.GetPendingTasks()[0].GetEventId())
+	var scheduled, completed bool
+	for _, e := range state.GetNewEvents() {
+		scheduled = scheduled || (e.GetTaskScheduled() != nil && e.GetEventId() == 1)
+		completed = completed || (e.GetTaskCompleted() != nil && e.GetTaskCompleted().GetTaskScheduledId() == 1)
+	}
+	assert.True(t, scheduled, "TaskScheduled#1 must be recorded so the completion keeps its match")
+	assert.True(t, completed, "TaskCompleted#1 must be retained")
 
-	assert.Equal(t, map[int32]struct{}{1: {}, 2: {}}, ctx.suppressedActionIDs,
-		"suppressed ids above the dropped id must shift down with their actions")
+	// The next turn replays the committed history with the second
+	// activity's completion.
+	history := append(state.GetOldEvents(), state.GetNewEvents()...)
+	resp, err = ex.ExecuteWorkflow(t.Context(), "exec-test", history, []*protos.HistoryEvent{evTaskCompleted(2, `null`)}, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	co := completeAction(t, resp.GetActions())
+	require.NotNil(t, co)
+	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus, co.GetFailureDetails().GetErrorMessage())
+	assert.Equal(t, `"injected"`, co.GetResult().GetValue())
+	assert.Zero(t, countActions(resp.GetActions(), isScheduleTask))
 }
 
 func Test_CompletableTask_OnCompletedAfterCompletion(t *testing.T) {

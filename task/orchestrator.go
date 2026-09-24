@@ -77,7 +77,6 @@ type WorkflowContext struct {
 	saveBufferedExternalEvents bool
 	bufferedResolutions        map[resolutionKey]bufferedResolution
 	resolvedResolutions        map[resolutionKey]struct{}
-	suppressedActionIDs        map[int32]struct{}
 	logger                     backend.Logger
 	historyPatches             map[string]bool
 	appliedPatches             map[string]bool
@@ -210,7 +209,6 @@ func NewWorkflowContext(registry *TaskRegistry, id api.InstanceID, oldEvents []*
 		encounteredPatches:        make([]string, 0),
 		bufferedResolutions:       make(map[resolutionKey]bufferedResolution),
 		resolvedResolutions:       make(map[resolutionKey]struct{}),
-		suppressedActionIDs:       make(map[int32]struct{}),
 		logger:                    backend.DefaultLogger(),
 	}
 }
@@ -230,7 +228,6 @@ func (ctx *WorkflowContext) start() (actions []*protos.WorkflowAction) {
 	ctx.pendingTasks = make(map[int32]*completableTask)
 	clear(ctx.bufferedResolutions)
 	clear(ctx.resolvedResolutions)
-	clear(ctx.suppressedActionIDs)
 
 	// Registered before the recover defer so it runs on both the normal exit
 	// and the ErrTaskBlocked path.
@@ -842,9 +839,10 @@ func (ctx *WorkflowContext) bufferResolution(key resolutionKey, eventName string
 
 // consumeBufferedResolution delivers a buffered early resolution to the
 // pending entry that was just registered for (kind, id). The pending action
-// is left in place so a late scheduled event in history can still match it,
-// but it is suppressed from actions() so already resolved work is never
-// dispatched.
+// is left in place and emitted like any other: the backend records its
+// scheduling event so the history stays replayable and the resolution keeps
+// its match, while the applier sees the resolution already in the state and
+// withholds the dispatch.
 func (ctx *WorkflowContext) consumeBufferedResolution(kind dedup.Kind, id int32) {
 	key := resolutionKey{kind: kind, id: id}
 	br, ok := ctx.bufferedResolutions[key]
@@ -852,8 +850,7 @@ func (ctx *WorkflowContext) consumeBufferedResolution(kind dedup.Kind, id int32)
 		return
 	}
 	delete(ctx.bufferedResolutions, key)
-	ctx.suppressedActionIDs[id] = struct{}{}
-	ctx.logger.Debugf("%v: delivering buffered %s to newly scheduled work; the action will not be dispatched", ctx.ID, br.desc)
+	ctx.logger.Debugf("%v: delivering buffered %s to newly scheduled work; the schedule is recorded without being dispatched", ctx.ID, br.desc)
 	// The handler cannot re-buffer on this path: the pending entry exists.
 	_ = br.redeliver()
 }
@@ -1231,28 +1228,13 @@ func (ctx *WorkflowContext) dropOptionalExternalEventTimerAt(atID int32) bool {
 		ctx.pendingTasks[id-1] = t
 	}
 
-	// Suppressed action ids track pendingActions entries, so they shift with
-	// them. bufferedResolutions keys are numbered by history events and must
-	// NOT be shifted: this drop exists precisely to align the current ids to
-	// the history numbering.
-	delete(ctx.suppressedActionIDs, atID)
-	suppressedIDs := make([]int32, 0, len(ctx.suppressedActionIDs))
-	for id := range ctx.suppressedActionIDs {
-		if id > atID {
-			suppressedIDs = append(suppressedIDs, id)
-		}
-	}
-	sort.Slice(suppressedIDs, func(i, j int) bool { return suppressedIDs[i] < suppressedIDs[j] })
-	for _, id := range suppressedIDs {
-		delete(ctx.suppressedActionIDs, id)
-		ctx.suppressedActionIDs[id-1] = struct{}{}
-	}
-
 	ctx.sequenceNumber--
 
 	// The shift moved pending entries onto their history numbering, so a
 	// resolution buffered under a history id may now match a shifted entry;
-	// deliver any that do.
+	// deliver any that do. bufferedResolutions keys are numbered by history
+	// events and are not shifted: this drop exists precisely to align the
+	// current ids to the history numbering.
 	for _, id := range taskIDs {
 		newID := id - 1
 		if t, ok := ctx.pendingTasks[newID]; ok {
@@ -1271,13 +1253,6 @@ func (ctx *WorkflowContext) actions() []*protos.WorkflowAction {
 
 	var actions []*protos.WorkflowAction
 	for _, a := range ctx.pendingActions {
-		// Actions whose resolution was already delivered from the buffered
-		// early resolutions are withheld: the work is resolved, so it must
-		// never be dispatched. The pending action itself is retained so a
-		// late scheduled event in history can still match it.
-		if _, ok := ctx.suppressedActionIDs[a.Id]; ok {
-			continue
-		}
 		// A terminated workflow must not start any new work: emit only the
 		// completion action and keep everything else withheld, in particular
 		// tasks and timers that suspension had suppressed before the
