@@ -495,3 +495,64 @@ func TestGetWorkItems_DisconnectRedeliversBufferedItem(t *testing.T) {
 	survivorCancel()
 	wg.Wait()
 }
+
+// TestGetWorkItems_HealthPing asserts HealthPings are sent only to streams
+// whose worker advertised WORKER_CAPABILITY_HEALTH_PING, since older workers
+// mishandle work item types they do not know.
+func TestGetWorkItems_HealthPing(t *testing.T) {
+	for name, tc := range map[string]struct {
+		caps     []protos.WorkerCapability
+		wantPing bool
+	}{
+		"advertised": {
+			caps:     []protos.WorkerCapability{protos.WorkerCapability_WORKER_CAPABILITY_HEALTH_PING},
+			wantPing: true,
+		},
+		"not advertised": {
+			caps: []protos.WorkerCapability{protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			exec, _ := NewGrpcExecutor(newFakeExecBackend(), defaultLogger, WithHealthPingInterval(10*time.Millisecond))
+			g, ok := exec.(*grpcExecutor)
+			require.True(t, ok)
+
+			ctx, cancel := context.WithCancel(t.Context())
+			pings := make(chan struct{}, 1)
+			stream := &fakeWorkItemsStream{
+				ctx: ctx,
+				send: func(wi *protos.WorkItem) error {
+					if wi.GetHealthPing() != nil {
+						select {
+						case pings <- struct{}{}:
+						default:
+						}
+					}
+					return nil
+				},
+			}
+
+			done := make(chan error, 1)
+			go func() {
+				done <- g.GetWorkItems(&protos.GetWorkItemsRequest{Capabilities: tc.caps}, stream)
+			}()
+
+			if tc.wantPing {
+				select {
+				case <-pings:
+				case <-time.After(5 * time.Second):
+					t.Fatal("no health ping received")
+				}
+			} else {
+				select {
+				case <-pings:
+					t.Fatal("health ping sent to a worker that did not advertise it")
+				case <-time.After(100 * time.Millisecond):
+				}
+			}
+
+			cancel()
+			require.NoError(t, <-done)
+		})
+	}
+}
