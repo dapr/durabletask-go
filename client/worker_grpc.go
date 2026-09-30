@@ -77,11 +77,15 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 			return fmt.Errorf("failed to connect to task hub service: %w", err)
 		}
 
-		req := protos.GetWorkItemsRequest{}
+		req := protos.GetWorkItemsRequest{
+			Capabilities: []protos.WorkerCapability{
+				protos.WorkerCapability_WORKER_CAPABILITY_HEALTH_PING,
+			},
+		}
 		if c.statefulHistoryEnabled() {
-			req.Capabilities = []protos.WorkerCapability{
+			req.Capabilities = append(req.Capabilities,
 				protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY,
-			}
+			)
 		}
 
 		// Give this stream its own cancelable context (a child of the listener's
@@ -190,6 +194,8 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 				go c.processWorkflowWorkItem(ctx, executor, historyCache, orchReq, workItem.GetCompletionToken(), teardownStream)
 			} else if actReq := workItem.GetActivityRequest(); actReq != nil {
 				go c.processActivityWorkItem(ctx, executor, actReq, workItem.GetCompletionToken())
+			} else if workItem.GetHealthPing() != nil {
+				continue
 			} else {
 				c.logger.Warnf("received unknown work item type: %v", workItem)
 			}

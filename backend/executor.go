@@ -33,6 +33,11 @@ var errShuttingDown error = status.Error(codes.Canceled, "shutting down")
 // ss.ch and the shared queue as before.
 const streamOutboxSize = 64
 
+// defaultHealthPingInterval is how often an idle work item stream is sent a
+// HealthPing when the worker advertised WORKER_CAPABILITY_HEALTH_PING. It sits
+// below common proxy idle timeouts (60s on AWS ALB and nginx, 5m on Envoy).
+const defaultHealthPingInterval = 30 * time.Second
+
 type pendingWorkflow struct {
 	instanceID api.InstanceID
 	streamID   string
@@ -77,6 +82,7 @@ type grpcExecutor struct {
 	onWorkItemDisconnect     func(context.Context) error
 	streamShutdownChan       <-chan any
 	streamSendTimeout        *time.Duration
+	healthPingInterval       time.Duration
 	skipWaitForInstanceStart bool
 }
 
@@ -118,6 +124,17 @@ func WithStreamSendTimeout(d time.Duration) grpcExecutorOptions {
 	}
 }
 
+// WithHealthPingInterval sets how often a HealthPing is sent on work item
+// streams whose worker advertised WORKER_CAPABILITY_HEALTH_PING. Non-positive
+// values keep the default.
+func WithHealthPingInterval(d time.Duration) grpcExecutorOptions {
+	return func(g *grpcExecutor) {
+		if d > 0 {
+			g.healthPingInterval = d
+		}
+	}
+}
+
 func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.skipWaitForInstanceStart = true
@@ -138,8 +155,9 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 		backend:           be,
 		logger:            logger,
 		pendingWorkflows:  &sync.Map{},
-		pendingActivities: &sync.Map{},
-		streams:           &sync.Map{},
+		pendingActivities:  &sync.Map{},
+		streams:            &sync.Map{},
+		healthPingInterval: defaultHealthPingInterval,
 	}
 
 	for _, opt := range opts {
@@ -599,6 +617,13 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 	// The worker client invokes this method, which streams back work-items as they arrive.
 	// Items reach this stream either by affinity (its own ss.ch) or off the shared queue
 	// (work not pinned to a warm stream, plus all activities).
+	var healthPingC <-chan time.Time
+	if ss.healthPing {
+		ticker := time.NewTicker(g.healthPingInterval)
+		defer ticker.Stop()
+		healthPingC = ticker.C
+	}
+
 	for {
 		// Prefer one affinity item per pass: the select below picks randomly
 		// among ready cases, which would let the shared queue starve a warm
@@ -631,6 +656,12 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 			}
 			if err := g.dispatchToStream(stream, streamID, ss, wi, outCh, sendFailed); err != nil {
 				return err
+			}
+		case <-healthPingC:
+			// A full outbox means the stream is busy, so the ping is not needed.
+			select {
+			case outCh <- &protos.WorkItem{Request: &protos.WorkItem_HealthPing{HealthPing: &protos.HealthPing{}}}:
+			default:
 			}
 		case <-g.streamShutdownChan:
 			return errShuttingDown
