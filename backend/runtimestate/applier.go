@@ -23,6 +23,7 @@ import (
 
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/backend/runtimestate/dedup"
 	"github.com/dapr/kit/ptr"
 )
 
@@ -63,6 +64,11 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 	var result ActionsResult
 	s.CustomStatus = customStatus
 	s.Stalled = nil
+
+	// An action whose resolution is already in the state's events (delivered
+	// from the replay buffer) still gets its scheduling event recorded so the
+	// history stays replayable, but its work must not be dispatched again.
+	resolved := dedup.NewForState(s)
 
 	for _, action := range actions {
 		if action.Router == nil {
@@ -232,6 +238,9 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				},
 				Router: action.Router,
 			})
+			if resolved.Has(dedup.KindTimer, action.Id) {
+				continue
+			}
 			// TODO cant pass trace context
 			s.PendingTimers = append(s.PendingTimers, &protos.HistoryEvent{
 				EventId:   -1,
@@ -260,6 +269,9 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				Router: action.Router,
 			}
 			_ = AddEvent(s, scheduledEvent)
+			if resolved.Has(dedup.KindTask, action.Id) {
+				continue
+			}
 			s.PendingTasks = append(s.PendingTasks, scheduledEvent)
 			if scheduleTask.GetHistoryPropagationScope() != protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_NONE {
 				if result.OutgoingHistory == nil {
@@ -299,6 +311,9 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 				},
 				Router: action.Router,
 			})
+			if resolved.Has(dedup.KindChild, action.Id) {
+				continue
+			}
 			startEvent := &protos.HistoryEvent{
 				EventId:   -1,
 				Timestamp: timestamppb.New(time.Now()),

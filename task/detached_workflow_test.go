@@ -30,7 +30,7 @@ func TestScheduleNewWorkflow_EmitsAction(t *testing.T) {
 	ctx := newTestContext(t)
 	startTime := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
 
-	id, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+	id, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID("spawned-1"),
 		WithDetachedWorkflowInput(map[string]string{"hello": "world"}),
 		WithDetachedWorkflowStartTime(startTime),
@@ -39,7 +39,7 @@ func TestScheduleNewWorkflow_EmitsAction(t *testing.T) {
 	assert.Equal(t, api.InstanceID("spawned-1"), id)
 
 	require.Len(t, ctx.pendingActions, 1)
-	assert.Empty(t, ctx.pendingTasks, "ScheduleNewWorkflow is fire-and-forget; no Task should be registered")
+	assert.Empty(t, ctx.pendingTasks, "ScheduleNewDetachedWorkflow is fire-and-forget; no Task should be registered")
 
 	for _, a := range ctx.pendingActions {
 		dw := a.GetCreateDetachedWorkflow()
@@ -58,7 +58,7 @@ func TestScheduleNewWorkflow_RawInput(t *testing.T) {
 	ctx := newTestContext(t)
 	raw := wrapperspb.String("raw-bytes")
 
-	_, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+	_, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID("spawned-raw"),
 		WithRawDetachedWorkflowInput(raw),
 	)
@@ -75,7 +75,7 @@ func TestScheduleNewWorkflow_RawInput(t *testing.T) {
 func TestScheduleNewWorkflow_ExplicitEmptyInstanceID_Errors(t *testing.T) {
 	ctx := newTestContext(t)
 
-	id, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+	id, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID(""),
 	)
 	require.Error(t, err)
@@ -90,7 +90,7 @@ func TestScheduleNewWorkflow_DefaultsInstanceID(t *testing.T) {
 	ctx := newTestContext(t)
 
 	// First default-ID spawn → "<caller>-0".
-	id0, err := ctx.ScheduleNewWorkflow(dummyWorkflow)
+	id0, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow)
 	require.NoError(t, err)
 	assert.Equal(t, api.InstanceID("test-id-0"), id0)
 
@@ -100,19 +100,19 @@ func TestScheduleNewWorkflow_DefaultsInstanceID(t *testing.T) {
 	// the user reorders unrelated calls.
 	ctx.CreateTimer(time.Second)
 
-	id1, err := ctx.ScheduleNewWorkflow(dummyWorkflow)
+	id1, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow)
 	require.NoError(t, err)
 	assert.Equal(t, api.InstanceID("test-id-1"), id1)
 
 	// An explicit ID must not be overridden, and must not bump the
 	// default counter.
-	idExplicit, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+	idExplicit, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID("custom-id"),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, api.InstanceID("custom-id"), idExplicit)
 
-	id2, err := ctx.ScheduleNewWorkflow(dummyWorkflow)
+	id2, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow)
 	require.NoError(t, err)
 	assert.Equal(t, api.InstanceID("test-id-2"), id2,
 		"explicit-ID spawns must not advance the default-ID counter")
@@ -121,7 +121,7 @@ func TestScheduleNewWorkflow_DefaultsInstanceID(t *testing.T) {
 func TestScheduleNewWorkflow_NamespaceWithoutAppIDFails(t *testing.T) {
 	ctx := newTestContext(t)
 
-	id, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+	id, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID("spawned-ns"),
 		WithDetachedWorkflowAppNamespace("target-ns"),
 	)
@@ -134,7 +134,7 @@ func TestScheduleNewWorkflow_NamespaceWithoutAppIDFails(t *testing.T) {
 func TestScheduleNewWorkflow_RouterAppIDOnly(t *testing.T) {
 	ctx := newTestContext(t)
 
-	_, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+	_, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID("spawned-app"),
 		WithDetachedWorkflowAppID("target-app"),
 	)
@@ -151,7 +151,7 @@ func TestScheduleNewWorkflow_RouterAppIDOnly(t *testing.T) {
 func TestScheduleNewWorkflow_RouterAppIDAndNamespace(t *testing.T) {
 	ctx := newTestContext(t)
 
-	_, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+	_, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID("spawned-cross"),
 		WithDetachedWorkflowAppID("target-app"),
 		WithDetachedWorkflowAppNamespace("target-ns"),
@@ -169,7 +169,7 @@ func TestScheduleNewWorkflow_RouterAppIDAndNamespace(t *testing.T) {
 func TestOnDetachedWorkflowCreated_RetiresPendingAction(t *testing.T) {
 	ctx := newTestContext(t)
 
-	_, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+	_, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID("spawned-replay"),
 	)
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestOnDetachedWorkflowCreated_InstanceIDMismatch_Errors(t *testing.T) {
 	ctx := newTestContext(t)
 
 	// Current execution schedules "spawned-new" at sequence 0...
-	_, err := ctx.ScheduleNewWorkflow(dummyWorkflow,
+	_, err := ctx.ScheduleNewDetachedWorkflow(dummyWorkflow,
 		WithDetachedWorkflowInstanceID("spawned-new"),
 	)
 	require.NoError(t, err)
@@ -210,7 +210,7 @@ func TestOnDetachedWorkflowCreated_InstanceIDMismatch_Errors(t *testing.T) {
 
 	// ...but history records that the previous execution spawned
 	// "spawned-old" at that position. The current execution's code has
-	// already received "spawned-new" from ScheduleNewWorkflow, so
+	// already received "spawned-new" from ScheduleNewDetachedWorkflow, so
 	// accepting this history would leave the workflow referencing an
 	// instance that was never started.
 	err = ctx.processEvent(&protos.HistoryEvent{
@@ -244,7 +244,7 @@ func TestOnDetachedWorkflowCreated_NondeterministicReplay_Errors(t *testing.T) {
 		},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ScheduleNewWorkflow")
+	assert.Contains(t, err.Error(), "ScheduleNewDetachedWorkflow")
 	assert.Contains(t, err.Error(), "spawned-mismatch")
 	assert.Contains(t, err.Error(), "42")
 }

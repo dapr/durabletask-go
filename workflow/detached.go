@@ -9,20 +9,20 @@ import (
 )
 
 // DetachedWorkflowOptions is a functional option type for the
-// ScheduleNewWorkflow workflow method.
+// ScheduleNewDetachedWorkflow workflow method.
 type DetachedWorkflowOptions task.DetachedWorkflowOptions
 
-// ScheduleNewWorkflow schedules a new, fully decoupled workflow instance
+// ScheduleNewDetachedWorkflow schedules a new, fully decoupled workflow instance
 // from this workflow. Returns the new instance ID synchronously. The
 // spawned workflow has no parent linkage: completion and failure do not
 // flow back to the caller. If WithDetachedWorkflowInstanceID is not
 // provided, a deterministic default ID is generated.
-func (w *WorkflowContext) ScheduleNewWorkflow(workflow any, opts ...DetachedWorkflowOptions) (string, error) {
+func (w *WorkflowContext) ScheduleNewDetachedWorkflow(workflow any, opts ...DetachedWorkflowOptions) (string, error) {
 	oopts := make([]task.DetachedWorkflowOptions, len(opts))
 	for i, o := range opts {
 		oopts[i] = task.DetachedWorkflowOptions(o)
 	}
-	id, err := w.oc.ScheduleNewWorkflow(workflow, oopts...)
+	id, err := w.oc.ScheduleNewDetachedWorkflow(workflow, oopts...)
 	if err != nil {
 		return "", err
 	}
@@ -30,7 +30,7 @@ func (w *WorkflowContext) ScheduleNewWorkflow(workflow any, opts ...DetachedWork
 }
 
 // WithDetachedWorkflowInstanceID sets the instance ID of the detached
-// workflow. When omitted, ScheduleNewWorkflow generates a deterministic
+// workflow. When omitted, ScheduleNewDetachedWorkflow generates a deterministic
 // ID of the form "<callerInstanceID>-<n>". Passing an empty string is
 // rejected as an error: callers either set a non-empty ID or omit the
 // option entirely to opt into the default.

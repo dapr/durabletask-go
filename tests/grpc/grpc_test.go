@@ -44,7 +44,9 @@ func TestMain(m *testing.M) {
 	logger := backend.DefaultLogger()
 	be := sqlite.NewSqliteBackend(sqliteOptions, logger)
 	grpcServer := grpc.NewServer()
-	grpcExecutor, registerFn := backend.NewGrpcExecutor(be, logger)
+	// A short health ping interval makes every test in the suite also check
+	// that the client ignores pings interleaved with real work items.
+	grpcExecutor, registerFn := backend.NewGrpcExecutor(be, logger, backend.WithHealthPingInterval(50*time.Millisecond))
 	registerFn(grpcServer)
 	workflowWorker := backend.NewWorkflowWorker(backend.WorkflowWorkerOptions{
 		Backend:  be,

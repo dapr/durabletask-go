@@ -14,7 +14,7 @@ import (
 )
 
 // scheduleNewWorkflowOptions is a struct that holds the options for the
-// ScheduleNewWorkflow workflow method. It mirrors the fields of
+// ScheduleNewDetachedWorkflow workflow method. It mirrors the fields of
 // CreateInstanceRequest so that a workflow author can spawn a fully
 // decoupled instance with the same surface area as the client API.
 type scheduleNewWorkflowOptions struct {
@@ -27,7 +27,7 @@ type scheduleNewWorkflowOptions struct {
 }
 
 // DetachedWorkflowOptions is the interface for options passed to
-// ScheduleNewWorkflow. Unlike CallChildWorkflow, the spawned instance is
+// ScheduleNewDetachedWorkflow. Unlike CallChildWorkflow, the spawned instance is
 // fire-and-forget: the caller receives the instance ID synchronously but
 // does not wait on (and is not notified of) the spawned workflow's
 // completion.
@@ -44,7 +44,7 @@ func (f DetachedWorkflowOptionsFunc) applyDetachedWorkflowOption(opts *scheduleN
 }
 
 // WithDetachedWorkflowInstanceID sets the instance ID of the detached
-// workflow. When omitted, ScheduleNewWorkflow generates a deterministic
+// workflow. When omitted, ScheduleNewDetachedWorkflow generates a deterministic
 // ID of the form "<callerInstanceID>-<n>" where n increments per
 // default-ID spawn within the execution. The '-' separator keeps the
 // generated ID safe for consumers (e.g. dapr) that propagate the
@@ -109,7 +109,7 @@ func WithDetachedWorkflowAppNamespace(namespace string) DetachedWorkflowOptionsF
 	}
 }
 
-// ScheduleNewWorkflow schedules a new, fully decoupled workflow instance
+// ScheduleNewDetachedWorkflow schedules a new, fully decoupled workflow instance
 // from the calling workflow. Unlike CallChildWorkflow, the spawned
 // workflow has no parent linkage: its history's ExecutionStartedEvent
 // carries no ParentInstanceInfo, completion and failure do not flow back
@@ -126,7 +126,7 @@ func WithDetachedWorkflowAppNamespace(namespace string) DetachedWorkflowOptionsF
 // If the workflow author needs the spawned workflow's result, they should
 // model the dependency through external events (RaiseEvent / WaitForEvent)
 // or shared state — there is no built-in completion channel.
-func (ctx *WorkflowContext) ScheduleNewWorkflow(workflow any, opts ...DetachedWorkflowOptions) (api.InstanceID, error) {
+func (ctx *WorkflowContext) ScheduleNewDetachedWorkflow(workflow any, opts ...DetachedWorkflowOptions) (api.InstanceID, error) {
 	options := new(scheduleNewWorkflowOptions)
 	for _, configure := range opts {
 		if err := configure.applyDetachedWorkflowOption(options); err != nil {
@@ -184,18 +184,18 @@ func (ctx *WorkflowContext) onDetachedWorkflowCreated(taskID int32, dw *protos.D
 	}
 	if !ok || a.GetCreateDetachedWorkflow() == nil {
 		return fmt.Errorf(
-			"a previous execution called ScheduleNewWorkflow for instance ID '%s' and sequence number %d at this point in the workflow logic, but the current execution doesn't have this action with this sequence number",
+			"a previous execution called ScheduleNewDetachedWorkflow for instance ID '%s' and sequence number %d at this point in the workflow logic, but the current execution doesn't have this action with this sequence number",
 			dw.InstanceId,
 			taskID,
 		)
 	}
-	// The instance ID is the value ScheduleNewWorkflow returned to the
+	// The instance ID is the value ScheduleNewDetachedWorkflow returned to the
 	// workflow code, so a mismatch means the current execution is
 	// referencing an instance that was never started. Fail rather than
 	// silently accepting the old history.
 	if scheduled := a.GetCreateDetachedWorkflow().GetInstanceId(); scheduled != dw.InstanceId {
 		return fmt.Errorf(
-			"a previous execution called ScheduleNewWorkflow for instance ID '%s' and sequence number %d at this point in the workflow logic, but the current execution scheduled instance ID '%s'",
+			"a previous execution called ScheduleNewDetachedWorkflow for instance ID '%s' and sequence number %d at this point in the workflow logic, but the current execution scheduled instance ID '%s'",
 			dw.InstanceId,
 			taskID,
 			scheduled,

@@ -42,6 +42,11 @@ type streamState struct {
 	// committed history between turns so the service can send only deltas.
 	statefulHistory bool
 
+	// healthPing is true if the worker advertised
+	// WORKER_CAPABILITY_HEALTH_PING, so it may be sent periodic HealthPing
+	// work items to keep the stream from looking idle to proxies.
+	healthPing bool
+
 	// warm maps an instance ID to the number of committed (past) history events
 	// this stream is believed to already hold for it, i.e. the length of the
 	// pastEvents prefix that may be omitted on the next turn. Only accessed from
@@ -82,8 +87,11 @@ func newStreamState(id string, req *protos.GetWorkItemsRequest) *streamState {
 		maxWarm: maxWarmInstancesPerStream,
 	}
 	for _, c := range req.GetCapabilities() {
-		if c == protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY {
+		switch c {
+		case protos.WorkerCapability_WORKER_CAPABILITY_STATEFUL_HISTORY:
 			s.statefulHistory = true
+		case protos.WorkerCapability_WORKER_CAPABILITY_HEALTH_PING:
+			s.healthPing = true
 		}
 	}
 	return s
