@@ -91,6 +91,16 @@ func (w *WorkflowContext) CreateTimer(delay time.Duration, opts ...CreateTimerOp
 // multiple events with the same name is allowed. Each event received by an
 // workflow will complete just one task returned by this method.
 //
+// A task returned by this method that is passed to [WorkflowContext.Select] but loses -- another
+// candidate completes first -- is not retired: it remains queued for its event name. If the
+// workflow then calls WaitForExternalEvent again for that same name (for example, re-selecting in a
+// loop after handling the winner) the two tasks queue in call order, and the next matching event
+// completes whichever of them is oldest, not necessarily the one just created. A loop over Select
+// that discards losing tasks between iterations can therefore end up permanently waiting on a task
+// no later iteration still holds a reference to. To race the same event name across iterations
+// safely, carry every losing task forward into the next Select call instead of creating a new one
+// for a name still pending.
+//
 // Note that event names are case-insensitive.
 func (w *WorkflowContext) WaitForExternalEvent(eventName string, timeout time.Duration) Task {
 	return w.oc.WaitForSingleEvent(eventName, timeout)
@@ -99,7 +109,10 @@ func (w *WorkflowContext) WaitForExternalEvent(eventName string, timeout time.Du
 // Select blocks until the first of the given [tasks] completes and returns its index. Once Select
 // returns, callers should call Await on the task at the returned index to obtain its result or
 // error; the remaining tasks are left pending and may still be selected or awaited later (for
-// example, in a loop that repeatedly selects over the tasks that have not yet completed).
+// example, in a loop that repeatedly selects over the tasks that have not yet completed) -- doing so
+// is required, not optional, for a losing [WorkflowContext.WaitForExternalEvent] task: see its doc
+// comment for why discarding one instead of carrying it forward can hang a later Select on the same
+// event name.
 //
 // If more than one of the given tasks is found completed at the same time -- whether because they
 // were already completed before Select was called, or a single event completed several of them at
@@ -109,8 +122,8 @@ func (w *WorkflowContext) WaitForExternalEvent(eventName string, timeout time.Du
 // or if any task was not obtained from this same WorkflowContext (e.g. via CallActivity, CreateTimer,
 // or WaitForExternalEvent, with or without a retry policy) -- a task from a different WorkflowContext
 // can never complete from this context's point of view, which would otherwise block the workflow
-// indefinitely with no diagnostic. A Task implementation from outside this package is also rejected,
-// with [ErrTaskNotSelectable].
+// indefinitely with no diagnostic. A Task not created by a WorkflowContext method is rejected with
+// [ErrTaskNotSelectable].
 //
 // Like Await, Select may panic with [task.ErrTaskBlocked] as the panic value when none of the tasks
 // have completed and there is no further history to process. This is normal control flow for

@@ -261,14 +261,21 @@ func Test_Select_ActivityRacesTimer(t *testing.T) {
 		}
 		return "timer won", nil
 	})
+	// Block until the test is done instead of racing a wall-clock sleep against the timer: with a
+	// fixed sleep, the sqlite backend's poll backoff could delay TimerFired past the activity's
+	// own completion under load, making the activity win and the test fail.
+	release := make(chan struct{})
 	r.AddActivityN("SlowActivity", func(ctx task.ActivityContext) (any, error) {
-		time.Sleep(1 * time.Second)
+		<-release
 		return "too slow", nil
 	})
 
 	ctx := context.Background()
 	client, worker := initTaskHubWorker(ctx, r)
 	defer worker.Shutdown(ctx)
+	// Registered after worker.Shutdown's defer, so it runs first (LIFO) and unblocks the activity
+	// before Shutdown's StopAndDrain waits on it.
+	defer close(release)
 
 	id, err := client.ScheduleNewWorkflow(ctx, "SelectActivityRacesTimerWorkflow")
 	require.NoError(t, err)
@@ -318,4 +325,77 @@ func Test_Select_WaitForSingleEventTimeoutWins(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, `"timed out as expected"`, metadata.Output.Value)
+}
+
+// Test_Select_ApprovalGateLoop_CarriesLosingWaitForward demonstrates the approval-gate pattern from
+// https://github.com/dapr/dapr/issues/10447 across multiple iterations of the same event names: on
+// each iteration the workflow races WaitForSingleEvent("Approve", ...) against
+// WaitForSingleEvent("Reject", ...) via Select, and must carry the losing task into the next
+// iteration's Select call rather than discarding it and creating a fresh WaitForSingleEvent for the
+// same name -- see WaitForSingleEvent's doc comment for why discarding it would hang.
+//
+// Iteration 1 is won by "Approve", leaving "Reject" as a genuine loser that must be carried
+// forward; iteration 2 is then won by a fresh "Reject". This specifically exercises the hazard: if
+// the carried-forward "Reject" from iteration 1 were discarded and a new one created instead, the
+// stale task would still be the oldest queued waiter for that name and would steal iteration 2's
+// "Reject" event out from under the new task, hanging the workflow. Racing two iterations both won
+// by the same name (e.g. "Reject" then "Reject") would not catch this: nothing would have lost yet
+// for that name to go stale.
+func Test_Select_ApprovalGateLoop_CarriesLosingWaitForward(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("ApprovalGateLoopWorkflow", func(ctx *task.WorkflowContext) (any, error) {
+		approve := ctx.WaitForSingleEvent("Approve", -1)
+		reject := ctx.WaitForSingleEvent("Reject", -1)
+
+		var decisions []string
+		for i := 0; i < 2; i++ {
+			winner, err := ctx.Select(approve, reject)
+			if err != nil {
+				return nil, err
+			}
+
+			var v string
+			switch winner {
+			case 0:
+				if err := approve.Await(&v); err != nil {
+					return nil, err
+				}
+				decisions = append(decisions, "Approve:"+v)
+				// Carry the losing "Reject" wait forward; a fresh WaitForSingleEvent("Reject", ...)
+				// here would leave this one permanently queued and stealing the next "Reject" event.
+				approve = ctx.WaitForSingleEvent("Approve", -1)
+			case 1:
+				if err := reject.Await(&v); err != nil {
+					return nil, err
+				}
+				decisions = append(decisions, "Reject:"+v)
+				reject = ctx.WaitForSingleEvent("Reject", -1)
+			}
+		}
+		return decisions, nil
+	})
+
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewWorkflow(ctx, "ApprovalGateLoopWorkflow")
+	require.NoError(t, err)
+	_, err = client.WaitForWorkflowStart(ctx, id)
+	require.NoError(t, err)
+
+	// Iteration 1 is won by "Approve", so the original "Reject" task loses and must be carried
+	// forward. Iteration 2 is then resolved by a second "Reject" event: if the carry-forward were
+	// wrong (losing task discarded, a fresh one created instead), the stale iteration-1 "Reject"
+	// task would still be the oldest queued waiter for that name and would steal this event,
+	// leaving iteration 2's Select -- and the test -- hanging until the timeout below.
+	require.NoError(t, client.RaiseEvent(ctx, id, "Approve", api.WithEventPayload("first")))
+	require.NoError(t, client.RaiseEvent(ctx, id, "Reject", api.WithEventPayload("second")))
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	metadata, err := client.WaitForWorkflowCompletion(timeoutCtx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
+	assert.Equal(t, `["Approve:first","Reject:second"]`, metadata.Output.Value)
 }

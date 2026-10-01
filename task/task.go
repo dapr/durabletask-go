@@ -17,11 +17,8 @@ var ErrTaskBlocked = errors.New("the current task is blocked")
 // when configured timeouts expire.
 var ErrTaskCanceled = errors.New("the task was canceled") // CONSIDER: More specific info about the task
 
-// ErrTaskNotSelectable is returned by [WorkflowContext.Select] when one of the given tasks isn't
-// backed by this package's own task implementation, and so doesn't support the completion-callback
-// hook Select relies on to detect a winner without calling Await. Every Task returned by a
-// WorkflowContext method is selectable; this only happens for a Task implementation from outside
-// this package.
+// ErrTaskNotSelectable is returned by [WorkflowContext.Select] when one of the given tasks was not
+// created by a WorkflowContext method.
 var ErrTaskNotSelectable = errors.New("task does not support Select")
 
 // Task is an interface for asynchronous durable tasks. A task is conceptually similar to a future.
@@ -44,6 +41,22 @@ type completableTask struct {
 	// buffered. Zero (KindNone) for tasks never held in pendingTasks, such
 	// as external event wait tasks.
 	kind dedup.Kind
+	// advance, when set, runs on every poll (see pollCompleted) before isCompleted is read. Used by
+	// a retry chain's outer task (see internalScheduleTaskWithRetries) to drive itself forward --
+	// start the next attempt once a backoff timer fires, fail or complete once an attempt's outcome
+	// is known -- only when something is actually polling for completion, not as a side effect of
+	// history alone.
+	advance func()
+}
+
+// pollCompleted runs t's advance hook, if any, then reports whether t is completed. Await and
+// Select's poll both call this instead of reading isCompleted directly, so that observing a task is
+// what drives a retry chain forward.
+func (t *completableTask) pollCompleted() bool {
+	if t.advance != nil {
+		t.advance()
+	}
+	return t.isCompleted
 }
 
 func newTask(ctx *WorkflowContext) *completableTask {
@@ -62,7 +75,7 @@ func newTask(ctx *WorkflowContext) *completableTask {
 // of any kind. However, workflow functions must never attempt to recover from such panics to ensure that
 // the workflow execution can proceed normally.
 func (t *completableTask) Await(v any) error {
-	if err := t.workflowCtx.awaitUntil(func() bool { return t.isCompleted }); err != nil {
+	if err := t.workflowCtx.awaitUntil(t.pollCompleted); err != nil {
 		return err
 	}
 	if err := t.completionError(); err != nil {
@@ -94,9 +107,9 @@ func (t *completableTask) completionError() error {
 }
 
 // onCompleted registers [callback] to run when the task completes. Only one callback may be
-// registered on a task at a time; each of this package's current callers (WaitForSingleEvent's
-// internal timer plumbing, and the retry driver in internalScheduleTaskWithRetries) registers
-// exactly one, on a task scoped to that single registration and never reused for another.
+// registered on a task at a time; this package's only current caller, WaitForSingleEvent's internal
+// timer plumbing, registers exactly one, on a task scoped to that single registration and never
+// reused for another.
 func (t *completableTask) onCompleted(callback func()) {
 	// A task can already be completed at registration time when a buffered
 	// early resolution was delivered as the task was scheduled; fire the

@@ -532,15 +532,94 @@ func Test_BufferedResolution_EarlyFailureWithRetryPolicy(t *testing.T) {
 		evEventRaised("go"),
 	})
 
-	// The buffered failure resolves attempt one at scheduling time and the
-	// retry wrapper immediately arms the backoff timer: the workflow blocks
-	// on the retry timer instead of completing, the failed attempt's
-	// ScheduleTask is suppressed, and the retry timer action is emitted.
+	// The buffered failure resolves attempt one as soon as it's scheduled, so by the time Await
+	// polls it, the retry chain is already in its failed-with-retries-remaining state and arms the
+	// backoff timer right there: the workflow blocks on the retry timer instead of completing, the
+	// failed attempt's ScheduleTask is suppressed, and the retry timer action is emitted.
 	assert.Nil(t, completeAction(t, actions))
 	assert.Zero(t, countActions(actions, isScheduleTask))
 	assert.Equal(t, 1, countActions(actions, func(a *protos.WorkflowAction) bool {
 		return a.GetCreateTimer() != nil && a.Id == 2
 	}), "the retry backoff timer must be armed")
+	assert.Empty(t, cl.warns)
+}
+
+// Test_RetryPolicy_UnobservedAttemptNeverRetries is a regression test: a retry-configured task that
+// nothing ever awaits or selects must not retry in the background. The retry chain only advances
+// when its outer task is polled (see internalScheduleTaskWithRetries's advance hook), so a failed
+// attempt nobody observes stays failed and emits no further actions, even though the workflow
+// itself goes on to complete via a different, awaited task.
+func Test_RetryPolicy_UnobservedAttemptNeverRetries(t *testing.T) {
+	r := NewTaskRegistry()
+	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+		_ = ctx.CallActivity("A", WithActivityRetryPolicy(&RetryPolicy{
+			MaxAttempts:          3,
+			InitialRetryInterval: time.Second,
+			BackoffCoefficient:   2,
+		}))
+		b := ctx.CallActivity("B")
+		return nil, b.Await(nil)
+	}))
+	require.NoError(t, r.AddActivityN("A", func(ActivityContext) (any, error) { return nil, nil }))
+	require.NoError(t, r.AddActivityN("B", func(ActivityContext) (any, error) { return nil, nil }))
+
+	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		evTaskFailed(0, "exec-a"),
+		evTaskCompleted(1, `null`),
+	})
+
+	co := completeAction(t, actions)
+	require.NotNil(t, co, "the workflow must complete once its only awaited task (B) resolves")
+	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
+	assert.Zero(t, countActions(actions, func(a *protos.WorkflowAction) bool { return a.GetCreateTimer() != nil }),
+		"A's failure was never observed, so no retry backoff timer may be armed for it")
+	assert.Empty(t, cl.warns)
+}
+
+// Test_RetryPolicy_TimerSequenceIdMatchesAwaitObservationPoint is a regression test for replay
+// compatibility: the retry backoff timer's action id (sequence number) must match where the
+// workflow function actually observes the failed attempt by calling Await, not where the attempt
+// happens to fail in history. A workflow that schedules C between observing A's failure and
+// awaiting A again must see C take the sequence id that would otherwise go to A's retry timer, and
+// the retry timer take the next id after that -- exactly as if the retry decision were made inline
+// in Await itself, which is what histories recorded before retries became pollable assume.
+func Test_RetryPolicy_TimerSequenceIdMatchesAwaitObservationPoint(t *testing.T) {
+	r := NewTaskRegistry()
+	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+		a := ctx.CallActivity("A", WithActivityRetryPolicy(&RetryPolicy{
+			MaxAttempts:          3,
+			InitialRetryInterval: time.Second,
+			BackoffCoefficient:   2,
+		})) // id 0
+		b := ctx.CallActivity("B") // id 1
+		if err := b.Await(nil); err != nil {
+			return nil, err
+		}
+		c := ctx.CallActivity("C") // id 2: scheduled before A's failure is ever observed
+		if err := a.Await(nil); err != nil && !errors.Is(err, ErrTaskBlocked) {
+			// A's retry timer is armed here, once Await actually polls A -- this call blocks
+			// (processNextEvent runs out of history) rather than returning an error.
+		}
+		return nil, c.Await(nil)
+	}))
+	require.NoError(t, r.AddActivityN("A", func(ActivityContext) (any, error) { return nil, nil }))
+	require.NoError(t, r.AddActivityN("B", func(ActivityContext) (any, error) { return nil, nil }))
+	require.NoError(t, r.AddActivityN("C", func(ActivityContext) (any, error) { return nil, nil }))
+
+	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		evTaskFailed(0, "exec-a"),
+		evTaskCompleted(1, `null`),
+	})
+
+	require.Equal(t, 3, countActions(actions, isScheduleTask), "A's first attempt, B, and C are each scheduled on this turn")
+	require.True(t, countActions(actions, func(a *protos.WorkflowAction) bool {
+		return a.GetScheduleTask().GetName() == "C" && a.Id == 2
+	}) == 1, "C must take sequence id 2, the id it would get if A's retry were still decided inside Await rather than eagerly on TaskFailed")
+	require.True(t, countActions(actions, func(a *protos.WorkflowAction) bool {
+		return a.GetCreateTimer() != nil && a.Id == 3
+	}) == 1, "A's retry backoff timer must take the next id after C, since Await only observes A's failure after C is scheduled")
 	assert.Empty(t, cl.warns)
 }
 
@@ -700,9 +779,9 @@ func Test_CompletableTask_OnCompletedAfterCompletion(t *testing.T) {
 	assert.True(t, fired, "onCompleted on an already completed task must fire immediately")
 }
 
-// Test_Select_RejectsNilTask is a regression test: Select(a, nil) used to report the nil task as
-// ErrTaskNotSelectable (the same error as an unrelated, unsupported Task implementation), which
-// misidentified the actual problem.
+// Test_Select_RejectsNilTask verifies that Select reports a nil task explicitly, rather than
+// misattributing it to ErrTaskNotSelectable, the error for an unrelated, unsupported Task
+// implementation.
 func Test_Select_RejectsNilTask(t *testing.T) {
 	ctx := newTestContext(t)
 	other := newTask(ctx)
