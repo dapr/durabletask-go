@@ -64,11 +64,17 @@ func Test_UnmatchedResolutionIsIgnored(t *testing.T) {
 	early := &protos.HistoryEvent{EventId: -1, Timestamp: timestamppb.Now(), EventType: &protos.HistoryEvent_TaskCompleted{
 		TaskCompleted: &protos.TaskCompletedEvent{TaskScheduledId: 1, Result: wrapperspb.String(`"early"`)},
 	}}
-	run := func(newEvents ...*protos.HistoryEvent) ([]*protos.WorkflowAction, *warnLogger) {
+	scheduledEvent := &protos.HistoryEvent{EventId: 1, Timestamp: timestamppb.Now(), EventType: &protos.HistoryEvent_TaskScheduled{
+		TaskScheduled: &protos.TaskScheduledEvent{Name: "a"},
+	}}
+	replay := func(oldEvents, newEvents []*protos.HistoryEvent) ([]*protos.WorkflowAction, *warnLogger) {
 		l := new(warnLogger)
-		ctx := NewWorkflowContext(r, "id", []*protos.HistoryEvent{started}, newEvents)
+		ctx := NewWorkflowContext(r, "id", oldEvents, newEvents)
 		ctx.SetLogger(l)
 		return ctx.start(), l
+	}
+	run := func(newEvents ...*protos.HistoryEvent) ([]*protos.WorkflowAction, *warnLogger) {
+		return replay([]*protos.HistoryEvent{started}, newEvents)
 	}
 	scheduled := func(actions []*protos.WorkflowAction) (n int) {
 		for _, a := range actions {
@@ -98,6 +104,17 @@ func Test_UnmatchedResolutionIsIgnored(t *testing.T) {
 	t.Run("after the gating event it resolves the step", func(t *testing.T) {
 		actions, l := run(goEvent, early)
 		assert.Equal(t, 1, scheduled(actions), "the schedule is still emitted for the backend to record")
+		require.NotNil(t, completed(actions))
+		assert.Equal(t, `"early"`, completed(actions).GetResult().GetValue())
+		assert.Empty(t, l.warns)
+	})
+
+	t.Run("persisted after its scheduling it resolves the step on replay", func(t *testing.T) {
+		nudge := &protos.HistoryEvent{EventId: -1, Timestamp: timestamppb.Now(), EventType: &protos.HistoryEvent_EventRaised{
+			EventRaised: &protos.EventRaisedEvent{Name: "nudge"},
+		}}
+		actions, l := replay([]*protos.HistoryEvent{started, goEvent, scheduledEvent, early}, []*protos.HistoryEvent{nudge})
+		assert.Equal(t, 0, scheduled(actions), "the schedule is already in history")
 		require.NotNil(t, completed(actions))
 		assert.Equal(t, `"early"`, completed(actions).GetResult().GetValue())
 		assert.Empty(t, l.warns)
