@@ -65,9 +65,10 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 	s.CustomStatus = customStatus
 	s.Stalled = nil
 
-	// An action whose resolution is already in the state's events (delivered
-	// from the replay buffer) still gets its scheduling event recorded so the
-	// history stays replayable, but its work must not be dispatched again.
+	// An action whose resolution is already in the state's events (the
+	// backend handed the worker a result that arrived before its scheduling
+	// was saved) still gets its scheduling event recorded so the history
+	// stays replayable, but its work must not be dispatched again.
 	resolved := dedup.NewForState(s)
 
 	for _, action := range actions {
