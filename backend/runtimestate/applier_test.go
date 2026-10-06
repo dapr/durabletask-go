@@ -26,9 +26,10 @@ import (
 )
 
 // A resolution that reached the state before its scheduling action was
-// committed (delivered to the workflow from the replay buffer) must still get
-// its scheduling event recorded, so the history replays and the resolution
-// keeps its match, but the work must not be dispatched a second time.
+// committed (the backend handed it to the worker, which scheduled the step in
+// the same turn) must still get its scheduling event recorded, so the history
+// replays and the resolution keeps its match, but the work must not be
+// dispatched a second time.
 func TestActions_ResolvedScheduleIsRecordedNotDispatched(t *testing.T) {
 	scheduleTask := func(id int32) *protos.WorkflowAction {
 		return &protos.WorkflowAction{Id: id, WorkflowActionType: &protos.WorkflowAction_ScheduleTask{
