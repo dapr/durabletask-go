@@ -632,6 +632,119 @@ func Test_RetryPolicy_TimerSequenceIdMatchesAwaitObservationPoint(t *testing.T) 
 	assert.Empty(t, cl.warns)
 }
 
+// Test_RetryPolicy_SecondAwaitDoesNotReRunChain is a regression test: once a retry-configured
+// task's outer task has failed, polling it again (a second Await, or a Select that still includes
+// it) must be a no-op -- it must not consult policy.Handle again, and it must not arm another
+// backoff timer for a task the caller has already observed fail. MaxAttempts is left high enough
+// that retries are nominally still available; policy.Handle itself declines the retry, which is the
+// only way to reach the failure path without exhausting MaxAttempts, so a bug that re-runs this
+// branch on every subsequent poll is caught by handleCalls incrementing again, not masked by
+// retryCount already being at its limit.
+func Test_RetryPolicy_SecondAwaitDoesNotReRunChain(t *testing.T) {
+	r := NewTaskRegistry()
+	var handleCalls int
+	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+		policy := &RetryPolicy{
+			MaxAttempts:          3,
+			InitialRetryInterval: time.Second,
+			BackoffCoefficient:   2,
+			Handle: func(err error) bool {
+				handleCalls++
+				return false
+			},
+		}
+		flaky := ctx.CallActivity("Flaky", WithActivityRetryPolicy(policy)) // id 0
+		err1 := flaky.Await(nil)
+		// The chain already failed (Handle declined the only attempt, resolved from buffered
+		// history below): this second Await must be a pure no-op that returns the same error.
+		err2 := flaky.Await(nil)
+		if err1 == nil || err2 == nil || err1.Error() != err2.Error() {
+			return nil, fmt.Errorf("expected both Awaits to return the same error, got %v and %v", err1, err2)
+		}
+		return nil, nil
+	}))
+	require.NoError(t, r.AddActivityN("Flaky", func(ActivityContext) (any, error) { return nil, nil }))
+
+	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		evTaskFailed(0, "exec-1"),
+	})
+
+	co := completeAction(t, actions)
+	require.NotNil(t, co, "the workflow must complete once the retry chain fails and is observed twice")
+	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
+	assert.Zero(t, countActions(actions, func(a *protos.WorkflowAction) bool { return a.GetCreateTimer() != nil }),
+		"Handle declined the only attempt; no backoff timer may ever be armed, including on the second Await")
+	assert.Equal(t, 1, handleCalls, "policy.Handle must run exactly once, for the one real failure, not again on the second Await")
+	assert.Empty(t, cl.warns)
+}
+
+// Test_Select_PollsEveryCandidateRegardlessOfWinner is a regression test: Select must poll every
+// candidate on every check, not stop at the first one found completed. A candidate Select never
+// polls because an earlier one already won never gets its own advance run (see
+// internalScheduleTaskWithRetries), so a retry candidate's backoff timer is left for whenever
+// something later happens to poll it again -- here, scheduling D right after Select -- instead of
+// being allocated during the Select call itself. That makes the timer's action sequence number land
+// after D's rather than before it, breaking replay for any history recorded before this fix.
+//
+// The shape here is load-bearing and deliberate: c.Await(nil) is what lets A's failure and B's
+// completion land from already-present history before Select is ever called, and D is what gives
+// the fix something to prove its ordering against. A bare comparison of Select(a, b) vs Select(b, a)
+// with no intervening task would NOT catch this bug -- awaitUntil's very first poll runs before any
+// history event is processed, so on that first call neither candidate is resolved yet regardless of
+// argument order, and the short-circuit never gets a chance to matter.
+func Test_Select_PollsEveryCandidateRegardlessOfWinner(t *testing.T) {
+	r := NewTaskRegistry()
+	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+		a := ctx.CallActivity("A", WithActivityRetryPolicy(&RetryPolicy{ // id 0
+			MaxAttempts:          3,
+			InitialRetryInterval: time.Second,
+			BackoffCoefficient:   2,
+		}))
+		b := ctx.CallActivity("B") // id 1
+		c := ctx.CallActivity("C") // id 2
+		// A fails and B completes while waiting here; neither a nor b (the retry chain's outer
+		// task and the plain task) has been polled yet.
+		if err := c.Await(nil); err != nil {
+			return nil, err
+		}
+
+		// B wins at once. If Select stopped polling once it found B's winning completion, A would
+		// never be polled this call, so its backoff timer would not be allocated here.
+		winner, err := ctx.Select(b, a)
+		if err != nil {
+			return nil, err
+		}
+		if winner != 0 {
+			return nil, fmt.Errorf("expected B (index 0) to win Select(b, a), got index %d", winner)
+		}
+
+		if err := ctx.CallActivity("D").Await(nil); err != nil { // must get sequence id 4, after A's timer
+			return nil, err
+		}
+		return nil, a.Await(nil)
+	}))
+	require.NoError(t, r.AddActivityN("A", func(ActivityContext) (any, error) { return nil, nil }))
+	require.NoError(t, r.AddActivityN("B", func(ActivityContext) (any, error) { return nil, nil }))
+	require.NoError(t, r.AddActivityN("C", func(ActivityContext) (any, error) { return nil, nil }))
+	require.NoError(t, r.AddActivityN("D", func(ActivityContext) (any, error) { return nil, nil }))
+
+	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		evTaskFailed(0, "exec-a"),
+		evTaskCompleted(1, `null`),
+		evTaskCompleted(2, `null`),
+	})
+
+	require.Equal(t, 1, countActions(actions, func(a *protos.WorkflowAction) bool {
+		return a.GetCreateTimer() != nil && a.Id == 3
+	}), "A's retry timer must be allocated during the Select call that observed its failure (id 3), before D")
+	require.Equal(t, 1, countActions(actions, func(act *protos.WorkflowAction) bool {
+		return act.GetScheduleTask().GetName() == "D" && act.Id == 4
+	}), "D must come after A's retry timer, not before it")
+	assert.Empty(t, cl.warns)
+}
+
 func Test_BufferedResolution_FanOutTwoEarlyCompletions(t *testing.T) {
 	r := NewTaskRegistry()
 	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {

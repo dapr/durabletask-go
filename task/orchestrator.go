@@ -566,6 +566,9 @@ func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initial
 	var timer *completableTask
 
 	outer.advance = func() {
+		if outer.isCompleted {
+			return
+		}
 		for {
 			if timer != nil {
 				if !timer.isCompleted {
@@ -787,7 +790,9 @@ func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Du
 // than one of them is found completed at the same time -- whether because they were already
 // completed before Select was called, or because a single history event completed several of them
 // at once (possible when a batch of events buffered during a suspended execution is replayed) --
-// the one with the lowest index wins; this is the only tie-break rule Select ever applies.
+// the one with the lowest index wins; this is the only tie-break rule Select ever applies. When two
+// or more of the given tasks are retry-configured and both become newly failed within the same
+// poll, their backoff timers are still allocated in argument order, not simultaneously.
 //
 // Select requires at least one task and returns an error if no tasks are given, if any task is nil,
 // or if any task was not obtained from this same WorkflowContext (e.g. via CallActivity, CreateTimer,
@@ -822,21 +827,22 @@ func (ctx *WorkflowContext) Select(tasks ...Task) (int, error) {
 		completable[i] = ct
 	}
 
-	// A single history event can complete more than one candidate at once -- e.g. onExecutionResumed
-	// replays a whole batch of events buffered during a suspension within one processNextEvent call
-	// -- so this always scans every candidate in index order and takes the first completed task it
-	// finds, rather than stopping at the first newly-completed one. pollCompleted (rather than
-	// reading isCompleted) is what lets a retry-configured candidate (see
-	// internalScheduleTaskWithRetries) advance its own retry chain by being polled here.
+	// Every candidate is polled on every check, not just until the first completed one is found:
+	// skipping a later candidate's pollCompleted call would skip its advance too (see
+	// internalScheduleTaskWithRetries), leaving a retry candidate's backoff timer allocated on
+	// whatever later poll happens to reach it instead of here -- making its action sequence number
+	// depend on which candidate happened to win, rather than only on argument order and history, the
+	// same way plain tasks already behave. A single history event can also complete more than one
+	// candidate at once (e.g. onExecutionResumed replaying a batch buffered during a suspension), so
+	// ties still go to the lowest index.
 	winner := -1
 	if err := ctx.awaitUntil(func() bool {
 		for i, ct := range completable {
-			if ct.pollCompleted() {
+			if ct.pollCompleted() && winner < 0 {
 				winner = i
-				return true
 			}
 		}
-		return false
+		return winner >= 0
 	}); err != nil {
 		return -1, err
 	}
