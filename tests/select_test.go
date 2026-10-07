@@ -189,8 +189,8 @@ func Test_Select_NoTasks(t *testing.T) {
 }
 
 // Test_Select_RetryWrappedTaskWins verifies that a task returned by CallActivity with a retry
-// policy is a real, selectable task: its retries are driven independently of Select or Await, so
-// it can win a Select once its retries succeed, racing normally against a plain task.
+// policy is a real, selectable task: Select's own polling drives its retries forward, so it can
+// win a Select once its retries succeed, racing normally against a plain task.
 func Test_Select_RetryWrappedTaskWins(t *testing.T) {
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("SelectRetryWrappedWorkflow", func(ctx *task.WorkflowContext) (any, error) {
@@ -239,10 +239,9 @@ func Test_Select_RetryWrappedTaskWins(t *testing.T) {
 }
 
 // Test_Select_ActivityRacesTimer covers the most common WhenAny shape: a plain (non-retry)
-// CallActivity racing a CreateTimer. The activity's 1s sleep is deliberately much longer than the
-// timer's 50ms delay so the timer wins with a wide margin, comfortably covering the extra latency
-// the sqlite backend's polling (with its own exponential backoff) adds on top of the timer's raw
-// delay before the workflow actually picks the TimerFired event up.
+// CallActivity racing a CreateTimer. The activity blocks on a channel the test only closes after
+// the timer has had a chance to win, so the timer wins deterministically rather than by a wall-clock
+// margin that could be eaten by the sqlite backend's own polling latency.
 func Test_Select_ActivityRacesTimer(t *testing.T) {
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("SelectActivityRacesTimerWorkflow", func(ctx *task.WorkflowContext) (any, error) {

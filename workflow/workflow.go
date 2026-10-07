@@ -77,59 +77,18 @@ func (w *WorkflowContext) CreateTimer(delay time.Duration, opts ...CreateTimerOp
 
 // WaitForExternalEvent creates a task that is completed only after an event
 // named [eventName] is received by this workflow or when the specified timeout
-// expires.
-//
-// The [timeout] parameter can be used to define a timeout for receiving the
-// event. If the timeout expires before the named event is received, the task
-// will be completed and will return a timeout error value [ErrTaskCanceled]
-// when awaited. Otherwise, the awaited task will return the deserialized
-// payload of the received event. A Duration value of zero returns a canceled
-// task if the event isn't already available in the history. Use a negative
-// Duration to wait indefinitely for the event to be received.
-//
-// Workflows can wait for the same event name multiple times, so waiting for
-// multiple events with the same name is allowed. Each event received by an
-// workflow will complete just one task returned by this method.
-//
-// A task returned by this method that is passed to [WorkflowContext.Select] but loses -- another
-// candidate completes first -- is not retired: it remains queued for its event name. If the
-// workflow then calls WaitForExternalEvent again for that same name (for example, re-selecting in a
-// loop after handling the winner) the two tasks queue in call order, and the next matching event
-// completes whichever of them is oldest, not necessarily the one just created. A loop over Select
-// that discards losing tasks between iterations can therefore end up permanently waiting on a task
-// no later iteration still holds a reference to. To race the same event name across iterations
-// safely, carry every losing task forward into the next Select call instead of creating a new one
-// for a name still pending.
-//
-// Note that event names are case-insensitive.
+// expires. See [task.WorkflowContext.WaitForSingleEvent] for the full behavior,
+// including how a losing [WorkflowContext.Select] candidate must be carried
+// forward rather than discarded. Note that event names are case-insensitive.
 func (w *WorkflowContext) WaitForExternalEvent(eventName string, timeout time.Duration) Task {
 	return w.oc.WaitForSingleEvent(eventName, timeout)
 }
 
 // Select blocks until the first of the given [tasks] completes and returns its index. Once Select
 // returns, callers should call Await on the task at the returned index to obtain its result or
-// error; the remaining tasks are left pending and may still be selected or awaited later (for
-// example, in a loop that repeatedly selects over the tasks that have not yet completed) -- doing so
-// is required, not optional, for a losing [WorkflowContext.WaitForExternalEvent] task: see its doc
-// comment for why discarding one instead of carrying it forward can hang a later Select on the same
-// event name.
-//
-// If more than one of the given tasks is found completed at the same time -- whether because they
-// were already completed before Select was called, or a single event completed several of them at
-// once -- the one with the lowest index wins; this is the only tie-break rule Select ever applies.
-//
-// Select requires at least one task and returns an error if no tasks are given, if any task is nil,
-// or if any task was not obtained from this same WorkflowContext (e.g. via CallActivity, CreateTimer,
-// or WaitForExternalEvent, with or without a retry policy) -- a task from a different WorkflowContext
-// can never complete from this context's point of view, which would otherwise block the workflow
-// indefinitely with no diagnostic. A Task not created by a WorkflowContext method is rejected with
-// [ErrTaskNotSelectable].
-//
-// Like Await, Select may panic with [task.ErrTaskBlocked] as the panic value when none of the tasks
-// have completed and there is no further history to process. This is normal control flow for
-// workflow functions, which must never recover from such panics: doing so prevents the workflow
-// runtime's own recovery from observing the signal, and the workflow will never emit its pending
-// actions.
+// error; the remaining tasks are left pending and may still be selected or awaited later. See
+// [task.WorkflowContext.Select] for the full behavior, including its tie-break rule, validation
+// errors, and [task.ErrTaskBlocked] panic semantics.
 func (w *WorkflowContext) Select(tasks ...Task) (int, error) {
 	otasks := make([]task.Task, len(tasks))
 	for i, t := range tasks {

@@ -360,13 +360,10 @@ func Test_ActivityRetries(t *testing.T) {
 	)
 }
 
-// Test_ActivityRetries_FanOutAwaitedOutOfOrder fans out several retry-configured activities
-// together and awaits them in a different order than they were scheduled, replaying across
-// multiple turns as each one fails, backs off, and retries. Retries schedule their backoff timer
-// and next attempt reactively, as each attempt's TaskFailed event is processed, rather than lazily
-// at whatever later point the workflow calls Await on that particular task; this exercises that a
-// fan-out of several such tasks still assigns action sequence numbers consistently across replay
-// regardless of the order the workflow function later awaits them in.
+// Test_ActivityRetries_FanOutAwaitedOutOfOrder fans out several retry-configured activities and
+// awaits them in a different order than they were scheduled, replaying across multiple turns as
+// each one fails, backs off, and retries, and checks that action sequence numbers stay
+// consistent across replay.
 func Test_ActivityRetries_FanOutAwaitedOutOfOrder(t *testing.T) {
 	r := task.NewTaskRegistry()
 	r.AddWorkflowN("ActivityRetriesFanOut", func(ctx *task.WorkflowContext) (any, error) {
