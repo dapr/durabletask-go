@@ -108,3 +108,48 @@ func Test_concurrentExecutionsOfSameActivityAllSettle(t *testing.T) {
 
 	require.Error(t, be.CompleteActivityTask(ctx, &protos.ActivityResponse{InstanceId: "wf1", TaskId: 0}))
 }
+
+// A worker that does not echo completion tokens cannot say which of several
+// pending executions a response belongs to, so none may adopt it.
+func Test_tokenlessResponseCancelsConcurrentExecutions(t *testing.T) {
+	be := &tasksOnlyBackend{tasks: local.NewTasksBackend()}
+	exec, _ := backend.NewGrpcExecutor(be, backend.DefaultLogger())
+	server := exec.(protos.TaskHubSidecarServiceServer)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	stream := &workItemsStream{ctx: ctx, items: make(chan *protos.WorkItem, 2)}
+	go func() { _ = server.GetWorkItems(&protos.GetWorkItemsRequest{}, stream) }()
+
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := exec.ExecuteActivity(ctx, api.InstanceID("wf1"), taskScheduled(0), backend.ExecuteOptions{})
+			errs <- err
+		}()
+	}
+
+	for range 2 {
+		select {
+		case <-stream.items:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "work item was not dispatched")
+		}
+	}
+
+	require.NoError(t, be.CompleteActivityTask(ctx, &protos.ActivityResponse{
+		InstanceId: "wf1",
+		TaskId:     0,
+		Result:     wrapperspb.String("ambiguous"),
+	}))
+	for range 2 {
+		select {
+		case err := <-errs:
+			require.EqualError(t, err, "operation aborted")
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "execution did not settle")
+		}
+	}
+
+	require.Error(t, be.CompleteActivityTask(ctx, &protos.ActivityResponse{InstanceId: "wf1", TaskId: 0}))
+}

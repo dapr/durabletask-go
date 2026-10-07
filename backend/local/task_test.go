@@ -2,6 +2,7 @@ package local_test
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -144,7 +145,7 @@ func Test_OnActivityCompletion_ConcurrentRegistrations(t *testing.T) {
 		secondErr = err
 	})
 
-	resp := &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}
+	resp := &protos.ActivityResponse{InstanceId: "abc", TaskId: 1, CompletionToken: "t1"}
 	require.NoError(t, be.CompleteActivityTask(context.Background(), resp))
 	require.Equal(t, 1, firstCalls)
 	require.Equal(t, 1, secondCalls)
@@ -206,15 +207,18 @@ func Test_OnActivityCompletion_ConcurrentUse(t *testing.T) {
 	be := local.NewTasksBackend()
 
 	var wg sync.WaitGroup
-	for range 8 {
+	for g := range 8 {
 		wg.Go(func() {
+			token := strconv.Itoa(g)
 			for range 200 {
-				var delivered atomic.Bool
-				dereg := be.OnActivityCompletion(activityRequest("abc", 1), func(*protos.ActivityResponse, error) {
-					delivered.Store(true)
+				var own atomic.Bool
+				dereg := be.OnActivityCompletion(activityRequest("abc", 1), func(resp *protos.ActivityResponse, err error) {
+					if err == nil && resp.GetCompletionToken() == token {
+						own.Store(true)
+					}
 				})
-				_ = be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1})
-				assert.True(t, delivered.Load())
+				assert.NoError(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1, CompletionToken: token}))
+				assert.True(t, own.Load())
 				dereg()
 			}
 		})
@@ -222,4 +226,48 @@ func Test_OnActivityCompletion_ConcurrentUse(t *testing.T) {
 	wg.Wait()
 
 	require.Error(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
+}
+
+func Test_OnActivityCompletion_TokenlessResponseWithConcurrentRegistrations(t *testing.T) {
+	be := local.NewTasksBackend()
+
+	var gotResps []*protos.ActivityResponse
+	var gotErrs []error
+	record := func(resp *protos.ActivityResponse, err error) {
+		gotResps = append(gotResps, resp)
+		gotErrs = append(gotErrs, err)
+	}
+	dereg1 := be.OnActivityCompletion(activityRequest("abc", 1), record)
+	be.OnActivityCompletion(activityRequest("abc", 1), record)
+
+	require.NoError(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
+	require.Len(t, gotErrs, 2)
+	for i := range gotErrs {
+		require.ErrorIs(t, gotErrs[i], api.ErrTaskCancelled)
+		require.Nil(t, gotResps[i])
+	}
+
+	dereg1()
+	resp := &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}
+	require.NoError(t, be.CompleteActivityTask(context.Background(), resp))
+	require.Len(t, gotErrs, 3)
+	require.NoError(t, gotErrs[2])
+	require.Same(t, resp, gotResps[2])
+}
+
+func Test_OnWorkflowTaskCompletion_TokenlessResponseWithConcurrentRegistrations(t *testing.T) {
+	be := local.NewTasksBackend()
+
+	var gotErrs []error
+	record := func(resp *protos.WorkflowResponse, err error) {
+		require.Nil(t, resp)
+		gotErrs = append(gotErrs, err)
+	}
+	be.OnWorkflowTaskCompletion(&protos.WorkflowRequest{InstanceId: "abc"}, record)
+	be.OnWorkflowTaskCompletion(&protos.WorkflowRequest{InstanceId: "abc"}, record)
+
+	require.NoError(t, be.CompleteWorkflowTask(context.Background(), &protos.WorkflowResponse{InstanceId: "abc"}))
+	require.Len(t, gotErrs, 2)
+	require.ErrorIs(t, gotErrs[0], api.ErrTaskCancelled)
+	require.ErrorIs(t, gotErrs[1], api.ErrTaskCancelled)
 }

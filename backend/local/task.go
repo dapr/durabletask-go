@@ -17,8 +17,8 @@ type TasksBackend struct {
 
 func NewTasksBackend() *TasksBackend {
 	return &TasksBackend{
-		workflows:  registry[*protos.WorkflowResponse]{byKey: make(map[string][]*registration[*protos.WorkflowResponse])},
-		activities: registry[*protos.ActivityResponse]{byKey: make(map[string][]*registration[*protos.ActivityResponse])},
+		workflows:  newRegistry[*protos.WorkflowResponse](),
+		activities: newRegistry[*protos.ActivityResponse](),
 	}
 }
 
@@ -58,7 +58,11 @@ func (be *TasksBackend) OnWorkflowTaskCompletion(request *protos.WorkflowRequest
 	return be.workflows.add(request.GetInstanceId(), onResult)
 }
 
-type registration[R any] struct {
+type completion interface {
+	GetCompletionToken() string
+}
+
+type registration[R completion] struct {
 	onResult func(R, error)
 }
 
@@ -67,9 +71,13 @@ type registration[R any] struct {
 // dispatch), so a delivery reaches all of them and each execution's arbiter
 // settles on its own response. Keeping only the latest would strand the
 // others until their context ends.
-type registry[R any] struct {
+type registry[R completion] struct {
 	lock  sync.Mutex
 	byKey map[string][]*registration[R]
+}
+
+func newRegistry[R completion]() registry[R] {
+	return registry[R]{byKey: make(map[string][]*registration[R])}
 }
 
 func (r *registry[R]) add(key string, onResult func(R, error)) func() {
@@ -92,11 +100,18 @@ func (r *registry[R]) add(key string, onResult func(R, error)) func() {
 }
 
 // deliver runs every registered callback for key outside the lock, since a
-// callback settling its execution calls back into the deregister closure.
+// callback settling its execution calls back into the deregister closure. A
+// response without a completion token cannot be matched to one of several
+// pending executions, so they are all cancelled instead.
 func (r *registry[R]) deliver(key string, res R, err error) bool {
 	r.lock.Lock()
 	regs := slices.Clone(r.byKey[key])
 	r.lock.Unlock()
+
+	if err == nil && len(regs) > 1 && res.GetCompletionToken() == "" {
+		var zero R
+		res, err = zero, api.ErrTaskCancelled
+	}
 
 	for _, reg := range regs {
 		reg.onResult(res, err)
