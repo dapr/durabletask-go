@@ -119,6 +119,33 @@ func evSuspended() *protos.HistoryEvent {
 	}
 }
 
+func evTimerFired(id int32) *protos.HistoryEvent {
+	return &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_TimerFired{
+			TimerFired: &protos.TimerFiredEvent{TimerId: id, FireAt: timestamppb.Now()},
+		},
+	}
+}
+
+// evRetryTimerCreated is the TimerCreated event the backend records for a retry backoff timer
+// action, as emitted by both the Await-driven retry design and the pollable one.
+func evRetryTimerCreated(id int32, execID string) *protos.HistoryEvent {
+	return &protos.HistoryEvent{
+		EventId:   id,
+		Timestamp: timestamppb.Now(),
+		EventType: &protos.HistoryEvent_TimerCreated{
+			TimerCreated: &protos.TimerCreatedEvent{
+				FireAt: timestamppb.Now(),
+				Origin: &protos.TimerCreatedEvent_ActivityRetry{
+					ActivityRetry: &protos.TimerOriginActivityRetry{TaskExecutionId: execID},
+				},
+			},
+		},
+	}
+}
+
 func evResumed() *protos.HistoryEvent {
 	return &protos.HistoryEvent{
 		EventId:   -1,
@@ -207,10 +234,9 @@ func Test_RetryPolicy_TimerSequenceIdMatchesAwaitObservationPoint(t *testing.T) 
 			return nil, err
 		}
 		c := ctx.CallActivity("C") // id 2: scheduled before A's failure is ever observed
-		if err := a.Await(nil); err != nil && !errors.Is(err, ErrTaskBlocked) {
-			// A's retry timer is armed here, once Await actually polls A -- this call blocks
-			// (processNextEvent runs out of history) rather than returning an error.
-		}
+		// A's retry timer is armed here, once Await actually polls A. The call then blocks by
+		// panicking with ErrTaskBlocked (history has run out), so nothing after it runs.
+		_ = a.Await(nil)
 		return nil, c.Await(nil)
 	}))
 	require.NoError(t, r.AddActivityN("A", func(ActivityContext) (any, error) { return nil, nil }))
@@ -278,6 +304,130 @@ func Test_RetryPolicy_SecondAwaitDoesNotReRunChain(t *testing.T) {
 		"Handle declined the only attempt; no backoff timer may ever be armed, including on the second Await")
 	assert.Equal(t, 1, handleCalls, "policy.Handle must run exactly once, for the one real failure, not again on the second Await")
 	assert.Empty(t, cl.warns)
+}
+
+// Test_RetryPolicy_TaskExecutionIdReflectsFailedAttempt pins the TaskExecutionId contract of a
+// retry-configured task: it is the id recorded on the most recently observed failed attempt, and
+// empty while no attempt has failed. The Await-driven design delegated to the first attempt, which
+// only ever learned its id from a TaskFailed event, so this is what callers saw before retries
+// became pollable.
+func Test_RetryPolicy_TaskExecutionIdReflectsFailedAttempt(t *testing.T) {
+	policy := func(maxAttempts int) *RetryPolicy {
+		return &RetryPolicy{MaxAttempts: maxAttempts, InitialRetryInterval: time.Second, BackoffCoefficient: 2}
+	}
+	awaitThenReport := func(maxAttempts int) func(ctx *WorkflowContext) (any, error) {
+		return func(ctx *WorkflowContext) (any, error) {
+			a := ctx.CallActivity("A", WithActivityRetryPolicy(policy(maxAttempts)))
+			_ = a.Await(nil)
+			return a.TaskExecutionId(), nil
+		}
+	}
+
+	for name, tc := range map[string]struct {
+		wf      func(ctx *WorkflowContext) (any, error)
+		history []*protos.HistoryEvent
+		want    string
+	}{
+		"retried then succeeded": {
+			wf: awaitThenReport(3),
+			history: []*protos.HistoryEvent{
+				evTaskScheduled(0, "A"), evTaskFailed(0, "exec-1"), evRetryTimerCreated(1, "exec-1"),
+				evTimerFired(1), evTaskScheduled(2, "A"), evTaskCompleted(2, `null`),
+			},
+			want: `"exec-1"`,
+		},
+		"retries exhausted": {
+			wf: awaitThenReport(2),
+			history: []*protos.HistoryEvent{
+				evTaskScheduled(0, "A"), evTaskFailed(0, "exec-1"), evRetryTimerCreated(1, "exec-1"),
+				evTimerFired(1), evTaskScheduled(2, "A"), evTaskFailed(2, "exec-1"),
+			},
+			want: `"exec-1"`,
+		},
+		"first attempt succeeded": {
+			wf:      awaitThenReport(3),
+			history: []*protos.HistoryEvent{evTaskScheduled(0, "A"), evTaskCompleted(0, `null`)},
+			want:    `""`,
+		},
+		"observed through Select": {
+			wf: func(ctx *WorkflowContext) (any, error) {
+				a := ctx.CallActivity("A", WithActivityRetryPolicy(policy(3)))
+				b := ctx.CallActivity("B")
+				if i, err := ctx.Select(a, b); err != nil || i != 0 {
+					return nil, fmt.Errorf("expected A (index 0) to win, got %d, %v", i, err)
+				}
+				return a.TaskExecutionId(), nil
+			},
+			history: []*protos.HistoryEvent{
+				evTaskScheduled(0, "A"), evTaskScheduled(1, "B"), evTaskFailed(0, "exec-1"),
+				evRetryTimerCreated(2, "exec-1"), evTimerFired(2), evTaskScheduled(3, "A"), evTaskCompleted(3, `null`),
+			},
+			want: `"exec-1"`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := NewTaskRegistry()
+			require.NoError(t, r.AddWorkflowN("wf", tc.wf))
+			require.NoError(t, r.AddActivityN("A", func(ActivityContext) (any, error) { return nil, nil }))
+			require.NoError(t, r.AddActivityN("B", func(ActivityContext) (any, error) { return nil, nil }))
+
+			actions, cl := runBuffered(t, r, nil, append([]*protos.HistoryEvent{evExecutionStarted("wf")}, tc.history...))
+
+			co := completeAction(t, actions)
+			require.NotNil(t, co)
+			require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus, co.GetFailureDetails().GetErrorMessage())
+			assert.Equal(t, tc.want, co.GetResult().GetValue())
+			assert.Empty(t, cl.warns)
+		})
+	}
+}
+
+// Test_RetryPolicy_CanceledAttemptPropagatesCancel guards a latent path: nothing cancels an
+// activity or child task today, but a canceled attempt has nil failureDetails, so if the chain
+// gave up with outer.fail(nil) the caller would see a nil-error success. The attempt is canceled
+// directly on the pending task here, since no history event can do it.
+func Test_RetryPolicy_CanceledAttemptPropagatesCancel(t *testing.T) {
+	t.Run("give up surfaces ErrTaskCanceled", func(t *testing.T) {
+		r := NewTaskRegistry()
+		require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+			a := ctx.CallActivity("A", WithActivityRetryPolicy(&RetryPolicy{MaxAttempts: 1, InitialRetryInterval: time.Second}))
+			ctx.pendingTasks[0].cancel()
+			err := a.Await(nil)
+			return errors.Is(err, ErrTaskCanceled), nil
+		}))
+		require.NoError(t, r.AddActivityN("A", func(ActivityContext) (any, error) { return nil, nil }))
+
+		actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{evExecutionStarted("wf")})
+
+		co := completeAction(t, actions)
+		require.NotNil(t, co)
+		assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
+		assert.Equal(t, `true`, co.GetResult().GetValue(), "Await must return ErrTaskCanceled, not nil")
+		assert.Empty(t, cl.warns)
+	})
+
+	t.Run("retries remaining consults Handle with ErrTaskCanceled", func(t *testing.T) {
+		r := NewTaskRegistry()
+		var handled error
+		require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+			a := ctx.CallActivity("A", WithActivityRetryPolicy(&RetryPolicy{
+				MaxAttempts:          3,
+				InitialRetryInterval: time.Second,
+				BackoffCoefficient:   2,
+				Handle:               func(err error) bool { handled = err; return true },
+			}))
+			ctx.pendingTasks[0].cancel()
+			return nil, a.Await(nil)
+		}))
+		require.NoError(t, r.AddActivityN("A", func(ActivityContext) (any, error) { return nil, nil }))
+
+		actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{evExecutionStarted("wf")})
+
+		assert.Nil(t, completeAction(t, actions), "the workflow must block on the backoff timer")
+		assert.ErrorIs(t, handled, ErrTaskCanceled)
+		assert.Equal(t, 1, countActions(actions, func(a *protos.WorkflowAction) bool { return a.GetCreateTimer() != nil }))
+		assert.Empty(t, cl.warns)
+	})
 }
 
 // Test_Select_PollsEveryCandidateRegardlessOfWinner is a regression test: Select must poll every

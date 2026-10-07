@@ -77,9 +77,25 @@ func (w *WorkflowContext) CreateTimer(delay time.Duration, opts ...CreateTimerOp
 
 // WaitForExternalEvent creates a task that is completed only after an event
 // named [eventName] is received by this workflow or when the specified timeout
-// expires. See [task.WorkflowContext.WaitForSingleEvent] for the full behavior,
-// including how a losing [WorkflowContext.Select] candidate must be carried
-// forward rather than discarded. Note that event names are case-insensitive.
+// expires.
+//
+// The [timeout] parameter can be used to define a timeout for receiving the
+// event. If the timeout expires before the named event is received, the task
+// will be completed and will return a timeout error value [ErrTaskCanceled]
+// when awaited. Otherwise, the awaited task will return the deserialized
+// payload of the received event. A Duration value of zero returns a canceled
+// task if the event isn't already available in the history. Use a negative
+// Duration to wait indefinitely for the event to be received.
+//
+// Workflows can wait for the same event name multiple times, so waiting for
+// multiple events with the same name is allowed. Each event received by an
+// workflow will complete just one task returned by this method.
+//
+// A task returned by this method that loses a [WorkflowContext.Select] stays
+// queued for its event name and must be carried forward into the next Select
+// rather than discarded; see [task.WorkflowContext.WaitForSingleEvent] for why.
+//
+// Note that event names are case-insensitive.
 func (w *WorkflowContext) WaitForExternalEvent(eventName string, timeout time.Duration) Task {
 	return w.oc.WaitForSingleEvent(eventName, timeout)
 }

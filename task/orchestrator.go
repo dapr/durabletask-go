@@ -398,7 +398,7 @@ func (ctx *WorkflowContext) CallActivity(activity interface{}, opts ...CallActiv
 	if options.retryPolicy != nil {
 		return ctx.internalScheduleTaskWithRetries(activityName+"-retry", ctx.CurrentTimeUtc, func(taskExecutionId string, _ bool) *completableTask {
 			return ctx.internalScheduleActivity(activityName, taskExecutionId, options)
-		}, *options.retryPolicy, 0, uuid.NewString(), func(a *protos.CreateTimerAction, execID string) {
+		}, *options.retryPolicy, func(a *protos.CreateTimerAction, execID string) {
 			a.Origin = &protos.CreateTimerAction_ActivityRetry{
 				ActivityRetry: &protos.TimerOriginActivityRetry{
 					TaskExecutionId: execID,
@@ -471,7 +471,7 @@ func (ctx *WorkflowContext) CallChildWorkflow(workflow interface{}, opts ...Chil
 				return ctx.internalCallChildWorkflow(workflowName, options, &firstInstanceID)
 			}
 			return ctx.internalCallChildWorkflow(workflowName, options, nil)
-		}, *options.retryPolicy, 0, uuid.NewString(), func(a *protos.CreateTimerAction, _ string) {
+		}, *options.retryPolicy, func(a *protos.CreateTimerAction, _ string) {
 			a.Origin = &protos.CreateTimerAction_ChildWorkflowRetry{
 				ChildWorkflowRetry: &protos.TimerOriginChildWorkflowRetry{
 					InstanceId: firstInstanceID,
@@ -527,11 +527,26 @@ func (ctx *WorkflowContext) internalCallChildWorkflow(workflowName string, optio
 // attempt retries, arming its backoff timer, scheduling the next attempt -- only when the returned
 // task is polled (by Await or Select), never as a side effect of history alone: an attempt nobody
 // observes stays failed and retries no further. A decode error from Await(v) on a successful
-// attempt is returned as-is and never triggers a retry.
-func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initialAttempt time.Time, schedule func(taskExecutionId string, isRetry bool) *completableTask, policy RetryPolicy, retryCount int, taskExecutionId string, setTimerOrigin func(*protos.CreateTimerAction, string)) Task {
+// attempt is returned as-is and never triggers a retry, and polling a chain that has already
+// completed or failed (a second Await, or a Select that still includes it) is a no-op that never
+// starts another chain. Both differ from the Await-driven design this replaced, and histories it
+// recorded in either state do not replay.
+func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initialAttempt time.Time, schedule func(taskExecutionId string, isRetry bool) *completableTask, policy RetryPolicy, setTimerOrigin func(*protos.CreateTimerAction, string)) Task {
 	outer := newTask(ctx)
-	current := schedule(taskExecutionId, retryCount > 0)
+	taskExecutionId := uuid.NewString()
+	current := schedule(taskExecutionId, false)
+	retryCount := 0
 	var timer *completableTask
+
+	// giveUp completes outer with the current attempt's terminal state. A canceled attempt has no
+	// failureDetails, so it must propagate as a cancellation rather than as a nil-error success.
+	giveUp := func() {
+		if current.isCanceled {
+			outer.cancel()
+			return
+		}
+		outer.fail(current.failureDetails)
+	}
 
 	outer.advance = func() {
 		if outer.isCompleted {
@@ -567,14 +582,15 @@ func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initial
 				outer.complete(current.rawResult)
 				return
 			}
+			outer.taskExecutionId = taskExecutionId
 
 			if retryCount+1 >= policy.MaxAttempts {
-				outer.fail(current.failureDetails)
+				giveUp()
 				return
 			}
 			nextDelay := computeNextDelay(ctx.CurrentTimeUtc, policy, retryCount, initialAttempt, err)
 			if nextDelay == 0 {
-				outer.fail(current.failureDetails)
+				giveUp()
 				return
 			}
 
