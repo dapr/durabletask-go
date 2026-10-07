@@ -93,3 +93,63 @@ func Test_concurrentExecutionsOfSameActivityAreAborted(t *testing.T) {
 
 	require.Error(t, be.CompleteActivityTask(ctx, &protos.ActivityResponse{InstanceId: "wf1", TaskId: 0}))
 }
+
+// When the newer of two executions of the same task ends first, the older must
+// still be cancelled when its stream disconnects or the executor shuts down.
+func Test_olderExecutionCancelledAfterNewerEnds(t *testing.T) {
+	for name, release := range map[string]func(backend.Executor, context.CancelFunc){
+		"stream disconnect": func(_ backend.Executor, closeStream context.CancelFunc) { closeStream() },
+		"shutdown": func(exec backend.Executor, closeStream context.CancelFunc) {
+			require.NoError(t, exec.Shutdown(t.Context()))
+			closeStream()
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			be := &tasksOnlyBackend{tasks: local.NewTasksBackend()}
+			exec, _ := backend.NewGrpcExecutor(be, backend.DefaultLogger())
+			server := exec.(protos.TaskHubSidecarServiceServer)
+
+			streamCtx, closeStream := context.WithCancel(t.Context())
+			defer closeStream()
+			stream := &workItemsStream{ctx: streamCtx, items: make(chan *protos.WorkItem, 2)}
+			go func() { _ = server.GetWorkItems(&protos.GetWorkItemsRequest{}, stream) }()
+
+			execute := func(ctx context.Context, errs chan<- error) {
+				_, err := exec.ExecuteActivity(ctx, api.InstanceID("wf1"), &protos.HistoryEvent{
+					EventType: &protos.HistoryEvent_TaskScheduled{TaskScheduled: &protos.TaskScheduledEvent{Name: "act"}},
+				}, backend.ExecuteOptions{})
+				errs <- err
+			}
+			dispatched := func() {
+				select {
+				case <-stream.items:
+				case <-time.After(5 * time.Second):
+					require.FailNow(t, "work item was not dispatched")
+				}
+			}
+
+			olderErr := make(chan error, 1)
+			go execute(t.Context(), olderErr)
+			dispatched()
+
+			newerCtx, cancelNewer := context.WithCancel(t.Context())
+			newerErr := make(chan error, 1)
+			go execute(newerCtx, newerErr)
+			dispatched()
+			cancelNewer()
+			select {
+			case <-newerErr:
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "newer execution did not end")
+			}
+
+			release(exec, closeStream)
+			select {
+			case err := <-olderErr:
+				require.EqualError(t, err, "operation aborted")
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "older execution was stranded")
+			}
+		})
+	}
+}
