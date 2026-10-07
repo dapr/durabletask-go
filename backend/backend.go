@@ -170,8 +170,8 @@ type Backend interface {
 // Completion registration contract for OnWorkflowTaskCompletion and
 // OnActivityCompletion: the callback runs on the goroutine that delivers the
 // completion or cancellation, with the response, or with
-// [api.ErrTaskCancelled] if the task was cancelled. Registering replaces any
-// pending callback for the same task.
+// [api.ErrTaskCancelled] if the task was cancelled. Every pending callback for
+// the same task receives each delivery.
 //
 // A registration is removed ONLY by the returned deregister closure, never by
 // delivering to the callback: the executor discards stale-token deliveries

@@ -2,8 +2,11 @@ package local_test
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/dapr/durabletask-go/api"
@@ -125,4 +128,98 @@ func Test_OnWorkflowTaskCompletion_Deregister(t *testing.T) {
 
 	require.Error(t, be.CompleteWorkflowTask(context.Background(), &protos.WorkflowResponse{InstanceId: "abc"}))
 	require.Zero(t, calls)
+}
+
+func Test_OnActivityCompletion_ConcurrentRegistrations(t *testing.T) {
+	be := local.NewTasksBackend()
+
+	var firstCalls, secondCalls int
+	var firstErr, secondErr error
+	dereg1 := be.OnActivityCompletion(activityRequest("abc", 1), func(_ *protos.ActivityResponse, err error) {
+		firstCalls++
+		firstErr = err
+	})
+	dereg2 := be.OnActivityCompletion(activityRequest("abc", 1), func(_ *protos.ActivityResponse, err error) {
+		secondCalls++
+		secondErr = err
+	})
+
+	resp := &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}
+	require.NoError(t, be.CompleteActivityTask(context.Background(), resp))
+	require.Equal(t, 1, firstCalls)
+	require.Equal(t, 1, secondCalls)
+	require.NoError(t, firstErr)
+	require.NoError(t, secondErr)
+
+	require.NoError(t, be.CancelActivityTask(context.Background(), api.InstanceID("abc"), 1))
+	require.Equal(t, 2, firstCalls)
+	require.Equal(t, 2, secondCalls)
+	require.ErrorIs(t, firstErr, api.ErrTaskCancelled)
+	require.ErrorIs(t, secondErr, api.ErrTaskCancelled)
+
+	dereg2()
+	require.NoError(t, be.CompleteActivityTask(context.Background(), resp))
+	require.Equal(t, 3, firstCalls)
+	require.Equal(t, 2, secondCalls)
+
+	dereg1()
+	require.Error(t, be.CompleteActivityTask(context.Background(), resp))
+	require.Equal(t, 3, firstCalls)
+}
+
+func Test_OnWorkflowTaskCompletion_ConcurrentRegistrations(t *testing.T) {
+	be := local.NewTasksBackend()
+
+	var firstCalls, secondCalls int
+	dereg1 := be.OnWorkflowTaskCompletion(&protos.WorkflowRequest{InstanceId: "abc"}, func(*protos.WorkflowResponse, error) {
+		firstCalls++
+	})
+	dereg2 := be.OnWorkflowTaskCompletion(&protos.WorkflowRequest{InstanceId: "abc"}, func(*protos.WorkflowResponse, error) {
+		secondCalls++
+	})
+
+	require.NoError(t, be.CancelWorkflowTask(context.Background(), api.InstanceID("abc")))
+	require.Equal(t, 1, firstCalls)
+	require.Equal(t, 1, secondCalls)
+
+	dereg1()
+	require.NoError(t, be.CompleteWorkflowTask(context.Background(), &protos.WorkflowResponse{InstanceId: "abc"}))
+	require.Equal(t, 1, firstCalls)
+	require.Equal(t, 2, secondCalls)
+
+	dereg2()
+	require.Error(t, be.CompleteWorkflowTask(context.Background(), &protos.WorkflowResponse{InstanceId: "abc"}))
+}
+
+func Test_OnActivityCompletion_DeregisterFromCallback(t *testing.T) {
+	be := local.NewTasksBackend()
+
+	var dereg1, dereg2 func()
+	dereg1 = be.OnActivityCompletion(activityRequest("abc", 1), func(*protos.ActivityResponse, error) { dereg1() })
+	dereg2 = be.OnActivityCompletion(activityRequest("abc", 1), func(*protos.ActivityResponse, error) { dereg2() })
+
+	require.NoError(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
+	require.Error(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
+}
+
+func Test_OnActivityCompletion_ConcurrentUse(t *testing.T) {
+	be := local.NewTasksBackend()
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for range 200 {
+				var delivered atomic.Bool
+				dereg := be.OnActivityCompletion(activityRequest("abc", 1), func(*protos.ActivityResponse, error) {
+					delivered.Store(true)
+				})
+				_ = be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1})
+				assert.True(t, delivered.Load())
+				dereg()
+			}
+		})
+	}
+	wg.Wait()
+
+	require.Error(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
 }
