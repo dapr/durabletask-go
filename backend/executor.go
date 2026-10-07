@@ -127,7 +127,9 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 
 // ExecuteWorkflow implements Executor
 func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error) {
-	executor.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
+	tracked := &pendingWorkflow{instanceID: iid}
+	executor.pendingWorkflows.Store(iid, tracked)
+	defer executor.pendingWorkflows.CompareAndDelete(iid, tracked)
 
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
@@ -152,15 +154,13 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
+		_, _ = wait(ctx)
 		executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
 		return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", ctx.Err())
 	case executor.workItemQueue <- workItem:
 	}
 
 	resp, err := wait(ctx)
-
-	// this workflow is either completed or cancelled, but its no longer pending, delete it
-	executor.pendingWorkflows.Delete(iid)
 	if err != nil {
 		if errors.Is(err, api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
@@ -175,7 +175,9 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 // ExecuteActivity implements Executor
 func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error) {
 	key := GetActivityExecutionKey(string(iid), e.EventId)
-	executor.pendingActivities.Store(key, &pendingActivity{instanceID: iid, taskID: e.EventId})
+	tracked := &pendingActivity{instanceID: iid, taskID: e.EventId}
+	executor.pendingActivities.Store(key, tracked)
+	defer executor.pendingActivities.CompareAndDelete(key, tracked)
 
 	task := e.GetTaskScheduled()
 
@@ -204,15 +206,13 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
+		_, _ = wait(ctx)
 		executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
 		return nil, fmt.Errorf("context canceled before dispatching activity work item: %w", ctx.Err())
 	case executor.workItemQueue <- workItem:
 	}
 
 	resp, err := wait(ctx)
-
-	// this activity is either completed or cancelled, but its no longer pending, delete it
-	executor.pendingActivities.Delete(key)
 	if err != nil {
 		if errors.Is(err, api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
@@ -318,7 +318,7 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 				if err != nil {
 					g.logger.Warnf("failed to cancel activity task: %v", err)
 				}
-				g.pendingActivities.Delete(key)
+				g.pendingActivities.CompareAndDelete(key, value)
 			}
 			return true
 		})
