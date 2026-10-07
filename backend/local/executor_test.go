@@ -34,13 +34,17 @@ func (b *tasksOnlyBackend) WaitForActivityCompletion(req *protos.ActivityRequest
 
 type workItemsStream struct {
 	grpc.ServerStream
-	ctx   context.Context
-	items chan *protos.WorkItem
+	ctx     context.Context
+	items   chan *protos.WorkItem
+	sending chan *protos.WorkItem
 }
 
 func (s *workItemsStream) Context() context.Context { return s.ctx }
 
 func (s *workItemsStream) Send(wi *protos.WorkItem) error {
+	if s.sending != nil {
+		s.sending <- wi
+	}
 	select {
 	case s.items <- wi:
 		return nil
@@ -151,5 +155,74 @@ func Test_olderExecutionCancelledAfterNewerEnds(t *testing.T) {
 				require.FailNow(t, "older execution was stranded")
 			}
 		})
+	}
+}
+
+// An execution that has ended must not tie its stream to a later execution of
+// the same task on another stream.
+func Test_endedExecutionStreamDoesNotCancelNewerExecution(t *testing.T) {
+	be := &tasksOnlyBackend{tasks: local.NewTasksBackend()}
+	exec, _ := backend.NewGrpcExecutor(be, backend.DefaultLogger())
+	server := exec.(protos.TaskHubSidecarServiceServer)
+
+	execute := func(ctx context.Context, taskID int32, errs chan<- error) {
+		_, err := exec.ExecuteActivity(ctx, api.InstanceID("wf1"), &protos.HistoryEvent{
+			EventId:   taskID,
+			EventType: &protos.HistoryEvent_TaskScheduled{TaskScheduled: &protos.TaskScheduledEvent{Name: "act"}},
+		}, backend.ExecuteOptions{})
+		errs <- err
+	}
+	receive := func(ch <-chan *protos.WorkItem) {
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "work item was not dispatched")
+		}
+	}
+
+	s1Ctx, closeS1 := context.WithCancel(t.Context())
+	defer closeS1()
+	s1 := &workItemsStream{ctx: s1Ctx, items: make(chan *protos.WorkItem), sending: make(chan *protos.WorkItem, 2)}
+	go func() { _ = server.GetWorkItems(&protos.GetWorkItemsRequest{}, s1) }()
+
+	olderCtx, cancelOlder := context.WithCancel(t.Context())
+	olderErr := make(chan error, 1)
+	go execute(olderCtx, 0, olderErr)
+	receive(s1.items)
+
+	// Keep s1 busy so the next execution goes to s2.
+	go execute(t.Context(), 1, make(chan error, 1))
+	receive(s1.sending)
+	receive(s1.sending)
+
+	s2Ctx, closeS2 := context.WithCancel(t.Context())
+	defer closeS2()
+	s2 := &workItemsStream{ctx: s2Ctx, items: make(chan *protos.WorkItem, 1)}
+	go func() { _ = server.GetWorkItems(&protos.GetWorkItemsRequest{}, s2) }()
+
+	newerErr := make(chan error, 1)
+	go execute(t.Context(), 0, newerErr)
+	receive(s2.items)
+
+	cancelOlder()
+	select {
+	case <-olderErr:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "older execution did not end")
+	}
+
+	closeS1()
+	select {
+	case err := <-newerErr:
+		require.FailNow(t, "newer execution was cancelled by another stream", "%v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	require.NoError(t, be.CompleteActivityTask(t.Context(), &protos.ActivityResponse{InstanceId: "wf1", TaskId: 0, Result: wrapperspb.String("x")}))
+	select {
+	case err := <-newerErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "newer execution did not complete")
 	}
 }

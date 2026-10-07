@@ -11,6 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+
 package backend
 
 import (
@@ -19,40 +20,30 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/dapr/durabletask-go/api"
+	"github.com/dapr/durabletask-go/api/protos"
 )
 
-func Test_pendingTasksKeepsKeyUntilLastExecutionEnds(t *testing.T) {
+func Test_pendingTasksTracksEachExecution(t *testing.T) {
 	p := newPendingTasks()
-	doneOlder := p.add("k", api.InstanceID("wf1"), 3)
-	doneNewer := p.add("k", api.InstanceID("wf1"), 3)
-	p.dispatched("k", "s1")
-
-	doneNewer()
-	doneNewer()
-	require.Equal(t, []pendingTask{{instanceID: "wf1", taskID: 3}}, p.all())
-
-	require.Len(t, p.onStream("s1"), 1)
-	assert.Empty(t, p.onStream("s1"))
-	require.Len(t, p.all(), 1)
+	older, newer := &protos.WorkItem{}, &protos.WorkItem{}
+	doneOlder := p.add(older, api.InstanceID("wf1"), 3)
+	doneNewer := p.add(newer, api.InstanceID("wf1"), 3)
+	p.dispatched(older, "s1")
+	p.dispatched(newer, "s2")
+	assert.Equal(t, []pendingTask{{instanceID: "wf1", taskID: 3}}, p.all())
 
 	doneOlder()
-	assert.Empty(t, p.all())
-	p.dispatched("k", "s1")
 	assert.Empty(t, p.onStream("s1"))
-}
+	assert.Equal(t, []pendingTask{{instanceID: "wf1", taskID: 3}}, p.onStream("s2"))
+	assert.Empty(t, p.onStream("s2"))
+	assert.Len(t, p.all(), 1)
 
-func Test_pendingTasksOnStreamMatchesOnlyThatStream(t *testing.T) {
-	p := newPendingTasks()
-	defer p.add("a", api.InstanceID("a"), 0)()
-	defer p.add("b", api.InstanceID("b"), 0)()
-	p.dispatched("a", "s1")
-	p.dispatched("b", "s2")
-
-	assert.Equal(t, []pendingTask{{instanceID: "a"}}, p.onStream("s1"))
-	assert.Equal(t, []pendingTask{{instanceID: "b"}}, p.onStream("s2"))
+	doneNewer()
+	assert.Empty(t, p.all())
+	p.dispatched(newer, "s2")
+	assert.Empty(t, p.onStream("s2"))
 }
 
 func Test_pendingTasksConcurrentUse(t *testing.T) {
@@ -64,8 +55,9 @@ func Test_pendingTasksConcurrentUse(t *testing.T) {
 			defer wg.Done()
 			stream := strconv.Itoa(i % 2)
 			for range 200 {
-				done := p.add("k", api.InstanceID("wf1"), 0)
-				p.dispatched("k", stream)
+				wi := &protos.WorkItem{}
+				done := p.add(wi, api.InstanceID("wf1"), 0)
+				p.dispatched(wi, stream)
 				p.onStream(stream)
 				p.all()
 				done()

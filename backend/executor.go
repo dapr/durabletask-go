@@ -115,8 +115,6 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 
 // ExecuteWorkflow implements Executor
 func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error) {
-	defer executor.pendingWorkflows.add(string(iid), iid, 0)()
-
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
 		ExecutionId:       executionID(oldEvents, newEvents),
@@ -130,6 +128,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 			WorkflowRequest: req,
 		},
 	}
+	defer executor.pendingWorkflows.add(workItem, iid, 0)()
 
 	wait := executor.backend.WaitForWorkflowTaskCompletion(req)
 
@@ -160,9 +159,6 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 
 // ExecuteActivity implements Executor
 func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error) {
-	key := GetActivityExecutionKey(string(iid), e.EventId)
-	defer executor.pendingActivities.add(key, iid, e.EventId)()
-
 	task := e.GetTaskScheduled()
 
 	req := &protos.ActivityRequest{
@@ -180,6 +176,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 			ActivityRequest: req,
 		},
 	}
+	defer executor.pendingActivities.add(workItem, iid, e.EventId)()
 
 	wait := executor.backend.WaitForActivityCompletion(req)
 
@@ -330,12 +327,11 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 				continue
 			}
 
-			switch x := wi.Request.(type) {
+			switch wi.Request.(type) {
 			case *protos.WorkItem_WorkflowRequest:
-				g.pendingWorkflows.dispatched(x.WorkflowRequest.GetInstanceId(), streamID)
+				g.pendingWorkflows.dispatched(wi, streamID)
 			case *protos.WorkItem_ActivityRequest:
-				key := GetActivityExecutionKey(x.ActivityRequest.GetWorkflowInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
-				g.pendingActivities.dispatched(key, streamID)
+				g.pendingActivities.dispatched(wi, streamID)
 			}
 
 			if err := g.sendWorkItem(stream, wi, ch, errCh); err != nil {

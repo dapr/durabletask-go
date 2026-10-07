@@ -11,84 +11,86 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+
 package backend
 
 import (
 	"sync"
 
 	"github.com/dapr/durabletask-go/api"
+	"github.com/dapr/durabletask-go/api/protos"
 )
 
-// pendingTasks tracks the executions pending per task key. Cancellation is
-// per key and reaches every execution of the task, so a key stays tracked
-// until its last execution ends.
+// pendingTasks tracks every pending execution by the work item it sends, so
+// several executions of the same task are each tracked on their own stream.
 type pendingTasks struct {
-	lock  sync.Mutex
-	byKey map[string]*pendingTask
+	lock       sync.Mutex
+	executions map[*protos.WorkItem]*execution
 }
 
 type pendingTask struct {
 	instanceID api.InstanceID
 	taskID     int32
-	executions int
-	streams    map[string]struct{}
+}
+
+type execution struct {
+	task     pendingTask
+	streamID string
 }
 
 func newPendingTasks() *pendingTasks {
-	return &pendingTasks{byKey: make(map[string]*pendingTask)}
+	return &pendingTasks{executions: make(map[*protos.WorkItem]*execution)}
 }
 
-func (p *pendingTasks) add(key string, iid api.InstanceID, taskID int32) func() {
+func (p *pendingTasks) add(wi *protos.WorkItem, iid api.InstanceID, taskID int32) func() {
 	p.lock.Lock()
-	t, ok := p.byKey[key]
-	if !ok {
-		t = &pendingTask{instanceID: iid, taskID: taskID, streams: make(map[string]struct{})}
-		p.byKey[key] = t
-	}
-	t.executions++
+	p.executions[wi] = &execution{task: pendingTask{instanceID: iid, taskID: taskID}}
 	p.lock.Unlock()
 
-	var once sync.Once
 	return func() {
-		once.Do(func() {
-			p.lock.Lock()
-			defer p.lock.Unlock()
-			if t.executions--; t.executions == 0 && p.byKey[key] == t {
-				delete(p.byKey, key)
-			}
-		})
+		p.lock.Lock()
+		delete(p.executions, wi)
+		p.lock.Unlock()
 	}
 }
 
-func (p *pendingTasks) dispatched(key, streamID string) {
+func (p *pendingTasks) dispatched(wi *protos.WorkItem, streamID string) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	if t, ok := p.byKey[key]; ok {
-		t.streams[streamID] = struct{}{}
+	if e, ok := p.executions[wi]; ok {
+		e.streamID = streamID
 	}
 }
 
-// onStream returns the tasks with a work item sent on streamID and forgets
+// onStream returns the tasks with an execution sent on streamID and forgets
 // that stream for them.
 func (p *pendingTasks) onStream(streamID string) []pendingTask {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	var tasks []pendingTask
-	for _, t := range p.byKey {
-		if _, ok := t.streams[streamID]; ok {
-			delete(t.streams, streamID)
-			tasks = append(tasks, pendingTask{instanceID: t.instanceID, taskID: t.taskID})
+	tasks := make(map[pendingTask]struct{})
+	for _, e := range p.executions {
+		if e.streamID == streamID {
+			e.streamID = ""
+			tasks[e.task] = struct{}{}
 		}
 	}
-	return tasks
+	return keys(tasks)
 }
 
 func (p *pendingTasks) all() []pendingTask {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	tasks := make([]pendingTask, 0, len(p.byKey))
-	for _, t := range p.byKey {
-		tasks = append(tasks, pendingTask{instanceID: t.instanceID, taskID: t.taskID})
+	tasks := make(map[pendingTask]struct{})
+	for _, e := range p.executions {
+		tasks[e.task] = struct{}{}
 	}
-	return tasks
+	return keys(tasks)
+}
+
+func keys(tasks map[pendingTask]struct{}) []pendingTask {
+	out := make([]pendingTask, 0, len(tasks))
+	for t := range tasks {
+		out = append(out, t)
+	}
+	return out
 }
