@@ -127,3 +127,18 @@ func Test_WaitForActivityCompletion_NoWaiterIsStranded(t *testing.T) {
 		require.FailNow(t, "a waiter was stranded")
 	}
 }
+
+func Test_WaitForActivityCompletion_DeliveredBeforeContextEnd(t *testing.T) {
+	be := local.NewTasksBackend()
+	for range 200 {
+		ctx, cancel := context.WithCancel(t.Context())
+		wait := be.WaitForActivityCompletion(activityRequest("abc", 1))
+		resp := &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}
+		require.NoError(t, be.CompleteActivityTask(t.Context(), resp))
+		cancel()
+
+		got, err := wait(ctx)
+		require.NoError(t, err)
+		require.Same(t, resp, got)
+	}
+}

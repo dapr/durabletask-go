@@ -103,7 +103,11 @@ func (r *registry[R]) wait(key string) func(context.Context) (R, error) {
 	return func(ctx context.Context) (R, error) {
 		select {
 		case <-ctx.Done():
-			r.remove(key, w)
+			if !r.remove(key, w) {
+				// A delivery already took this waiter.
+				<-w.complete
+				return w.response, w.err
+			}
 			var zero R
 			return zero, ctx.Err()
 		case <-w.complete:
@@ -112,15 +116,19 @@ func (r *registry[R]) wait(key string) func(context.Context) (R, error) {
 	}
 }
 
-func (r *registry[R]) remove(key string, w *waiter[R]) {
+func (r *registry[R]) remove(key string, w *waiter[R]) bool {
 	r.lock.Lock()
 	defer r.lock.Unlock()
+	if !slices.Contains(r.byKey[key], w) {
+		return false
+	}
 	waiters := slices.DeleteFunc(r.byKey[key], func(c *waiter[R]) bool { return c == w })
 	if len(waiters) == 0 {
 		delete(r.byKey, key)
 	} else {
 		r.byKey[key] = waiters
 	}
+	return true
 }
 
 // deliver completes every waiter for key. A nil response is a cancellation.
