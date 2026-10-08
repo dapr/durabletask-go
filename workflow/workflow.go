@@ -91,9 +91,26 @@ func (w *WorkflowContext) CreateTimer(delay time.Duration, opts ...CreateTimerOp
 // multiple events with the same name is allowed. Each event received by an
 // workflow will complete just one task returned by this method.
 //
+// A task returned by this method that loses a [WorkflowContext.Select] stays
+// queued for its event name and must be carried forward into the next Select
+// rather than discarded; see [task.WorkflowContext.WaitForSingleEvent] for why.
+//
 // Note that event names are case-insensitive.
 func (w *WorkflowContext) WaitForExternalEvent(eventName string, timeout time.Duration) Task {
 	return w.oc.WaitForSingleEvent(eventName, timeout)
+}
+
+// Select blocks until the first of the given [tasks] completes and returns its index. Once Select
+// returns, callers should call Await on the task at the returned index to obtain its result or
+// error; the remaining tasks are left pending and may still be selected or awaited later. See
+// [task.WorkflowContext.Select] for the full behavior, including its tie-break rule, validation
+// errors, and [task.ErrTaskBlocked] panic semantics.
+func (w *WorkflowContext) Select(tasks ...Task) (int, error) {
+	otasks := make([]task.Task, len(tasks))
+	for i, t := range tasks {
+		otasks[i] = t
+	}
+	return w.oc.Select(otasks...)
 }
 
 func (w *WorkflowContext) ContinueAsNew(newInput any, options ...ContinueAsNewOption) {
