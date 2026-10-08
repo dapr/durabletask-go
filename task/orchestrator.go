@@ -574,8 +574,13 @@ func (ctx *WorkflowContext) internalScheduleTaskWithRetries(name string, initial
 
 			// TaskExecutionId reflects what's recorded on this attempt's TaskScheduled/
 			// TaskCompleted/TaskFailed history events, which is what must be threaded into the
-			// next attempt and its backoff timer's origin so replay stays deterministic.
-			taskExecutionId = current.TaskExecutionId()
+			// next attempt and its backoff timer's origin so replay stays deterministic. A
+			// canceled attempt has no execution id of its own (nothing cancels activity/child
+			// tasks today, so this is currently unreachable, but cancellation must not erase the
+			// chain's carried id for whichever future attempt comes next).
+			if id := current.TaskExecutionId(); id != "" {
+				taskExecutionId = id
+			}
 
 			err := current.completionError()
 			if err == nil {

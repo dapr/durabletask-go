@@ -425,7 +425,15 @@ func Test_RetryPolicy_CanceledAttemptPropagatesCancel(t *testing.T) {
 
 		assert.Nil(t, completeAction(t, actions), "the workflow must block on the backoff timer")
 		assert.ErrorIs(t, handled, ErrTaskCanceled)
+		var timerExecID string
+		for _, act := range actions {
+			if ct := act.GetCreateTimer(); ct != nil {
+				timerExecID = ct.GetActivityRetry().GetTaskExecutionId()
+			}
+		}
 		assert.Equal(t, 1, countActions(actions, func(a *protos.WorkflowAction) bool { return a.GetCreateTimer() != nil }))
+		assert.NotEmpty(t, timerExecID,
+			"a canceled attempt has no execution id of its own; the retry timer must still carry the chain's real id, not overwrite it with an empty one")
 		assert.Empty(t, cl.warns)
 	})
 }
