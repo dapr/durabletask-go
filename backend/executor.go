@@ -128,7 +128,9 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 			WorkflowRequest: req,
 		},
 	}
-	defer executor.pendingWorkflows.add(workItem, iid, 0)()
+	waitCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	defer executor.pendingWorkflows.add(workItem, iid, 0, func() { cancel(api.ErrTaskCancelled) })()
 
 	wait := executor.backend.WaitForWorkflowTaskCompletion(req)
 
@@ -145,9 +147,9 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 	case executor.workItemQueue <- workItem:
 	}
 
-	resp, err := wait(ctx)
+	resp, err := wait(waitCtx)
 	if err != nil {
-		if errors.Is(err, api.ErrTaskCancelled) {
+		if errors.Is(err, api.ErrTaskCancelled) || errors.Is(context.Cause(waitCtx), api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
 		}
 		executor.logger.Warnf("%s: failed before receiving workflow result", iid)
@@ -176,7 +178,9 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 			ActivityRequest: req,
 		},
 	}
-	defer executor.pendingActivities.add(workItem, iid, e.EventId)()
+	waitCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	defer executor.pendingActivities.add(workItem, iid, e.EventId, func() { cancel(api.ErrTaskCancelled) })()
 
 	wait := executor.backend.WaitForActivityCompletion(req)
 
@@ -193,9 +197,9 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 	case executor.workItemQueue <- workItem:
 	}
 
-	resp, err := wait(ctx)
+	resp, err := wait(waitCtx)
 	if err != nil {
-		if errors.Is(err, api.ErrTaskCancelled) {
+		if errors.Is(err, api.ErrTaskCancelled) || errors.Is(context.Cause(waitCtx), api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
 		}
 		executor.logger.Warnf("%s/%s#%d: failed before receiving activity result", iid, task.Name, e.EventId)
@@ -284,19 +288,11 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 
 	defer func() {
 		// If there's any pending activity left, remove them
-		for _, p := range g.pendingActivities.onStream(streamID) {
-			g.logger.Debugf("cleaning up pending activity: %s", GetActivityExecutionKey(string(p.instanceID), p.taskID))
-			err := g.backend.CancelActivityTask(context.Background(), p.instanceID, p.taskID)
-			if err != nil {
-				g.logger.Warnf("failed to cancel activity task: %v", err)
-			}
+		for _, cancel := range g.pendingActivities.onStream(streamID) {
+			cancel()
 		}
-		for _, p := range g.pendingWorkflows.onStream(streamID) {
-			g.logger.Debugf("cleaning up pending workflow: %s", p.instanceID)
-			err := g.backend.CancelWorkflowTask(context.Background(), p.instanceID)
-			if err != nil {
-				g.logger.Warnf("failed to cancel workflow task: %v", err)
-			}
+		for _, cancel := range g.pendingWorkflows.onStream(streamID) {
+			cancel()
 		}
 		if err := g.executeOnWorkItemDisconnect(stream.Context()); err != nil {
 			g.logger.Warnf("error while disconnecting work item stream: %v", err)

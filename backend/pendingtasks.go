@@ -11,7 +11,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-
 package backend
 
 import (
@@ -36,15 +35,16 @@ type pendingTask struct {
 type execution struct {
 	task     pendingTask
 	streamID string
+	cancel   func()
 }
 
 func newPendingTasks() *pendingTasks {
 	return &pendingTasks{executions: make(map[*protos.WorkItem]*execution)}
 }
 
-func (p *pendingTasks) add(wi *protos.WorkItem, iid api.InstanceID, taskID int32) func() {
+func (p *pendingTasks) add(wi *protos.WorkItem, iid api.InstanceID, taskID int32, cancel func()) func() {
 	p.lock.Lock()
-	p.executions[wi] = &execution{task: pendingTask{instanceID: iid, taskID: taskID}}
+	p.executions[wi] = &execution{task: pendingTask{instanceID: iid, taskID: taskID}, cancel: cancel}
 	p.lock.Unlock()
 
 	return func() {
@@ -62,19 +62,17 @@ func (p *pendingTasks) dispatched(wi *protos.WorkItem, streamID string) {
 	}
 }
 
-// onStream returns the tasks with an execution sent on streamID and forgets
-// that stream for them.
-func (p *pendingTasks) onStream(streamID string) []pendingTask {
+// onStream returns the cancel funcs of the executions sent on streamID.
+func (p *pendingTasks) onStream(streamID string) []func() {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	tasks := make(map[pendingTask]struct{})
+	var cancels []func()
 	for _, e := range p.executions {
 		if e.streamID == streamID {
-			e.streamID = ""
-			tasks[e.task] = struct{}{}
+			cancels = append(cancels, e.cancel)
 		}
 	}
-	return keys(tasks)
+	return cancels
 }
 
 func (p *pendingTasks) all() []pendingTask {
@@ -84,10 +82,6 @@ func (p *pendingTasks) all() []pendingTask {
 	for _, e := range p.executions {
 		tasks[e.task] = struct{}{}
 	}
-	return keys(tasks)
-}
-
-func keys(tasks map[pendingTask]struct{}) []pendingTask {
 	out := make([]pendingTask, 0, len(tasks))
 	for t := range tasks {
 		out = append(out, t)

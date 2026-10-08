@@ -85,7 +85,7 @@ func Test_concurrentExecutionsOfSameActivityAreAborted(t *testing.T) {
 		}
 	}
 
-	require.NoError(t, be.CompleteActivityTask(ctx, &protos.ActivityResponse{InstanceId: "wf1", TaskId: 0, Result: wrapperspb.String("x")}))
+	require.ErrorIs(t, be.CompleteActivityTask(ctx, &protos.ActivityResponse{InstanceId: "wf1", TaskId: 0, Result: wrapperspb.String("x")}), local.ErrAmbiguousCompletion)
 	for range 2 {
 		select {
 		case err := <-errs:
@@ -158,9 +158,18 @@ func Test_olderExecutionCancelledAfterNewerEnds(t *testing.T) {
 	}
 }
 
-// An execution that has ended must not tie its stream to a later execution of
-// the same task on another stream.
-func Test_endedExecutionStreamDoesNotCancelNewerExecution(t *testing.T) {
+// Closing a stream aborts only the executions sent on it: a newer execution
+// of the same task on another stream keeps running, whether the older one is
+// still live or has already ended.
+func Test_streamCloseAbortsOnlyItsExecutions(t *testing.T) {
+	for name, olderEnds := range map[string]bool{"older live": false, "older ended": true} {
+		t.Run(name, func(t *testing.T) {
+			testStreamCloseAbortsOnlyItsExecutions(t, olderEnds)
+		})
+	}
+}
+
+func testStreamCloseAbortsOnlyItsExecutions(t *testing.T, olderEnds bool) {
 	be := &tasksOnlyBackend{tasks: local.NewTasksBackend()}
 	exec, _ := backend.NewGrpcExecutor(be, backend.DefaultLogger())
 	server := exec.(protos.TaskHubSidecarServiceServer)
@@ -186,6 +195,7 @@ func Test_endedExecutionStreamDoesNotCancelNewerExecution(t *testing.T) {
 	go func() { _ = server.GetWorkItems(&protos.GetWorkItemsRequest{}, s1) }()
 
 	olderCtx, cancelOlder := context.WithCancel(t.Context())
+	defer cancelOlder()
 	olderErr := make(chan error, 1)
 	go execute(olderCtx, 0, olderErr)
 	receive(s1.items)
@@ -204,14 +214,24 @@ func Test_endedExecutionStreamDoesNotCancelNewerExecution(t *testing.T) {
 	go execute(t.Context(), 0, newerErr)
 	receive(s2.items)
 
-	cancelOlder()
-	select {
-	case <-olderErr:
-	case <-time.After(5 * time.Second):
-		require.FailNow(t, "older execution did not end")
+	if olderEnds {
+		cancelOlder()
+		select {
+		case <-olderErr:
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "older execution did not end")
+		}
 	}
 
 	closeS1()
+	if !olderEnds {
+		select {
+		case err := <-olderErr:
+			require.EqualError(t, err, "operation aborted")
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "older execution was not aborted")
+		}
+	}
 	select {
 	case err := <-newerErr:
 		require.FailNow(t, "newer execution was cancelled by another stream", "%v", err)

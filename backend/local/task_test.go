@@ -71,7 +71,7 @@ func Test_WaitForActivityCompletion_ConcurrentWaitsAreCancelled(t *testing.T) {
 	first := waitAsync(t.Context(), be.WaitForActivityCompletion(activityRequest("abc", 1)))
 	second := waitAsync(t.Context(), be.WaitForActivityCompletion(activityRequest("abc", 1)))
 
-	require.NoError(t, be.CompleteActivityTask(t.Context(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
+	require.ErrorIs(t, be.CompleteActivityTask(t.Context(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}), local.ErrAmbiguousCompletion)
 	for _, ch := range []<-chan result[*protos.ActivityResponse]{first, second} {
 		r := requireResult(t, ch)
 		require.ErrorIs(t, r.err, api.ErrTaskCancelled)
@@ -86,7 +86,7 @@ func Test_WaitForWorkflowTaskCompletion_ConcurrentWaitsAreCancelled(t *testing.T
 	first := waitAsync(t.Context(), be.WaitForWorkflowTaskCompletion(&protos.WorkflowRequest{InstanceId: "abc"}))
 	second := waitAsync(t.Context(), be.WaitForWorkflowTaskCompletion(&protos.WorkflowRequest{InstanceId: "abc"}))
 
-	require.NoError(t, be.CompleteWorkflowTask(t.Context(), &protos.WorkflowResponse{InstanceId: "abc"}))
+	require.ErrorIs(t, be.CompleteWorkflowTask(t.Context(), &protos.WorkflowResponse{InstanceId: "abc"}), local.ErrAmbiguousCompletion)
 	require.ErrorIs(t, requireResult(t, first).err, api.ErrTaskCancelled)
 	require.ErrorIs(t, requireResult(t, second).err, api.ErrTaskCancelled)
 }
@@ -114,7 +114,7 @@ func Test_WaitForActivityCompletion_NoWaiterIsStranded(t *testing.T) {
 		wait := be.WaitForActivityCompletion(activityRequest("abc", 1))
 		wg.Go(func() { _, _ = wait(context.Background()) })
 	}
-	require.NoError(t, be.CompleteActivityTask(t.Context(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
+	require.ErrorIs(t, be.CompleteActivityTask(t.Context(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}), local.ErrAmbiguousCompletion)
 
 	done := make(chan struct{})
 	go func() {

@@ -11,7 +11,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-
 package backend
 
 import (
@@ -27,17 +26,22 @@ import (
 
 func Test_pendingTasksTracksEachExecution(t *testing.T) {
 	p := newPendingTasks()
+	var cancelled []string
 	older, newer := &protos.WorkItem{}, &protos.WorkItem{}
-	doneOlder := p.add(older, api.InstanceID("wf1"), 3)
-	doneNewer := p.add(newer, api.InstanceID("wf1"), 3)
+	doneOlder := p.add(older, api.InstanceID("wf1"), 3, func() { cancelled = append(cancelled, "older") })
+	doneNewer := p.add(newer, api.InstanceID("wf1"), 3, func() { cancelled = append(cancelled, "newer") })
 	p.dispatched(older, "s1")
 	p.dispatched(newer, "s2")
 	assert.Equal(t, []pendingTask{{instanceID: "wf1", taskID: 3}}, p.all())
 
+	for _, cancel := range p.onStream("s1") {
+		cancel()
+	}
+	assert.Equal(t, []string{"older"}, cancelled)
+
 	doneOlder()
 	assert.Empty(t, p.onStream("s1"))
-	assert.Equal(t, []pendingTask{{instanceID: "wf1", taskID: 3}}, p.onStream("s2"))
-	assert.Empty(t, p.onStream("s2"))
+	assert.Len(t, p.onStream("s2"), 1)
 	assert.Len(t, p.all(), 1)
 
 	doneNewer()
@@ -56,7 +60,7 @@ func Test_pendingTasksConcurrentUse(t *testing.T) {
 			stream := strconv.Itoa(i % 2)
 			for range 200 {
 				wi := &protos.WorkItem{}
-				done := p.add(wi, api.InstanceID("wf1"), 0)
+				done := p.add(wi, api.InstanceID("wf1"), 0, func() {})
 				p.dispatched(wi, stream)
 				p.onStream(stream)
 				p.all()
