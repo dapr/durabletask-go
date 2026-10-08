@@ -199,7 +199,7 @@ func Test_OnActivityCompletion_DeregisterFromCallback(t *testing.T) {
 	dereg1 = be.OnActivityCompletion(activityRequest("abc", 1), func(*protos.ActivityResponse, error) { dereg1() })
 	dereg2 = be.OnActivityCompletion(activityRequest("abc", 1), func(*protos.ActivityResponse, error) { dereg2() })
 
-	require.NoError(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
+	require.ErrorIs(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}), local.ErrAmbiguousCompletion)
 	require.Error(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
 }
 
@@ -240,7 +240,7 @@ func Test_OnActivityCompletion_TokenlessResponseWithConcurrentRegistrations(t *t
 	dereg1 := be.OnActivityCompletion(activityRequest("abc", 1), record)
 	be.OnActivityCompletion(activityRequest("abc", 1), record)
 
-	require.NoError(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}))
+	require.ErrorIs(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1}), local.ErrAmbiguousCompletion)
 	require.Len(t, gotErrs, 2)
 	for i := range gotErrs {
 		require.ErrorIs(t, gotErrs[i], api.ErrTaskCancelled)
@@ -266,8 +266,20 @@ func Test_OnWorkflowTaskCompletion_TokenlessResponseWithConcurrentRegistrations(
 	be.OnWorkflowTaskCompletion(&protos.WorkflowRequest{InstanceId: "abc"}, record)
 	be.OnWorkflowTaskCompletion(&protos.WorkflowRequest{InstanceId: "abc"}, record)
 
-	require.NoError(t, be.CompleteWorkflowTask(context.Background(), &protos.WorkflowResponse{InstanceId: "abc"}))
+	require.ErrorIs(t, be.CompleteWorkflowTask(context.Background(), &protos.WorkflowResponse{InstanceId: "abc"}), local.ErrAmbiguousCompletion)
 	require.Len(t, gotErrs, 2)
 	require.ErrorIs(t, gotErrs[0], api.ErrTaskCancelled)
 	require.ErrorIs(t, gotErrs[1], api.ErrTaskCancelled)
+}
+
+func Test_OnActivityCompletion_NoCallbackAfterDeregister(t *testing.T) {
+	be := local.NewTasksBackend()
+
+	var dereg2 func()
+	var calls2 int
+	be.OnActivityCompletion(activityRequest("abc", 1), func(*protos.ActivityResponse, error) { dereg2() })
+	dereg2 = be.OnActivityCompletion(activityRequest("abc", 1), func(*protos.ActivityResponse, error) { calls2++ })
+
+	require.NoError(t, be.CompleteActivityTask(context.Background(), &protos.ActivityResponse{InstanceId: "abc", TaskId: 1, CompletionToken: "t"}))
+	assert.Zero(t, calls2, "a callback deregistered during the delivery must not run")
 }

@@ -137,11 +137,11 @@ func Test_tokenlessResponseCancelsConcurrentExecutions(t *testing.T) {
 		}
 	}
 
-	require.NoError(t, be.CompleteActivityTask(ctx, &protos.ActivityResponse{
+	require.ErrorIs(t, be.CompleteActivityTask(ctx, &protos.ActivityResponse{
 		InstanceId: "wf1",
 		TaskId:     0,
 		Result:     wrapperspb.String("ambiguous"),
-	}))
+	}), local.ErrAmbiguousCompletion)
 	for range 2 {
 		select {
 		case err := <-errs:

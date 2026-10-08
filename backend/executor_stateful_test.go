@@ -258,10 +258,12 @@ func wfWorkItem(iid string) *protos.WorkItem {
 	}}
 }
 
-// trackWorkflow registers a pending entry matching wfWorkItem's (empty)
-// completion token, so the drain treats the item as the live dispatch.
-func trackWorkflow(g *grpcExecutor, iid string) {
-	g.pendingWorkflows.Store(api.InstanceID(iid), &pendingWorkflow{instanceID: api.InstanceID(iid)})
+// trackWorkflow tracks a new work item for iid as its latest pending
+// execution, so the drain treats the item as the live dispatch.
+func trackWorkflow(g *grpcExecutor, iid string) *protos.WorkItem {
+	wi := wfWorkItem(iid)
+	g.pendingWorkflows.add(iid, wi, api.InstanceID(iid), 0, func() {})
+	return wi
 }
 
 // A dying stream's affinity buffer must be re-offered to the shared queue so
@@ -270,16 +272,16 @@ func trackWorkflow(g *grpcExecutor, iid string) {
 func TestDrainStreamBuffer_RequeuesToSharedQueue(t *testing.T) {
 	g := &grpcExecutor{
 		workItemQueue:    make(chan *protos.WorkItem, 8),
-		pendingWorkflows: &sync.Map{},
+		pendingWorkflows: newPendingTasks(),
 		streams:          &sync.Map{},
 		logger:           DefaultLogger(),
 	}
-	trackWorkflow(g, "wf-a")
-	trackWorkflow(g, "wf-b")
+	wiWfA := trackWorkflow(g, "wf-a")
+	wiWfB := trackWorkflow(g, "wf-b")
 	ss := capableStream("dying")
 	ss.closed.Store(true)
-	ss.ch <- wfWorkItem("wf-a")
-	ss.ch <- wfWorkItem("wf-b")
+	ss.ch <- wiWfA
+	ss.ch <- wiWfB
 
 	g.drainStreamBuffer(ss)
 
@@ -313,15 +315,15 @@ func TestDrainStreamBuffer_CancelsWhenQueueFull(t *testing.T) {
 	fb := &fakeCancelBackend{}
 	g := &grpcExecutor{
 		workItemQueue:    make(chan *protos.WorkItem),
-		pendingWorkflows: &sync.Map{},
+		pendingWorkflows: newPendingTasks(),
 		streams:          &sync.Map{},
 		backend:          fb,
 		logger:           DefaultLogger(),
 	}
-	trackWorkflow(g, "wf-orphan")
+	wiWfOrphan := trackWorkflow(g, "wf-orphan")
 	ss := capableStream("dying")
 	ss.closed.Store(true)
-	ss.ch <- wfWorkItem("wf-orphan")
+	ss.ch <- wiWfOrphan
 
 	g.drainStreamBuffer(ss)
 
@@ -360,7 +362,7 @@ func TestDrainStreamBuffer_ShutdownCancelsInsteadOfPanicking(t *testing.T) {
 	fb := &fakeCancelBackend{}
 	g := &grpcExecutor{
 		workItemQueue:    make(chan *protos.WorkItem, 8),
-		pendingWorkflows: &sync.Map{},
+		pendingWorkflows: newPendingTasks(),
 		streams:          &sync.Map{},
 		backend:          fb,
 		logger:           DefaultLogger(),
@@ -370,9 +372,9 @@ func TestDrainStreamBuffer_ShutdownCancelsInsteadOfPanicking(t *testing.T) {
 	close(g.workItemQueue)
 	g.queueLock.Unlock()
 
-	trackWorkflow(g, "wf-shutdown")
+	wiWfShutdown := trackWorkflow(g, "wf-shutdown")
 	ss := capableStream("dying")
-	ss.ch <- wfWorkItem("wf-shutdown")
+	ss.ch <- wiWfShutdown
 
 	require.NotPanics(t, func() { g.drainStreamBuffer(ss) })
 
@@ -387,9 +389,8 @@ func TestDrainStreamBuffer_ShutdownCancelsInsteadOfPanicking(t *testing.T) {
 // to the shared queue, never into the dead buffer afterwards.
 func TestTrySend_ClosedStreamRefuses(t *testing.T) {
 	ss := capableStream("s")
-	require.True(t, ss.trySend(wfWorkItem("a")))
-	g := &grpcExecutor{workItemQueue: make(chan *protos.WorkItem, 8), pendingWorkflows: &sync.Map{}, streams: &sync.Map{}, logger: DefaultLogger()}
-	trackWorkflow(g, "a")
+	g := &grpcExecutor{workItemQueue: make(chan *protos.WorkItem, 8), pendingWorkflows: newPendingTasks(), streams: &sync.Map{}, logger: DefaultLogger()}
+	require.True(t, ss.trySend(trackWorkflow(g, "a")))
 	g.drainStreamBuffer(ss)
 	assert.False(t, ss.trySend(wfWorkItem("b")), "a drained stream must refuse new sends")
 	ok, err := ss.trySendGrace(context.Background(), wfWorkItem("c"), time.Millisecond)
@@ -423,14 +424,14 @@ func TestRequeueWorkItem_RetriesTransientCancelFailure(t *testing.T) {
 	fb := &flakyCancelBackend{failures: 3}
 	g := &grpcExecutor{
 		workItemQueue:    make(chan *protos.WorkItem),
-		pendingWorkflows: &sync.Map{},
+		pendingWorkflows: newPendingTasks(),
 		streams:          &sync.Map{},
 		backend:          fb,
 		logger:           DefaultLogger(),
 	}
-	trackWorkflow(g, "wf-flaky")
+	wiWfFlaky := trackWorkflow(g, "wf-flaky")
 	ss := capableStream("dying")
-	ss.ch <- wfWorkItem("wf-flaky")
+	ss.ch <- wiWfFlaky
 
 	g.drainStreamBuffer(ss)
 
@@ -448,18 +449,16 @@ func TestRequeueWorkItem_DropsSupersededOrSettled(t *testing.T) {
 	fb := &fakeCancelBackend{}
 	g := &grpcExecutor{
 		workItemQueue:    make(chan *protos.WorkItem, 8),
-		pendingWorkflows: &sync.Map{},
+		pendingWorkflows: newPendingTasks(),
 		streams:          &sync.Map{},
 		backend:          fb,
 		logger:           DefaultLogger(),
 	}
 
-	// Superseded: a newer dispatch owns the entry with a different token.
-	g.pendingWorkflows.Store(api.InstanceID("wf-old"), &pendingWorkflow{
-		instanceID:      "wf-old",
-		completionToken: "newer-dispatch",
-	})
-	g.requeueWorkItem(wfWorkItem("wf-old"))
+	// Superseded: a newer dispatch of the same instance was tracked after it.
+	older := trackWorkflow(g, "wf-old")
+	trackWorkflow(g, "wf-old")
+	g.requeueWorkItem(older)
 
 	// Settled: no entry at all.
 	g.requeueWorkItem(wfWorkItem("wf-gone"))
@@ -490,16 +489,16 @@ func TestRequeueWorkItem_UnknownInstanceIsSettled(t *testing.T) {
 	fb := &unknownInstanceBackend{}
 	g := &grpcExecutor{
 		workItemQueue:    make(chan *protos.WorkItem),
-		pendingWorkflows: &sync.Map{},
+		pendingWorkflows: newPendingTasks(),
 		streams:          &sync.Map{},
 		backend:          fb,
 		logger:           DefaultLogger(),
 	}
-	trackWorkflow(g, "wf-unknown")
+	wiWfUnknown := trackWorkflow(g, "wf-unknown")
 
 	done := make(chan struct{})
 	go func() {
-		g.requeueWorkItem(wfWorkItem("wf-unknown"))
+		g.requeueWorkItem(wiWfUnknown)
 		close(done)
 	}()
 	select {
