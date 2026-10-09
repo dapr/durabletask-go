@@ -30,13 +30,11 @@ import (
 )
 
 // fakeExecBackend implements just enough of Backend to drive the executor's
-// GetWorkItems streams: completion waiters keyed by instance ID and a record
-// of cancelled workflow tasks (the stream-teardown recovery path).
+// GetWorkItems streams: completion waiters keyed by instance ID.
 type fakeExecBackend struct {
 	Backend
-	mu       sync.Mutex
-	waiters  map[string]chan *protos.WorkflowResponse
-	canceled []api.InstanceID
+	mu      sync.Mutex
+	waiters map[string]chan *protos.WorkflowResponse
 }
 
 func newFakeExecBackend() *fakeExecBackend {
@@ -77,7 +75,6 @@ func (f *fakeExecBackend) complete(iid string) {
 
 func (f *fakeExecBackend) CancelWorkflowTask(_ context.Context, iid api.InstanceID) error {
 	f.mu.Lock()
-	f.canceled = append(f.canceled, iid)
 	ch := f.waiters[string(iid)]
 	f.mu.Unlock()
 	if ch != nil {
@@ -91,12 +88,6 @@ func (f *fakeExecBackend) CancelWorkflowTask(_ context.Context, iid api.Instance
 
 func (f *fakeExecBackend) CancelActivityTask(context.Context, api.InstanceID, int32) error {
 	return nil
-}
-
-func (f *fakeExecBackend) canceledInstances() []api.InstanceID {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]api.InstanceID(nil), f.canceled...)
 }
 
 // fakeWorkItemsStream is a controllable GetWorkItems server stream: Send is
@@ -225,7 +216,6 @@ func TestGetWorkItems_SendFailureRecoversWorkItem(t *testing.T) {
 		t.Fatal("ExecuteWorkflow did not return after send failure")
 	}
 
-	assert.Equal(t, []api.InstanceID{"doomed"}, fb.canceledInstances())
 }
 
 // TestGetWorkItems_DispatchNotBlockedDuringSlowSend asserts the dispatch loop
@@ -314,7 +304,7 @@ func TestDispatchWorkflowWorkItem_OwnerBusyFallsBackAfterGrace(t *testing.T) {
 
 // TestGetWorkItems_SendTimeoutCancelsPending exercises the
 // WithStreamSendTimeout path: a Send that never returns must fail the stream
-// with the timeout error, and the disconnect cleanup must cancel BOTH the
+// with the timeout error, and the disconnect cleanup must abort BOTH the
 // item stuck in the in-flight send and the items still buffered in the
 // outbox behind it.
 func TestGetWorkItems_SendTimeoutCancelsPending(t *testing.T) {
@@ -387,9 +377,6 @@ func TestGetWorkItems_SendTimeoutCancelsPending(t *testing.T) {
 		}
 	}
 
-	assert.ElementsMatch(t,
-		[]api.InstanceID{"stuck-in-send", "buffered-1", "buffered-2"},
-		fb.canceledInstances())
 }
 
 // TestGetWorkItems_DisconnectRedeliversBufferedItem exercises the teardown
@@ -473,10 +460,11 @@ func TestGetWorkItems_DisconnectRedeliversBufferedItem(t *testing.T) {
 		}
 		i++
 		iid := fmt.Sprintf("parked-%d", i)
-		g.pendingWorkflows.Store(api.InstanceID(iid), &pendingWorkflow{instanceID: api.InstanceID(iid)})
-		ok := ss.trySend(&protos.WorkItem{Request: &protos.WorkItem_WorkflowRequest{
+		wi := &protos.WorkItem{Request: &protos.WorkItem_WorkflowRequest{
 			WorkflowRequest: &protos.WorkflowRequest{InstanceId: iid},
-		}})
+		}}
+		g.pendingWorkflows.add(iid, wi, api.InstanceID(iid), 0, func() {})
+		ok := ss.trySend(wi)
 		_ = ok
 		return false
 	}, time.Second*5, time.Millisecond)

@@ -38,21 +38,6 @@ const streamOutboxSize = 64
 // below common proxy idle timeouts (60s on AWS ALB and nginx, 5m on Envoy).
 const defaultHealthPingInterval = 30 * time.Second
 
-type pendingWorkflow struct {
-	instanceID api.InstanceID
-	streamID   string
-	// completionToken is the tracked dispatch's WorkItem.CompletionToken; a
-	// drained buffered item is only requeued or cancelled when its token
-	// still matches, so a stale attempt cannot disturb a newer registration.
-	completionToken string
-}
-
-type pendingActivity struct {
-	instanceID api.InstanceID
-	taskID     int32
-	streamID   string
-}
-
 type ExecuteOptions struct {
 	PropagatedHistory *protos.PropagatedHistory
 }
@@ -73,8 +58,8 @@ type grpcExecutor struct {
 	// lifecycle is ordered by the callers.
 	queueLock                sync.RWMutex
 	queueClosed              bool
-	pendingWorkflows         *sync.Map // map[api.InstanceID]*pendingWorkflow
-	pendingActivities        *sync.Map // map[string]*pendingActivity
+	pendingWorkflows         *pendingTasks
+	pendingActivities        *pendingTasks
 	streams                  *sync.Map // map[string]*streamState
 	backend                  Backend
 	logger                   Logger
@@ -151,11 +136,11 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 		// thousands of goroutines at high load. Items resting in the
 		// buffer across a total stream outage are recovered by the same
 		// turn-timeout retry path that covers a mid-send disconnect.
-		workItemQueue:     make(chan *protos.WorkItem, 512),
-		backend:           be,
-		logger:            logger,
-		pendingWorkflows:  &sync.Map{},
-		pendingActivities:  &sync.Map{},
+		workItemQueue:      make(chan *protos.WorkItem, 512),
+		backend:            be,
+		logger:             logger,
+		pendingWorkflows:   newPendingTasks(),
+		pendingActivities:  newPendingTasks(),
 		streams:            &sync.Map{},
 		healthPingInterval: defaultHealthPingInterval,
 	}
@@ -236,13 +221,6 @@ func (g *grpcExecutor) canExecuteAsync() bool {
 // error, or the dispatch failure.
 func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions, done func(*protos.WorkflowResponse, error)) {
 
-	// Capture the tracked value: a superseded attempt settling late must not
-	// delete a newer attempt's entry (both share the instance key), or the
-	// newer dispatch loses stream-disconnect/shutdown cancellation.
-	dispatchToken := uuid.NewString()
-	trackedWorkflow := &pendingWorkflow{instanceID: iid, completionToken: dispatchToken}
-	g.pendingWorkflows.Store(iid, trackedWorkflow)
-
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
 		ExecutionId:       executionID(oldEvents, newEvents),
@@ -257,7 +235,7 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 	// history and strand the instance (the chaos-campaign janitor-livelock
 	// class). Workers that do not echo tokens send an empty one and keep
 	// today's behavior.
-	token := dispatchToken
+	token := uuid.NewString()
 	workItem := &protos.WorkItem{
 		Request: &protos.WorkItem_WorkflowRequest{
 			WorkflowRequest: req,
@@ -266,8 +244,8 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 	}
 
 	wait := &asyncWait{}
-	var deliver func(resp *protos.WorkflowResponse, err error)
-	deliver = func(resp *protos.WorkflowResponse, err error) {
+	var untrack func()
+	deliver := func(resp *protos.WorkflowResponse, err error) {
 		if err == nil && resp.GetCompletionToken() != "" && resp.GetCompletionToken() != token {
 			g.logger.Warnf("%s: discarding stale workflow task response (completion token mismatch); waiting for the current dispatch's response", iid)
 			// The registration stays armed: the backend must only remove it
@@ -279,7 +257,7 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 		if !wait.settle() {
 			return
 		}
-		g.pendingWorkflows.CompareAndDelete(iid, trackedWorkflow)
+		untrack()
 		if err != nil {
 			if errors.Is(err, api.ErrTaskCancelled) {
 				done(nil, errors.New("operation aborted"))
@@ -291,6 +269,9 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 		}
 		done(resp, nil)
 	}
+	untrack = g.pendingWorkflows.add(string(iid), workItem, iid, 0, func() {
+		deliver(nil, api.ErrTaskCancelled)
+	})
 
 	wait.setDeregister(g.backend.OnWorkflowTaskCompletion(req, deliver))
 	wait.setStop(context.AfterFunc(ctx, func() {
@@ -308,10 +289,6 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions, done func(*protos.HistoryEvent, error)) {
 
 	key := GetActivityExecutionKey(string(iid), e.EventId)
-	// See executeWorkflowAsync: CompareAndDelete-able so a late-settling
-	// superseded attempt cannot evict a newer attempt's tracking entry.
-	trackedActivity := &pendingActivity{instanceID: iid, taskID: e.EventId}
-	g.pendingActivities.Store(key, trackedActivity)
 
 	task := e.GetTaskScheduled()
 	req := &protos.ActivityRequest{
@@ -335,8 +312,8 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 	}
 
 	wait := &asyncWait{}
-	var deliver func(resp *protos.ActivityResponse, err error)
-	deliver = func(resp *protos.ActivityResponse, err error) {
+	var untrack func()
+	deliver := func(resp *protos.ActivityResponse, err error) {
 		if err == nil && resp.GetCompletionToken() != "" && resp.GetCompletionToken() != token {
 			g.logger.Warnf("%s/%s#%d: discarding stale activity response (completion token mismatch); waiting for the current dispatch's response", iid, task.Name, e.EventId)
 			// Registration stays armed; see the workflow deliver above.
@@ -345,7 +322,7 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 		if !wait.settle() {
 			return
 		}
-		g.pendingActivities.CompareAndDelete(key, trackedActivity)
+		untrack()
 		if err != nil {
 			if errors.Is(err, api.ErrTaskCancelled) {
 				done(nil, errors.New("operation aborted"))
@@ -357,6 +334,9 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 		}
 		done(activityResponseEvent(e, task, resp), nil)
 	}
+	untrack = g.pendingActivities.add(key, workItem, iid, e.EventId, func() {
+		deliver(nil, api.ErrTaskCancelled)
+	})
 
 	wait.setDeregister(g.backend.OnActivityCompletion(req, deliver))
 	wait.setStop(context.AfterFunc(ctx, func() {
@@ -463,28 +443,32 @@ func (g *grpcExecutor) Shutdown(ctx context.Context) error {
 	g.queueLock.Unlock()
 
 	// Iterate through all pending items and close them to unblock the goroutines waiting on this
-	g.pendingActivities.Range(func(_, value any) bool {
-		p, ok := value.(*pendingActivity)
-		if ok {
-			err := g.backend.CancelActivityTask(ctx, p.instanceID, p.taskID)
-			if err != nil {
-				g.logger.Warnf("failed to cancel activity task: %v", err)
-			}
+	for _, p := range g.pendingActivities.all() {
+		err := g.backend.CancelActivityTask(ctx, p.instanceID, p.taskID)
+		if err != nil {
+			g.logger.Warnf("failed to cancel activity task: %v", err)
 		}
-		return true
-	})
-	g.pendingWorkflows.Range(func(_, value any) bool {
-		p, ok := value.(*pendingWorkflow)
-		if ok {
-			err := g.backend.CancelWorkflowTask(ctx, p.instanceID)
-			if err != nil {
-				g.logger.Warnf("failed to cancel workflow task: %v", err)
-			}
+	}
+	for _, p := range g.pendingWorkflows.all() {
+		err := g.backend.CancelWorkflowTask(ctx, p.instanceID)
+		if err != nil {
+			g.logger.Warnf("failed to cancel workflow task: %v", err)
 		}
-		return true
-	})
+	}
 
 	return nil
+}
+
+// cancelStreamTasks cancels the executions sent on streamID, whose
+// responses can no longer arrive. Each is cancelled on its own, so another
+// execution of the same task on a live stream is unaffected.
+func (g *grpcExecutor) cancelStreamTasks(streamID string) {
+	for _, cancel := range g.pendingActivities.onStream(streamID) {
+		cancel()
+	}
+	for _, cancel := range g.pendingWorkflows.onStream(streamID) {
+		cancel()
+	}
 }
 
 // Hello implements protos.TaskHubSidecarServiceServer
@@ -532,42 +516,7 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 	}
 
 	defer func() {
-		// If there's any pending activity left, remove them
-		g.pendingActivities.Range(func(key, value any) bool {
-			if p, ok := value.(*pendingActivity); ok && p.streamID == streamID {
-				g.logger.Debugf("cleaning up pending activity: %s", key)
-				err := g.backend.CancelActivityTask(context.Background(), p.instanceID, p.taskID)
-				if err != nil {
-					g.logger.Warnf("failed to cancel activity task: %v", err)
-				}
-				// Only this stream's entry: a newer attempt from a fresh
-				// stream may have re-stored the key since the Range yielded.
-				g.pendingActivities.CompareAndDelete(key, value)
-			}
-			return true
-		})
-		g.pendingWorkflows.Range(func(key, value any) bool {
-			if p, ok := value.(*pendingWorkflow); ok && p.streamID == streamID {
-				g.logger.Debugf("cleaning up pending workflow: %s", key)
-				// Cancellation is keyed by instance (the Backend interface
-				// carries no attempt identity); upstream per-instance
-				// serialization bounds the replacement race, and a spurious
-				// cancel of a fresh attempt aborts into its recoverable
-				// retry.
-				err := g.backend.CancelWorkflowTask(context.Background(), p.instanceID)
-				if err != nil {
-					g.logger.Warnf("failed to cancel workflow task: %v", err)
-					// Keep the entry: the backend completion waiter is still
-					// live, and a later cleanup (executor shutdown) must be
-					// able to retry the cancellation.
-					return true
-				}
-				// Only this stream's entry: a newer attempt from a fresh
-				// stream may have re-stored the key since the Range yielded.
-				g.pendingWorkflows.CompareAndDelete(key, value)
-			}
-			return true
-		})
+		g.cancelStreamTasks(streamID)
 		if err := g.executeOnWorkItemDisconnect(stream.Context()); err != nil {
 			g.logger.Warnf("error while disconnecting work item stream: %v", err)
 		}
@@ -684,22 +633,12 @@ func (g *grpcExecutor) dispatchToStream(
 ) error {
 	switch x := wi.Request.(type) {
 	case *protos.WorkItem_WorkflowRequest:
-		key := x.WorkflowRequest.GetInstanceId()
-		if value, ok := g.pendingWorkflows.Load(api.InstanceID(key)); ok {
-			if p, ok := value.(*pendingWorkflow); ok {
-				p.streamID = streamID
-			}
-		}
+		g.pendingWorkflows.dispatched(wi, streamID)
 		// If this stream retains instance history between turns, omit the
 		// committed history prefix it already holds and send only the delta.
 		ss.applyStatefulHistory(x.WorkflowRequest)
 	case *protos.WorkItem_ActivityRequest:
-		key := GetActivityExecutionKey(x.ActivityRequest.GetWorkflowInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
-		if value, ok := g.pendingActivities.Load(key); ok {
-			if p, ok := value.(*pendingActivity); ok {
-				p.streamID = streamID
-			}
-		}
+		g.pendingActivities.dispatched(wi, streamID)
 	}
 
 	if err := g.sendWorkItem(stream, wi, outCh, sendFailed); err != nil {

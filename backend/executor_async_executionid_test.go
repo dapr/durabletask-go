@@ -34,8 +34,8 @@ func Test_executeWorkflowAsync_carriesExecutionID(t *testing.T) {
 	fb := &fakeCallbackBackend{}
 	g := &grpcExecutor{
 		workItemQueue:     make(chan *protos.WorkItem, 1),
-		pendingWorkflows:  &sync.Map{},
-		pendingActivities: &sync.Map{},
+		pendingWorkflows:  newPendingTasks(),
+		pendingActivities: newPendingTasks(),
 		streams:           &sync.Map{},
 		backend:           fb,
 		logger:            DefaultLogger(),

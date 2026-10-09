@@ -160,8 +160,8 @@ func (g *grpcExecutor) drainStreamBuffer(ss *streamState) {
 // stream's buffer: back onto the shared queue when it has capacity (the item
 // was never sent to any worker, so redelivery is safe), otherwise by
 // cancelling the task so the backend's retry path re-derives it. Both are
-// gated on the item still being the instance's tracked dispatch (completion
-// token match): a superseded or already-settled attempt is dropped so it
+// gated on the item still being the instance's most recent pending
+// execution: a superseded or already-settled attempt is dropped so it
 // cannot disturb a newer registration. A live matching item must not be
 // given up on: a transient cancel error is retried with capped backoff,
 // alternating with the requeue attempt, until it is settled; an unknown
@@ -177,9 +177,7 @@ func (g *grpcExecutor) requeueWorkItem(wi *protos.WorkItem) {
 
 	backoff := 10 * time.Millisecond
 	for {
-		value, tracked := g.pendingWorkflows.Load(iid)
-		p, pok := value.(*pendingWorkflow)
-		if !tracked || !pok || p.completionToken != wi.GetCompletionToken() {
+		if !g.pendingWorkflows.isLatest(wi) {
 			g.logger.Debugf("dropping drained work item for %s: its dispatch was superseded or already settled", iid)
 			return
 		}
@@ -198,7 +196,7 @@ func (g *grpcExecutor) requeueWorkItem(wi *protos.WorkItem) {
 			return
 		}
 
-		if value, ok := g.pendingWorkflows.Load(iid); !ok || value != any(p) {
+		if !g.pendingWorkflows.isLatest(wi) {
 			g.logger.Debugf("dropping drained work item for %s: its dispatch settled during the drain", iid)
 			return
 		}

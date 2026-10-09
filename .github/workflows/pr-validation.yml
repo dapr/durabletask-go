@@ -75,7 +75,10 @@ jobs:
       - name: Generate grpc code
         run: protoc --go_out=. --go-grpc_out=. -I ./submodules/durabletask-protobuf/protos orchestrator_service.proto
 
+      - name: Run unit tests
+        run: go test -race $(go list ./... | grep -v /tests)
+
       - name: Run integration tests
         env:
           POSTGRES_ENABLED: "true"
-        run: go test ./tests/... -coverpkg ./api,./task,./client,./backend/...,./api/helpers
+        run: go test -race ./tests/... -coverpkg ./api,./task,./client,./backend/...,./api/helpers

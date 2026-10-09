@@ -2,6 +2,9 @@ package local
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/dapr/durabletask-go/api"
@@ -9,131 +12,134 @@ import (
 	"github.com/dapr/durabletask-go/backend"
 )
 
-type pendingWorkflow struct {
-	response *protos.WorkflowResponse
-	complete chan struct{}
-	cb       func(*protos.WorkflowResponse, error)
-}
-
-type pendingActivity struct {
-	response *protos.ActivityResponse
-	complete chan struct{}
-	cb       func(*protos.ActivityResponse, error)
-}
-
 type TasksBackend struct {
-	pendingWorkflows  *sync.Map
-	pendingActivities *sync.Map
+	workflows  registry[*protos.WorkflowResponse]
+	activities registry[*protos.ActivityResponse]
 }
 
 func NewTasksBackend() *TasksBackend {
 	return &TasksBackend{
-		pendingWorkflows:  &sync.Map{},
-		pendingActivities: &sync.Map{},
+		workflows:  newRegistry[*protos.WorkflowResponse](),
+		activities: newRegistry[*protos.ActivityResponse](),
 	}
 }
 
 func (be *TasksBackend) CompleteActivityTask(ctx context.Context, response *protos.ActivityResponse) error {
-	if be.deliverPendingActivityTask(response.GetInstanceId(), response.GetTaskId(), response) {
-		return nil
+	key := backend.GetActivityExecutionKey(response.GetInstanceId(), response.GetTaskId())
+	found, discarded := be.activities.deliver(key, response, nil)
+	switch {
+	case discarded:
+		return fmt.Errorf("activity task %s: %w", key, ErrAmbiguousCompletion)
+	case !found:
+		return api.NewUnknownTaskIDError(response.GetInstanceId(), response.GetTaskId())
 	}
-
-	return api.NewUnknownTaskIDError(response.GetInstanceId(), response.GetTaskId())
+	return nil
 }
 
 func (be *TasksBackend) CancelActivityTask(ctx context.Context, instanceID api.InstanceID, taskID int32) error {
-	if be.deliverPendingActivityTask(string(instanceID), taskID, nil) {
+	if found, _ := be.activities.deliver(backend.GetActivityExecutionKey(string(instanceID), taskID), nil, api.ErrTaskCancelled); found {
 		return nil
 	}
 	return api.NewUnknownTaskIDError(instanceID.String(), taskID)
 }
-func (be *TasksBackend) OnActivityCompletion(request *protos.ActivityRequest, cb func(*protos.ActivityResponse, error)) func() {
-	key := backend.GetActivityExecutionKey(request.GetWorkflowInstance().GetInstanceId(), request.GetTaskId())
-	pending := &pendingActivity{cb: cb}
-	be.pendingActivities.Store(key, pending)
 
-	return func() {
-		be.pendingActivities.CompareAndDelete(key, pending)
-	}
+func (be *TasksBackend) OnActivityCompletion(request *protos.ActivityRequest, onResult func(*protos.ActivityResponse, error)) func() {
+	return be.activities.add(backend.GetActivityExecutionKey(request.GetWorkflowInstance().GetInstanceId(), request.GetTaskId()), onResult)
 }
 
 func (be *TasksBackend) CompleteWorkflowTask(ctx context.Context, response *protos.WorkflowResponse) error {
-	if be.deliverPendingWorkflow(response.GetInstanceId(), response) {
-		return nil
+	found, discarded := be.workflows.deliver(response.GetInstanceId(), response, nil)
+	switch {
+	case discarded:
+		return fmt.Errorf("workflow task %s: %w", response.GetInstanceId(), ErrAmbiguousCompletion)
+	case !found:
+		return api.NewUnknownInstanceIDError(response.GetInstanceId())
 	}
-	return api.NewUnknownInstanceIDError(response.GetInstanceId())
+	return nil
 }
 
 func (be *TasksBackend) CancelWorkflowTask(ctx context.Context, instanceID api.InstanceID) error {
-	if be.deliverPendingWorkflow(string(instanceID), nil) {
+	if found, _ := be.workflows.deliver(string(instanceID), nil, api.ErrTaskCancelled); found {
 		return nil
 	}
 	return api.NewUnknownInstanceIDError(instanceID.String())
 }
-func (be *TasksBackend) OnWorkflowTaskCompletion(request *protos.WorkflowRequest, cb func(*protos.WorkflowResponse, error)) func() {
-	key := request.GetInstanceId()
-	pending := &pendingWorkflow{cb: cb}
-	be.pendingWorkflows.Store(key, pending)
+
+func (be *TasksBackend) OnWorkflowTaskCompletion(request *protos.WorkflowRequest, onResult func(*protos.WorkflowResponse, error)) func() {
+	return be.workflows.add(request.GetInstanceId(), onResult)
+}
+
+// ErrAmbiguousCompletion is returned for a completion without a completion
+// token that arrives while several executions of its task are pending. It
+// cannot be matched to one of them, so they are all aborted and re-run.
+var ErrAmbiguousCompletion = errors.New("completion has no completion token and several executions of the task are pending; they were aborted and will be re-run")
+
+type completion interface {
+	GetCompletionToken() string
+}
+
+type registration[R completion] struct {
+	onResult func(R, error)
+	// done is set by the deregister closure. Guarded by registry.lock.
+	done bool
+}
+
+// registry holds every live registration per task key. Several executions of
+// the same task can be pending at once (a recreated instance or a superseded
+// dispatch), so a delivery reaches all of them and each execution's arbiter
+// settles on its own response. Keeping only the latest would strand the
+// others until their context ends.
+type registry[R completion] struct {
+	lock  sync.Mutex
+	byKey map[string][]*registration[R]
+}
+
+func newRegistry[R completion]() registry[R] {
+	return registry[R]{byKey: make(map[string][]*registration[R])}
+}
+
+func (r *registry[R]) add(key string, onResult func(R, error)) func() {
+	reg := &registration[R]{onResult: onResult}
+
+	r.lock.Lock()
+	r.byKey[key] = append(r.byKey[key], reg)
+	r.lock.Unlock()
 
 	return func() {
-		be.pendingWorkflows.CompareAndDelete(key, pending)
+		r.lock.Lock()
+		defer r.lock.Unlock()
+		reg.done = true
+		regs := slices.DeleteFunc(r.byKey[key], func(c *registration[R]) bool { return c == reg })
+		if len(regs) == 0 {
+			delete(r.byKey, key)
+		} else {
+			r.byKey[key] = regs
+		}
 	}
 }
 
-func (be *TasksBackend) deliverPendingActivityTask(iid string, taskID int32, res *protos.ActivityResponse) bool {
-	key := backend.GetActivityExecutionKey(iid, taskID)
-	p, ok := be.pendingActivities.Load(key)
-	if !ok {
-		return false
+// deliver runs every registered callback for key outside the lock, since a
+// callback settling its execution calls back into the deregister closure;
+// one deregistered after the snapshot is skipped. A response without a
+// completion token cannot be matched to one of several pending executions,
+// so they are all cancelled instead and discarded is true.
+func (r *registry[R]) deliver(key string, res R, err error) (found, discarded bool) {
+	r.lock.Lock()
+	regs := slices.Clone(r.byKey[key])
+	r.lock.Unlock()
+
+	if err == nil && len(regs) > 1 && res.GetCompletionToken() == "" {
+		var zero R
+		res, err, discarded = zero, api.ErrTaskCancelled, true
 	}
 
-	// Note that res can be nil in case of certain failures
-	pending := p.(*pendingActivity)
-	if pending.cb != nil {
-		// Callback registrations stay in the map until the executor's arbiter
-		// accepts a delivery and runs the deregister closure. Deleting here
-		// would open a window where a stale-token delivery consumes the only
-		// routing entry while the genuine response races in and is dropped as
-		// unknown, stranding the re-armed callback forever.
-		if res == nil {
-			pending.cb(nil, api.ErrTaskCancelled)
-		} else {
-			pending.cb(res, nil)
+	for _, reg := range regs {
+		r.lock.Lock()
+		done := reg.done
+		r.lock.Unlock()
+		if !done {
+			reg.onResult(res, err)
 		}
-		return true
 	}
-	// Channel path: single delivery, the first responder to win the entry
-	// parks the payload; a racing duplicate reports unknown as before.
-	if !be.pendingActivities.CompareAndDelete(key, p) {
-		return false
-	}
-	pending.response = res
-	close(pending.complete)
-	return true
-}
-
-func (be *TasksBackend) deliverPendingWorkflow(instanceID string, res *protos.WorkflowResponse) bool {
-	p, ok := be.pendingWorkflows.Load(instanceID)
-	if !ok {
-		return false
-	}
-
-	// Note that res can be nil in case of certain failures
-	pending := p.(*pendingWorkflow)
-	if pending.cb != nil {
-		// See deliverPendingActivityTask: the registration outlives stale
-		// deliveries; only the deregister closure removes it.
-		if res == nil {
-			pending.cb(nil, api.ErrTaskCancelled)
-		} else {
-			pending.cb(res, nil)
-		}
-		return true
-	}
-	if !be.pendingWorkflows.CompareAndDelete(instanceID, p) {
-		return false
-	}
-	pending.response = res
-	close(pending.complete)
-	return true
+	return len(regs) > 0, discarded
 }
