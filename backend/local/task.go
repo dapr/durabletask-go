@@ -2,6 +2,9 @@ package local
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/dapr/durabletask-go/api"
@@ -9,121 +12,146 @@ import (
 	"github.com/dapr/durabletask-go/backend"
 )
 
-type pendingWorkflow struct {
-	response *protos.WorkflowResponse
-	complete chan struct{}
-}
-
-type pendingActivity struct {
-	response *protos.ActivityResponse
-	complete chan struct{}
-}
-
 type TasksBackend struct {
-	pendingWorkflows  *sync.Map
-	pendingActivities *sync.Map
+	workflows  registry[*protos.WorkflowResponse]
+	activities registry[*protos.ActivityResponse]
 }
 
 func NewTasksBackend() *TasksBackend {
 	return &TasksBackend{
-		pendingWorkflows:  &sync.Map{},
-		pendingActivities: &sync.Map{},
+		workflows:  newRegistry[*protos.WorkflowResponse](),
+		activities: newRegistry[*protos.ActivityResponse](),
 	}
 }
 
 func (be *TasksBackend) CompleteActivityTask(ctx context.Context, response *protos.ActivityResponse) error {
-	if be.deletePendingActivityTask(response.GetInstanceId(), response.GetTaskId(), response) {
-		return nil
+	key := backend.GetActivityExecutionKey(response.GetInstanceId(), response.GetTaskId())
+	found, discarded := be.activities.deliver(key, response)
+	switch {
+	case discarded:
+		return fmt.Errorf("activity task %s: %w", key, ErrAmbiguousCompletion)
+	case !found:
+		return api.NewUnknownTaskIDError(response.GetInstanceId(), response.GetTaskId())
 	}
-
-	return api.NewUnknownTaskIDError(response.GetInstanceId(), response.GetTaskId())
+	return nil
 }
 
 func (be *TasksBackend) CancelActivityTask(ctx context.Context, instanceID api.InstanceID, taskID int32) error {
-	if be.deletePendingActivityTask(string(instanceID), taskID, nil) {
+	if found, _ := be.activities.deliver(backend.GetActivityExecutionKey(string(instanceID), taskID), nil); found {
 		return nil
 	}
 	return api.NewUnknownTaskIDError(instanceID.String(), taskID)
 }
 
 func (be *TasksBackend) WaitForActivityCompletion(request *protos.ActivityRequest) func(context.Context) (*protos.ActivityResponse, error) {
-	key := backend.GetActivityExecutionKey(request.GetWorkflowInstance().GetInstanceId(), request.GetTaskId())
-	pending := &pendingActivity{
-		response: nil,
-		complete: make(chan struct{}, 1),
-	}
-	be.pendingActivities.Store(key, pending)
-
-	return func(ctx context.Context) (*protos.ActivityResponse, error) {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-pending.complete:
-			if pending.response == nil {
-				return nil, api.ErrTaskCancelled
-			}
-			return pending.response, nil
-		}
-	}
+	return be.activities.wait(backend.GetActivityExecutionKey(request.GetWorkflowInstance().GetInstanceId(), request.GetTaskId()))
 }
 
 func (be *TasksBackend) CompleteWorkflowTask(ctx context.Context, response *protos.WorkflowResponse) error {
-	if be.deletePendingWorkflow(response.GetInstanceId(), response) {
-		return nil
+	found, discarded := be.workflows.deliver(response.GetInstanceId(), response)
+	switch {
+	case discarded:
+		return fmt.Errorf("workflow task %s: %w", response.GetInstanceId(), ErrAmbiguousCompletion)
+	case !found:
+		return api.NewUnknownInstanceIDError(response.GetInstanceId())
 	}
-	return api.NewUnknownInstanceIDError(response.GetInstanceId())
+	return nil
 }
 
 func (be *TasksBackend) CancelWorkflowTask(ctx context.Context, instanceID api.InstanceID) error {
-	if be.deletePendingWorkflow(string(instanceID), nil) {
+	if found, _ := be.workflows.deliver(string(instanceID), nil); found {
 		return nil
 	}
 	return api.NewUnknownInstanceIDError(instanceID.String())
 }
 
 func (be *TasksBackend) WaitForWorkflowTaskCompletion(request *protos.WorkflowRequest) func(context.Context) (*protos.WorkflowResponse, error) {
-	pending := &pendingWorkflow{
-		response: nil,
-		complete: make(chan struct{}, 1),
-	}
-	be.pendingWorkflows.Store(request.GetInstanceId(), pending)
+	return be.workflows.wait(request.GetInstanceId())
+}
 
-	return func(ctx context.Context) (*protos.WorkflowResponse, error) {
+// ErrAmbiguousCompletion is returned for a completion that arrives while
+// several executions of its task are pending. It cannot be matched to one of
+// them, so they are all aborted and re-run.
+var ErrAmbiguousCompletion = errors.New("several executions of the task are pending and the completion cannot be matched to one of them; they were aborted and will be re-run")
+
+type waiter[R any] struct {
+	response R
+	err      error
+	complete chan struct{}
+}
+
+// registry holds every pending waiter per task key. Several executions of the
+// same task can be pending at once, for example when an instance is recreated
+// while its previous run's activity is still running. Keeping only the latest
+// would strand the others until their context ends.
+type registry[R comparable] struct {
+	lock  sync.Mutex
+	byKey map[string][]*waiter[R]
+}
+
+func newRegistry[R comparable]() registry[R] {
+	return registry[R]{byKey: make(map[string][]*waiter[R])}
+}
+
+func (r *registry[R]) wait(key string) func(context.Context) (R, error) {
+	w := &waiter[R]{complete: make(chan struct{})}
+
+	r.lock.Lock()
+	r.byKey[key] = append(r.byKey[key], w)
+	r.lock.Unlock()
+
+	return func(ctx context.Context) (R, error) {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-pending.complete:
-			if pending.response == nil {
-				return nil, api.ErrTaskCancelled
+			if !r.remove(key, w) {
+				// A delivery already took this waiter.
+				<-w.complete
+				return w.response, w.err
 			}
-			return pending.response, nil
+			var zero R
+			return zero, ctx.Err()
+		case <-w.complete:
+			return w.response, w.err
 		}
 	}
 }
 
-func (be *TasksBackend) deletePendingActivityTask(iid string, taskID int32, res *protos.ActivityResponse) bool {
-	key := backend.GetActivityExecutionKey(iid, taskID)
-	p, ok := be.pendingActivities.LoadAndDelete(key)
-	if !ok {
+func (r *registry[R]) remove(key string, w *waiter[R]) bool {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	if !slices.Contains(r.byKey[key], w) {
 		return false
 	}
-
-	// Note that res can be nil in case of certain failures
-	pending := p.(*pendingActivity)
-	pending.response = res
-	close(pending.complete)
+	waiters := slices.DeleteFunc(r.byKey[key], func(c *waiter[R]) bool { return c == w })
+	if len(waiters) == 0 {
+		delete(r.byKey, key)
+	} else {
+		r.byKey[key] = waiters
+	}
 	return true
 }
 
-func (be *TasksBackend) deletePendingWorkflow(instanceID string, res *protos.WorkflowResponse) bool {
-	p, ok := be.pendingWorkflows.LoadAndDelete(instanceID)
-	if !ok {
-		return false
-	}
+// deliver completes every waiter for key. A nil response is a cancellation.
+// Responses carry no completion token, so a response cannot be matched to one
+// of several pending executions and they are all cancelled instead, with
+// discarded set.
+func (r *registry[R]) deliver(key string, res R) (found, discarded bool) {
+	r.lock.Lock()
+	waiters := r.byKey[key]
+	delete(r.byKey, key)
+	r.lock.Unlock()
 
-	// Note that res can be nil in case of certain failures
-	pending := p.(*pendingWorkflow)
-	pending.response = res
-	close(pending.complete)
-	return true
+	var zero R
+	var err error
+	if res != zero && len(waiters) > 1 {
+		discarded = true
+	}
+	if res == zero || discarded {
+		res, err = zero, api.ErrTaskCancelled
+	}
+	for _, w := range waiters {
+		w.response, w.err = res, err
+		close(w.complete)
+	}
+	return len(waiters) > 0, discarded
 }

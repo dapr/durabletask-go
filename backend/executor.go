@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,17 +26,6 @@ var emptyCompleteTaskResponse = &protos.CompleteTaskResponse{}
 
 var errShuttingDown error = status.Error(codes.Canceled, "shutting down")
 
-type pendingWorkflow struct {
-	instanceID api.InstanceID
-	streamID   string
-}
-
-type pendingActivity struct {
-	instanceID api.InstanceID
-	taskID     int32
-	streamID   string
-}
-
 type ExecuteOptions struct {
 	PropagatedHistory *protos.PropagatedHistory
 }
@@ -52,8 +40,8 @@ type grpcExecutor struct {
 	protos.UnimplementedTaskHubSidecarServiceServer
 
 	workItemQueue            chan *protos.WorkItem
-	pendingWorkflows         *sync.Map // map[api.InstanceID]*pendingWorkflow
-	pendingActivities        *sync.Map // map[string]*pendingActivity
+	pendingWorkflows         *pendingTasks
+	pendingActivities        *pendingTasks
 	backend                  Backend
 	logger                   Logger
 	onWorkItemConnection     func(context.Context) error
@@ -112,8 +100,8 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 		workItemQueue:     make(chan *protos.WorkItem),
 		backend:           be,
 		logger:            logger,
-		pendingWorkflows:  &sync.Map{},
-		pendingActivities: &sync.Map{},
+		pendingWorkflows:  newPendingTasks(),
+		pendingActivities: newPendingTasks(),
 	}
 
 	for _, opt := range opts {
@@ -127,8 +115,6 @@ func NewGrpcExecutor(be Backend, logger Logger, opts ...grpcExecutorOptions) (ex
 
 // ExecuteWorkflow implements Executor
 func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions) (*protos.WorkflowResponse, error) {
-	executor.pendingWorkflows.Store(iid, &pendingWorkflow{instanceID: iid})
-
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
 		ExecutionId:       executionID(oldEvents, newEvents),
@@ -142,6 +128,9 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 			WorkflowRequest: req,
 		},
 	}
+	waitCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	defer executor.pendingWorkflows.add(workItem, iid, 0, func() { cancel(api.ErrTaskCancelled) })()
 
 	wait := executor.backend.WaitForWorkflowTaskCompletion(req)
 
@@ -152,17 +141,15 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
+		_, _ = wait(ctx)
 		executor.logger.Warnf("%s: context canceled before dispatching workflow work item", iid)
 		return nil, fmt.Errorf("context canceled before dispatching workflow work item: %w", ctx.Err())
 	case executor.workItemQueue <- workItem:
 	}
 
-	resp, err := wait(ctx)
-
-	// this workflow is either completed or cancelled, but its no longer pending, delete it
-	executor.pendingWorkflows.Delete(iid)
+	resp, err := wait(waitCtx)
 	if err != nil {
-		if errors.Is(err, api.ErrTaskCancelled) {
+		if errors.Is(err, api.ErrTaskCancelled) || errors.Is(context.Cause(waitCtx), api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
 		}
 		executor.logger.Warnf("%s: failed before receiving workflow result", iid)
@@ -174,9 +161,6 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 
 // ExecuteActivity implements Executor
 func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions) (*protos.HistoryEvent, error) {
-	key := GetActivityExecutionKey(string(iid), e.EventId)
-	executor.pendingActivities.Store(key, &pendingActivity{instanceID: iid, taskID: e.EventId})
-
 	task := e.GetTaskScheduled()
 
 	req := &protos.ActivityRequest{
@@ -194,6 +178,9 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 			ActivityRequest: req,
 		},
 	}
+	waitCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	defer executor.pendingActivities.add(workItem, iid, e.EventId, func() { cancel(api.ErrTaskCancelled) })()
 
 	wait := executor.backend.WaitForActivityCompletion(req)
 
@@ -204,17 +191,15 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 	// In other words, this is always the external-stream path.
 	select {
 	case <-ctx.Done():
+		_, _ = wait(ctx)
 		executor.logger.Warnf("%s/%s#%d: context canceled before dispatching activity work item", iid, task.Name, e.EventId)
 		return nil, fmt.Errorf("context canceled before dispatching activity work item: %w", ctx.Err())
 	case executor.workItemQueue <- workItem:
 	}
 
-	resp, err := wait(ctx)
-
-	// this activity is either completed or cancelled, but its no longer pending, delete it
-	executor.pendingActivities.Delete(key)
+	resp, err := wait(waitCtx)
 	if err != nil {
-		if errors.Is(err, api.ErrTaskCancelled) {
+		if errors.Is(err, api.ErrTaskCancelled) || errors.Is(context.Cause(waitCtx), api.ErrTaskCancelled) {
 			return nil, errors.New("operation aborted")
 		}
 		executor.logger.Warnf("%s/%s#%d: failed before receiving activity result", iid, task.Name, e.EventId)
@@ -259,26 +244,18 @@ func (g *grpcExecutor) Shutdown(ctx context.Context) error {
 	close(g.workItemQueue)
 
 	// Iterate through all pending items and close them to unblock the goroutines waiting on this
-	g.pendingActivities.Range(func(_, value any) bool {
-		p, ok := value.(*pendingActivity)
-		if ok {
-			err := g.backend.CancelActivityTask(ctx, p.instanceID, p.taskID)
-			if err != nil {
-				g.logger.Warnf("failed to cancel activity task: %v", err)
-			}
+	for _, p := range g.pendingActivities.all() {
+		err := g.backend.CancelActivityTask(ctx, p.instanceID, p.taskID)
+		if err != nil {
+			g.logger.Warnf("failed to cancel activity task: %v", err)
 		}
-		return true
-	})
-	g.pendingWorkflows.Range(func(_, value any) bool {
-		p, ok := value.(*pendingWorkflow)
-		if ok {
-			err := g.backend.CancelWorkflowTask(ctx, p.instanceID)
-			if err != nil {
-				g.logger.Warnf("failed to cancel workflow task: %v", err)
-			}
+	}
+	for _, p := range g.pendingWorkflows.all() {
+		err := g.backend.CancelWorkflowTask(ctx, p.instanceID)
+		if err != nil {
+			g.logger.Warnf("failed to cancel workflow task: %v", err)
 		}
-		return true
-	})
+	}
 
 	return nil
 }
@@ -311,27 +288,12 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 
 	defer func() {
 		// If there's any pending activity left, remove them
-		g.pendingActivities.Range(func(key, value any) bool {
-			if p, ok := value.(*pendingActivity); ok && p.streamID == streamID {
-				g.logger.Debugf("cleaning up pending activity: %s", key)
-				err := g.backend.CancelActivityTask(context.Background(), p.instanceID, p.taskID)
-				if err != nil {
-					g.logger.Warnf("failed to cancel activity task: %v", err)
-				}
-				g.pendingActivities.Delete(key)
-			}
-			return true
-		})
-		g.pendingWorkflows.Range(func(key, value any) bool {
-			if p, ok := value.(*pendingWorkflow); ok && p.streamID == streamID {
-				g.logger.Debugf("cleaning up pending workflow: %s", key)
-				err := g.backend.CancelWorkflowTask(context.Background(), p.instanceID)
-				if err != nil {
-					g.logger.Warnf("failed to cancel workflow task: %v", err)
-				}
-			}
-			return true
-		})
+		for _, cancel := range g.pendingActivities.onStream(streamID) {
+			cancel()
+		}
+		for _, cancel := range g.pendingWorkflows.onStream(streamID) {
+			cancel()
+		}
 		if err := g.executeOnWorkItemDisconnect(stream.Context()); err != nil {
 			g.logger.Warnf("error while disconnecting work item stream: %v", err)
 		}
@@ -361,21 +323,11 @@ func (g *grpcExecutor) GetWorkItems(req *protos.GetWorkItemsRequest, stream prot
 				continue
 			}
 
-			switch x := wi.Request.(type) {
+			switch wi.Request.(type) {
 			case *protos.WorkItem_WorkflowRequest:
-				key := x.WorkflowRequest.GetInstanceId()
-				if value, ok := g.pendingWorkflows.Load(api.InstanceID(key)); ok {
-					if p, ok := value.(*pendingWorkflow); ok {
-						p.streamID = streamID
-					}
-				}
+				g.pendingWorkflows.dispatched(wi, streamID)
 			case *protos.WorkItem_ActivityRequest:
-				key := GetActivityExecutionKey(x.ActivityRequest.GetWorkflowInstance().GetInstanceId(), x.ActivityRequest.GetTaskId())
-				if value, ok := g.pendingActivities.Load(key); ok {
-					if p, ok := value.(*pendingActivity); ok {
-						p.streamID = streamID
-					}
-				}
+				g.pendingActivities.dispatched(wi, streamID)
 			}
 
 			if err := g.sendWorkItem(stream, wi, ch, errCh); err != nil {
