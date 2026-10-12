@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -44,7 +45,9 @@ func TestMain(m *testing.M) {
 	sqliteOptions := sqlite.NewSqliteOptions("")
 	logger := backend.DefaultLogger()
 	be := sqlite.NewSqliteBackend(sqliteOptions, logger)
-	grpcServer := grpc.NewServer()
+	// Like daprd with a raised max body size, accept requests over gRPC's
+	// 4MB default so tests can produce work items larger than that.
+	grpcServer := grpc.NewServer(grpc.MaxRecvMsgSize(math.MaxInt32))
 	// A short health ping interval makes every test in the suite also check
 	// that the client ignores pings interleaved with real work items.
 	grpcExecutor, registerFn := backend.NewGrpcExecutor(be, logger, backend.WithHealthPingInterval(50*time.Millisecond))
@@ -789,45 +792,36 @@ func Test_Workflow_Select_ErrTaskNotSelectableIsCheckable(t *testing.T) {
 	assert.Equal(t, `"ok"`, metadata.Output.Value)
 }
 
-// Test_Grpc_WorkItemLargerThanDefaultMessageSize fans out activities whose
-// results add up to more than gRPC's 4MB default receive limit, so the
-// fan-in turn's work item is larger than that. The server bounds what it
-// sends (daprd: its max body size); a worker that keeps the client default
-// drops its work item stream on every redelivery and no workflow on it
-// makes progress.
+// Test_Grpc_WorkItemLargerThanDefaultMessageSize returns an activity result
+// larger than gRPC's 4MB default receive limit, so the next workflow work
+// item carries a single new event larger than that, whatever stateful history
+// omits. The server bounds what it sends (daprd: its max body size); a worker
+// that keeps the client default drops its work item stream on every
+// redelivery and no workflow on it makes progress.
 func Test_Grpc_WorkItemLargerThanDefaultMessageSize(t *testing.T) {
-	const activities = 5
-	payload := strings.Repeat("x", 1<<20)
+	payload := strings.Repeat("x", 5<<20)
 
 	r := task.NewTaskRegistry()
-	require.NoError(t, r.AddWorkflowN("LargeFanOut", func(ctx *task.WorkflowContext) (any, error) {
-		tasks := make([]task.Task, activities)
-		for i := range tasks {
-			tasks[i] = ctx.CallActivity("Megabyte")
+	require.NoError(t, r.AddWorkflowN("LargeResult", func(ctx *task.WorkflowContext) (any, error) {
+		var out string
+		if err := ctx.CallActivity("FiveMegabytes").Await(&out); err != nil {
+			return nil, err
 		}
-		total := 0
-		for _, tk := range tasks {
-			var out string
-			if err := tk.Await(&out); err != nil {
-				return nil, err
-			}
-			total += len(out)
-		}
-		return total, nil
+		return len(out), nil
 	}))
-	require.NoError(t, r.AddActivityN("Megabyte", func(task.ActivityContext) (any, error) {
+	require.NoError(t, r.AddActivityN("FiveMegabytes", func(task.ActivityContext) (any, error) {
 		return payload, nil
 	}))
 
 	cancelListener := startGrpcListener(t, r)
 	defer cancelListener()
 
-	id, err := grpcClient.ScheduleNewWorkflow(ctx, "LargeFanOut")
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "LargeResult")
 	require.NoError(t, err)
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 10*time.Second)
 	defer cancelTimeout()
 	metadata, err := grpcClient.WaitForWorkflowCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
 	require.NoError(t, err, "a work item over 4MB must reach the worker")
 	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
-	assert.Equal(t, strconv.Itoa(activities*len(payload)), metadata.Output.Value)
+	assert.Equal(t, strconv.Itoa(len(payload)), metadata.Output.Value)
 }
