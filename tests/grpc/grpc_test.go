@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -786,4 +787,47 @@ func Test_Workflow_Select_ErrTaskNotSelectableIsCheckable(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.RuntimeStatus)
 	assert.Equal(t, `"ok"`, metadata.Output.Value)
+}
+
+// Test_Grpc_WorkItemLargerThanDefaultMessageSize fans out activities whose
+// results add up to more than gRPC's 4MB default receive limit, so the
+// fan-in turn's work item is larger than that. The server bounds what it
+// sends (daprd: its max body size); a worker that keeps the client default
+// drops its work item stream on every redelivery and no workflow on it
+// makes progress.
+func Test_Grpc_WorkItemLargerThanDefaultMessageSize(t *testing.T) {
+	const activities = 5
+	payload := strings.Repeat("x", 1<<20)
+
+	r := task.NewTaskRegistry()
+	require.NoError(t, r.AddWorkflowN("LargeFanOut", func(ctx *task.WorkflowContext) (any, error) {
+		tasks := make([]task.Task, activities)
+		for i := range tasks {
+			tasks[i] = ctx.CallActivity("Megabyte")
+		}
+		total := 0
+		for _, tk := range tasks {
+			var out string
+			if err := tk.Await(&out); err != nil {
+				return nil, err
+			}
+			total += len(out)
+		}
+		return total, nil
+	}))
+	require.NoError(t, r.AddActivityN("Megabyte", func(task.ActivityContext) (any, error) {
+		return payload, nil
+	}))
+
+	cancelListener := startGrpcListener(t, r)
+	defer cancelListener()
+
+	id, err := grpcClient.ScheduleNewWorkflow(ctx, "LargeFanOut")
+	require.NoError(t, err)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelTimeout()
+	metadata, err := grpcClient.WaitForWorkflowCompletion(timeoutCtx, id, api.WithFetchPayloads(true))
+	require.NoError(t, err, "a work item over 4MB must reach the worker")
+	assert.True(t, api.WorkflowMetadataIsComplete(metadata))
+	assert.Equal(t, strconv.Itoa(activities*len(payload)), metadata.Output.Value)
 }

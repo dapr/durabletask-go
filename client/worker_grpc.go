@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -97,7 +99,11 @@ func (c *TaskHubGrpcClient) StartWorkItemListener(ctx context.Context, r *task.T
 		streamCtx, cancel := context.WithCancel(ctx)
 		streamCancel = cancel
 
-		stream, err = c.client.GetWorkItems(streamCtx, &req)
+		// The sidecar bounds the work items it sends (daprd: its max body
+		// size, which applications raise for large payloads). gRPC's 4MB
+		// default receive limit would reject anything larger and drop the
+		// stream on every redelivery, stalling every workflow on this worker.
+		stream, err = c.client.GetWorkItems(streamCtx, &req, grpc.MaxCallRecvMsgSize(math.MaxInt32))
 		if err != nil {
 			cancel()
 			return fmt.Errorf("failed to get work item stream: %w", err)
