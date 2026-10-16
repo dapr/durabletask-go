@@ -69,9 +69,14 @@ type grpcExecutor struct {
 	streamSendTimeout        *time.Duration
 	healthPingInterval       time.Duration
 	skipWaitForInstanceStart bool
+	skipWaitForStateChange   bool
 }
 
 type grpcExecutorOptions func(g *grpcExecutor)
+
+// GrpcExecutorOption configures NewGrpcExecutor. It is exported so that
+// callers can build the option list conditionally.
+type GrpcExecutorOption = grpcExecutorOptions
 
 // IsDurableTaskGrpcRequest returns true if the specified gRPC method name represents an operation
 // that is compatible with the gRPC executor.
@@ -123,6 +128,17 @@ func WithHealthPingInterval(d time.Duration) grpcExecutorOptions {
 func WithSkipWaitForInstanceStart() grpcExecutorOptions {
 	return func(g *grpcExecutor) {
 		g.skipWaitForInstanceStart = true
+	}
+}
+
+// WithSkipWaitForStateChange makes TerminateInstance, SuspendInstance and
+// ResumeInstance return once the backend has accepted the request, instead
+// of waiting for the instance to reach the requested state. Use it when the
+// backend may accept a request it cannot apply yet, such as one held until a
+// worker connects.
+func WithSkipWaitForStateChange() grpcExecutorOptions {
+	return func(g *grpcExecutor) {
+		g.skipWaitForStateChange = true
 	}
 }
 
@@ -844,6 +860,10 @@ func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.Termin
 		return nil, fmt.Errorf("failed to submit termination request: %w", err)
 	}
 
+	if g.skipWaitForStateChange {
+		return &protos.TerminateResponse{}, nil
+	}
+
 	_, err := g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId, Router: req.GetRouter()})
 
 	return &protos.TerminateResponse{}, err
@@ -867,6 +887,10 @@ func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendR
 	}
 	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, err
+	}
+
+	if g.skipWaitForStateChange {
+		return &protos.SuspendResponse{}, nil
 	}
 
 	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
@@ -898,6 +922,10 @@ func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeReq
 	}
 	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
 		return nil, err
+	}
+
+	if g.skipWaitForStateChange {
+		return &protos.ResumeResponse{}, nil
 	}
 
 	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
