@@ -18,7 +18,26 @@ var (
 	ErrNotInitialized        = errors.New("backend not initialized")
 	ErrWorkItemLockLost      = errors.New("lock on work-item was lost")
 	ErrBackendAlreadyStarted = errors.New("backend is already started")
+
+	// ErrOperationStaged is returned by CreateWorkflowInstance,
+	// AddNewWorkflowEvent and RerunWorkflowFromEvent when the backend accepted
+	// and stored the operation but cannot apply it yet, for example because no
+	// worker can run the instance until it moves elsewhere. Callers treat it
+	// as success. The executor does not wait for the instance to start or to
+	// change state after a staged operation, as it would not until the
+	// operation is applied. RerunWorkflowFromEvent returns the new instance ID
+	// along with it.
+	ErrOperationStaged = errors.New("operation staged")
 )
+
+// isStaged reports whether err says the backend staged the operation, and
+// returns err unless it did.
+func isStaged(err error) (bool, error) {
+	if errors.Is(err, ErrOperationStaged) {
+		return true, nil
+	}
+	return false, err
+}
 
 type (
 	HistoryEvent                  = protos.HistoryEvent
@@ -64,15 +83,22 @@ type Backend interface {
 
 	// CreateWorkflowInstance creates a new workflow instance with a request that
 	// wraps an ExecutionStarted history event.
+	//
+	// Returns [ErrOperationStaged] if the instance was stored but cannot start yet.
 	CreateWorkflowInstance(context.Context, *CreateWorkflowInstanceRequest) error
 
 	// RerunWorkflowFromEvent reruns a workflow from a specific event ID of some
 	// source instance ID. If not given, a random new instance ID will be
 	// generated and returned. Can optionally give a new input to the target
 	// event ID to rerun from.
+	//
+	// Returns the new instance ID with [ErrOperationStaged] if the rerun was
+	// stored but cannot start yet.
 	RerunWorkflowFromEvent(ctx context.Context, req *protos.RerunWorkflowFromEventRequest) (api.InstanceID, error)
 
 	// AddNewEvent adds a new workflow event to the specified workflow instance.
+	//
+	// Returns [ErrOperationStaged] if the event was stored but cannot be applied yet.
 	AddNewWorkflowEvent(context.Context, api.InstanceID, *HistoryEvent) error
 
 	// NextWorkflowWorkItem blocks and returns the next workflow work
