@@ -101,50 +101,15 @@ func TestStagedResults(t *testing.T) {
 	}
 }
 
-func TestStagedOptions(t *testing.T) {
-	for _, staged := range []bool{true, false} {
-		c := newStagedClient(t, staged)
-		ctx := t.Context()
+// An option that fails must fail the start, not start the workflow without
+// the options that follow it.
+func TestScheduleNewWorkflowOptionError(t *testing.T) {
+	c := newStagedClient(t, false)
 
-		// Start each destination at the opposite value, to see the call set it.
-		dst := func() *bool { v := !staged; return &v }
+	failing := func(*protos.CreateInstanceRequest) error { return errors.New("bad option") }
+	_, err := c.ScheduleNewWorkflow(t.Context(), "wf", failing, api.WithInstanceID("abc"))
+	require.ErrorContains(t, err, "bad option")
 
-		got := dst()
-		id, err := c.ScheduleNewWorkflow(ctx, "wf", api.WithInstanceID("abc"), api.WithStartStaged(got))
-		require.NoError(t, err)
-		assert.Equal(t, api.InstanceID("abc"), id)
-		assert.Equal(t, staged, *got)
-
-		got = dst()
-		require.NoError(t, c.RaiseEvent(ctx, "abc", "event", api.WithRaiseEventStaged(got)))
-		assert.Equal(t, staged, *got)
-
-		got = dst()
-		require.NoError(t, c.TerminateWorkflow(ctx, "abc", api.WithTerminateStaged(got)))
-		assert.Equal(t, staged, *got)
-
-		got = dst()
-		require.NoError(t, c.SuspendWorkflow(ctx, "abc", "", api.WithSuspendStaged(got)))
-		assert.Equal(t, staged, *got)
-
-		got = dst()
-		require.NoError(t, c.ResumeWorkflow(ctx, "abc", "", api.WithResumeStaged(got)))
-		assert.Equal(t, staged, *got)
-
-		got = dst()
-		newID, err := c.RerunWorkflowFromEvent(ctx, "abc", 0, api.WithRerunNewInstanceID("def"), api.WithRerunStaged(got))
-		require.NoError(t, err)
-		assert.Equal(t, api.InstanceID("def"), newID)
-		assert.Equal(t, staged, *got)
-	}
-}
-
-func TestStagedOptionNotSetOnError(t *testing.T) {
-	c := newStagedClient(t, true)
-
-	staged := false
-	failing := func(*protos.TerminateRequest) error { return errors.New("bad option") }
-	err := c.TerminateWorkflow(t.Context(), "abc", api.WithTerminateStaged(&staged), failing)
+	_, err = c.ScheduleNewWorkflow(t.Context(), "wf", api.WithInput(make(chan int)), api.WithInstanceID("abc"))
 	require.Error(t, err)
-	assert.False(t, staged)
 }

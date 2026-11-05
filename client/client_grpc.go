@@ -14,7 +14,6 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend"
-	"github.com/dapr/durabletask-go/internal/staged"
 	"github.com/dapr/kit/ptr"
 )
 
@@ -99,8 +98,11 @@ func (c *TaskHubGrpcClient) ScheduleNewWorkflow(ctx context.Context, workflow st
 // ScheduleNewWorkflow, and also reports whether the sidecar staged the start.
 func (c *TaskHubGrpcClient) ScheduleNewWorkflowWithResult(ctx context.Context, workflow string, opts ...api.NewWorkflowOptions) (*api.ScheduleResult, error) {
 	req := &protos.CreateInstanceRequest{Name: workflow}
-	// Option errors are ignored here, as ScheduleNewWorkflow always has.
-	sink, _ := staged.Configure(req, opts)
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return nil, fmt.Errorf("failed to configure create instance request: %w", err)
+		}
+	}
 	if req.InstanceId == "" {
 		req.InstanceId = uuid.NewString()
 	}
@@ -124,7 +126,6 @@ func (c *TaskHubGrpcClient) ScheduleNewWorkflowWithResult(ctx context.Context, w
 		}
 		return nil, fmt.Errorf("failed to start workflow: %w", err)
 	}
-	sink.Report(resp.GetStaged())
 	return &api.ScheduleResult{
 		InstanceID: api.InstanceID(resp.GetInstanceId()),
 		Staged:     resp.GetStaged(),
@@ -216,9 +217,10 @@ func (c *TaskHubGrpcClient) TerminateWorkflow(ctx context.Context, id api.Instan
 // and also reports whether the sidecar staged the termination.
 func (c *TaskHubGrpcClient) TerminateWorkflowWithResult(ctx context.Context, id api.InstanceID, opts ...api.TerminateOptions) (*api.TerminateResult, error) {
 	req := &protos.TerminateRequest{InstanceId: string(id), Recursive: true}
-	sink, err := staged.Configure(req, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure termination request: %w", err)
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return nil, fmt.Errorf("failed to configure termination request: %w", err)
+		}
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return nil, err
@@ -231,7 +233,6 @@ func (c *TaskHubGrpcClient) TerminateWorkflowWithResult(ctx context.Context, id 
 		}
 		return nil, fmt.Errorf("failed to terminate instance: %w", err)
 	}
-	sink.Report(resp.GetStaged())
 	return &api.TerminateResult{Staged: resp.GetStaged()}, nil
 }
 
@@ -245,9 +246,10 @@ func (c *TaskHubGrpcClient) RaiseEvent(ctx context.Context, id api.InstanceID, e
 // whether the sidecar staged the event.
 func (c *TaskHubGrpcClient) RaiseEventWithResult(ctx context.Context, id api.InstanceID, eventName string, opts ...api.RaiseEventOptions) (*api.RaiseEventResult, error) {
 	req := &protos.RaiseEventRequest{InstanceId: string(id), Name: eventName}
-	sink, err := staged.Configure(req, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure raise event request: %w", err)
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return nil, fmt.Errorf("failed to configure raise event request: %w", err)
+		}
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return nil, err
@@ -260,7 +262,6 @@ func (c *TaskHubGrpcClient) RaiseEventWithResult(ctx context.Context, id api.Ins
 		}
 		return nil, fmt.Errorf("failed to raise event: %w", err)
 	}
-	sink.Report(resp.GetStaged())
 	return &api.RaiseEventResult{Staged: resp.GetStaged()}, nil
 }
 
@@ -279,9 +280,10 @@ func (c *TaskHubGrpcClient) SuspendWorkflowWithResult(ctx context.Context, id ap
 		InstanceId: string(id),
 		Reason:     wrapperspb.String(reason),
 	}
-	sink, err := staged.Configure(req, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure suspend request: %w", err)
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return nil, fmt.Errorf("failed to configure suspend request: %w", err)
+		}
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return nil, err
@@ -293,7 +295,6 @@ func (c *TaskHubGrpcClient) SuspendWorkflowWithResult(ctx context.Context, id ap
 		}
 		return nil, fmt.Errorf("failed to suspend workflow: %w", err)
 	}
-	sink.Report(resp.GetStaged())
 	return &api.SuspendResult{Staged: resp.GetStaged()}, nil
 }
 
@@ -310,9 +311,10 @@ func (c *TaskHubGrpcClient) ResumeWorkflowWithResult(ctx context.Context, id api
 		InstanceId: string(id),
 		Reason:     wrapperspb.String(reason),
 	}
-	sink, err := staged.Configure(req, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure resume request: %w", err)
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return nil, fmt.Errorf("failed to configure resume request: %w", err)
+		}
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return nil, err
@@ -324,7 +326,6 @@ func (c *TaskHubGrpcClient) ResumeWorkflowWithResult(ctx context.Context, id api
 		}
 		return nil, fmt.Errorf("failed to resume workflow: %w", err)
 	}
-	sink.Report(resp.GetStaged())
 	return &api.ResumeResult{Staged: resp.GetStaged()}, nil
 }
 
@@ -376,9 +377,10 @@ func (c *TaskHubGrpcClient) RerunWorkflowFromEventWithResult(ctx context.Context
 		SourceInstanceID: string(id),
 		EventID:          eventID,
 	}
-	sink, err := staged.Configure(req, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure rerun request: %w", err)
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return nil, fmt.Errorf("failed to configure rerun request: %w", err)
+		}
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return nil, err
@@ -392,7 +394,6 @@ func (c *TaskHubGrpcClient) RerunWorkflowFromEventWithResult(ctx context.Context
 		return nil, err
 	}
 
-	sink.Report(resp.GetStaged())
 	return &api.RerunResult{
 		NewInstanceID: api.InstanceID(resp.GetNewInstanceID()),
 		Staged:        resp.GetStaged(),
