@@ -171,3 +171,40 @@ func WithPurgeAppID(appID string) PurgeOptions {
 func WithRerunAppID(appID string) RerunOptions {
 	return RerunOptions(api.WithRerunAppID(appID))
 }
+
+// WithStartStaged sets *dst to whether the sidecar staged the start, that is
+// accepted it with no workflow worker connected, to run once one connects. It
+// is set once the call returns without an error.
+func WithStartStaged(dst *bool) NewWorkflowOptions {
+	return NewWorkflowOptions(api.WithStartStaged(dst))
+}
+
+// WithRaiseEventStaged sets *dst to whether the sidecar staged the event. It
+// is set once the call returns without an error.
+func WithRaiseEventStaged(dst *bool) RaiseEventOptions {
+	return RaiseEventOptions(api.WithRaiseEventStaged(dst))
+}
+
+// WithTerminateStaged sets *dst to whether the sidecar staged the
+// termination. It is set once the call returns without an error.
+func WithTerminateStaged(dst *bool) TerminateOptions {
+	return TerminateOptions(api.WithTerminateStaged(dst))
+}
+
+// WithSuspendStaged sets *dst to whether the sidecar staged the suspension.
+// It is set once the call returns without an error.
+func WithSuspendStaged(dst *bool) SuspendOptions {
+	return SuspendOptions(api.WithSuspendStaged(dst))
+}
+
+// WithResumeStaged sets *dst to whether the sidecar staged the resumption. It
+// is set once the call returns without an error.
+func WithResumeStaged(dst *bool) ResumeOptions {
+	return ResumeOptions(api.WithResumeStaged(dst))
+}
+
+// WithRerunStaged sets *dst to whether the sidecar staged the rerun. It is set
+// once the call returns without an error.
+func WithRerunStaged(dst *bool) RerunOptions {
+	return RerunOptions(api.WithRerunStaged(dst))
+}

@@ -42,6 +42,21 @@ func (c *Client) ScheduleWorkflow(ctx context.Context, workflow string, opts ...
 	return string(id), err
 }
 
+// ScheduleWorkflowWithResult schedules a new workflow instance like
+// ScheduleWorkflow, and also reports whether the sidecar staged the start.
+func (c *Client) ScheduleWorkflowWithResult(ctx context.Context, workflow string, opts ...NewWorkflowOptions) (*ScheduleResult, error) {
+	oopts := make([]api.NewWorkflowOptions, len(opts))
+	for i, o := range opts {
+		oopts[i] = api.NewWorkflowOptions(o)
+	}
+
+	res, err := c.thgc.ScheduleNewWorkflowWithResult(ctx, workflow, oopts...)
+	if err != nil {
+		return nil, err
+	}
+	return &ScheduleResult{InstanceID: string(res.InstanceID), Staged: res.Staged}, nil
+}
+
 // FetchWorkflowMetadata fetches metadata for the specified workflow from the
 // configured task hub.
 //
@@ -96,6 +111,16 @@ func (c *Client) TerminateWorkflow(ctx context.Context, id string, opts ...Termi
 	return c.thgc.TerminateWorkflow(ctx, api.InstanceID(id), toops...)
 }
 
+// TerminateWorkflowWithResult terminates a workflow like TerminateWorkflow,
+// and also reports whether the sidecar staged the termination.
+func (c *Client) TerminateWorkflowWithResult(ctx context.Context, id string, opts ...TerminateOptions) (*TerminateResult, error) {
+	toops := make([]api.TerminateOptions, len(opts))
+	for i, o := range opts {
+		toops[i] = api.TerminateOptions(o)
+	}
+	return c.thgc.TerminateWorkflowWithResult(ctx, api.InstanceID(id), toops...)
+}
+
 // RaiseEvent sends an asynchronous event notification to a waiting workflow.
 func (c *Client) RaiseEvent(ctx context.Context, id, eventName string, opts ...RaiseEventOptions) error {
 	oops := make([]api.RaiseEventOptions, len(opts))
@@ -103,6 +128,16 @@ func (c *Client) RaiseEvent(ctx context.Context, id, eventName string, opts ...R
 		oops[i] = api.RaiseEventOptions(o)
 	}
 	return c.thgc.RaiseEvent(ctx, api.InstanceID(id), eventName, oops...)
+}
+
+// RaiseEventWithResult raises an event like RaiseEvent, and also reports
+// whether the sidecar staged the event.
+func (c *Client) RaiseEventWithResult(ctx context.Context, id, eventName string, opts ...RaiseEventOptions) (*RaiseEventResult, error) {
+	oops := make([]api.RaiseEventOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.RaiseEventOptions(o)
+	}
+	return c.thgc.RaiseEventWithResult(ctx, api.InstanceID(id), eventName, oops...)
 }
 
 // SuspendWorkflow suspends an workflow instance, halting processing of its
@@ -118,6 +153,16 @@ func (c *Client) SuspendWorkflow(ctx context.Context, id, reason string, opts ..
 	return c.thgc.SuspendWorkflow(ctx, api.InstanceID(id), reason, oops...)
 }
 
+// SuspendWorkflowWithResult suspends a workflow like SuspendWorkflow, and also
+// reports whether the sidecar staged the suspension.
+func (c *Client) SuspendWorkflowWithResult(ctx context.Context, id, reason string, opts ...SuspendOptions) (*SuspendResult, error) {
+	oops := make([]api.SuspendOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.SuspendOptions(o)
+	}
+	return c.thgc.SuspendWorkflowWithResult(ctx, api.InstanceID(id), reason, oops...)
+}
+
 // ResumeWorkflow resumes a workflow instance that was previously
 // suspended.
 func (c *Client) ResumeWorkflow(ctx context.Context, id, reason string, opts ...ResumeOptions) error {
@@ -126,6 +171,16 @@ func (c *Client) ResumeWorkflow(ctx context.Context, id, reason string, opts ...
 		oops[i] = api.ResumeOptions(o)
 	}
 	return c.thgc.ResumeWorkflow(ctx, api.InstanceID(id), reason, oops...)
+}
+
+// ResumeWorkflowWithResult resumes a workflow like ResumeWorkflow, and also
+// reports whether the sidecar staged the resumption.
+func (c *Client) ResumeWorkflowWithResult(ctx context.Context, id, reason string, opts ...ResumeOptions) (*ResumeResult, error) {
+	oops := make([]api.ResumeOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.ResumeOptions(o)
+	}
+	return c.thgc.ResumeWorkflowWithResult(ctx, api.InstanceID(id), reason, oops...)
 }
 
 // PurgeWorkflowState deletes the state of the specified workflow instance.
@@ -151,6 +206,21 @@ func (c *Client) RerunWorkflowFromEvent(ctx context.Context, id string, eventID 
 	}
 	newID, err := c.thgc.RerunWorkflowFromEvent(ctx, api.InstanceID(id), eventID, oops...)
 	return string(newID), err
+}
+
+// RerunWorkflowFromEventWithResult reruns a workflow like
+// RerunWorkflowFromEvent, and also reports whether the sidecar staged the
+// rerun.
+func (c *Client) RerunWorkflowFromEventWithResult(ctx context.Context, id string, eventID uint32, opts ...RerunOptions) (*RerunResult, error) {
+	oops := make([]api.RerunOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.RerunOptions(o)
+	}
+	res, err := c.thgc.RerunWorkflowFromEventWithResult(ctx, api.InstanceID(id), eventID, oops...)
+	if err != nil {
+		return nil, err
+	}
+	return &RerunResult{NewInstanceID: string(res.NewInstanceID), Staged: res.Staged}, nil
 }
 
 func (c *Client) ListInstanceIDs(ctx context.Context, opts ...ListInstanceIDsOptions) (*ListInstanceIDsResponse, error) {

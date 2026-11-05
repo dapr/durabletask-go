@@ -14,6 +14,7 @@ import (
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
+	"github.com/dapr/durabletask-go/internal/staged"
 )
 
 type TaskHubClient interface {
@@ -42,10 +43,10 @@ func NewTaskHubClient(be Backend) TaskHubClient {
 func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interface{}, opts ...api.NewWorkflowOptions) (api.InstanceID, error) {
 	name := helpers.GetTaskFunctionName(workflow)
 	req := &protos.CreateInstanceRequest{Name: name}
-	for _, configure := range opts {
-		if err := configure(req); err != nil {
-			return api.EmptyInstanceID, fmt.Errorf("failed to configure create instance request: %w", err)
-		}
+	// This client never stages an operation, so it leaves any staged
+	// destination at false.
+	if _, err := staged.Configure(req, opts); err != nil {
+		return api.EmptyInstanceID, fmt.Errorf("failed to configure create instance request: %w", err)
 	}
 	if req.InstanceId == "" {
 		u, err := uuid.NewRandom()
@@ -154,10 +155,10 @@ func fetchRequest(id api.InstanceID, opts []api.FetchWorkflowMetadataOptions) (*
 // dequeue the termination event before the workflow will be terminated.
 func (c *backendClient) TerminateWorkflow(ctx context.Context, id api.InstanceID, opts ...api.TerminateOptions) error {
 	req := &protos.TerminateRequest{InstanceId: string(id), Recursive: true}
-	for _, configure := range opts {
-		if err := configure(req); err != nil {
-			return fmt.Errorf("failed to configure termination request: %w", err)
-		}
+	// This client never stages an operation, so it leaves any staged
+	// destination at false.
+	if _, err := staged.Configure(req, opts); err != nil {
+		return fmt.Errorf("failed to configure termination request: %w", err)
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return err
@@ -189,10 +190,10 @@ func (c *backendClient) TerminateWorkflow(ctx context.Context, id api.InstanceID
 // Raised events for a completed or non-existent workflow instance will be silently discarded.
 func (c *backendClient) RaiseEvent(ctx context.Context, id api.InstanceID, eventName string, opts ...api.RaiseEventOptions) error {
 	req := &protos.RaiseEventRequest{InstanceId: string(id), Name: eventName}
-	for _, configure := range opts {
-		if err := configure(req); err != nil {
-			return fmt.Errorf("failed to configure raise event request: %w", err)
-		}
+	// This client never stages an operation, so it leaves any staged
+	// destination at false.
+	if _, err := staged.Configure(req, opts); err != nil {
+		return fmt.Errorf("failed to configure raise event request: %w", err)
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return err
@@ -221,10 +222,10 @@ func (c *backendClient) SuspendWorkflow(ctx context.Context, id api.InstanceID, 
 		input = wrapperspb.String(reason)
 	}
 	req := &protos.SuspendRequest{InstanceId: string(id), Reason: input}
-	for _, configure := range opts {
-		if err := configure(req); err != nil {
-			return fmt.Errorf("failed to configure suspend request: %w", err)
-		}
+	// This client never stages an operation, so it leaves any staged
+	// destination at false.
+	if _, err := staged.Configure(req, opts); err != nil {
+		return fmt.Errorf("failed to configure suspend request: %w", err)
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return err
@@ -252,10 +253,10 @@ func (c *backendClient) ResumeWorkflow(ctx context.Context, id api.InstanceID, r
 		input = wrapperspb.String(reason)
 	}
 	req := &protos.ResumeRequest{InstanceId: string(id), Reason: input}
-	for _, configure := range opts {
-		if err := configure(req); err != nil {
-			return fmt.Errorf("failed to configure resume request: %w", err)
-		}
+	// This client never stages an operation, so it leaves any staged
+	// destination at false.
+	if _, err := staged.Configure(req, opts); err != nil {
+		return fmt.Errorf("failed to configure resume request: %w", err)
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return err
@@ -302,10 +303,10 @@ func (c *backendClient) PurgeWorkflowState(ctx context.Context, id api.InstanceI
 // rerun from.
 func (c *backendClient) RerunWorkflowFromEvent(ctx context.Context, id api.InstanceID, eventID uint32, opts ...api.RerunOptions) (api.InstanceID, error) {
 	req := &protos.RerunWorkflowFromEventRequest{SourceInstanceID: string(id), EventID: eventID}
-	for _, configure := range opts {
-		if err := configure(req); err != nil {
-			return "", fmt.Errorf("failed to configure rerun request: %w", err)
-		}
+	// This client never stages an operation, so it leaves any staged
+	// destination at false.
+	if _, err := staged.Configure(req, opts); err != nil {
+		return "", fmt.Errorf("failed to configure rerun request: %w", err)
 	}
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return "", err
