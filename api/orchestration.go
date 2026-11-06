@@ -255,6 +255,15 @@ func WithListInstanceIDsContinuationToken(token string) ListInstanceIDsOptions {
 	}
 }
 
+// WithListInstanceIDsInstanceIDPrefix lists only the instances whose ID starts
+// with prefix.
+func WithListInstanceIDsInstanceIDPrefix(prefix string) ListInstanceIDsOptions {
+	return func(req *protos.ListInstanceIDsRequest) error {
+		req.InstanceIdPrefix = &prefix
+		return nil
+	}
+}
+
 // routerWithTargetAppID returns r (allocating if nil) with the target app ID set.
 func routerWithTargetAppID(r *protos.TaskRouter, appID string) *protos.TaskRouter {
 	if r == nil {

@@ -562,6 +562,127 @@ func Test_Grpc_ListInstanceIDs(t *testing.T) {
 	resp, err := grpcClient.ListInstanceIDs(ctx)
 	require.NoError(t, err)
 	assert.Subset(t, resp.InstanceIds, []string{"0", "1", "2", "3", "4"})
+
+	for _, id := range []string{"sched-a", "sched-b", "schedX"} {
+		_, err = grpcClient.ScheduleNewWorkflow(ctx, "foo", api.WithInstanceID(api.InstanceID(id)))
+		require.NoError(t, err)
+	}
+	resp, err = grpcClient.ListInstanceIDs(ctx, api.WithListInstanceIDsInstanceIDPrefix("sched-"))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"sched-a", "sched-b"}, resp.InstanceIds)
+}
+
+// Test_Grpc_WorkflowSchedulesUnimplemented checks that a runtime with no
+// workflow schedule handler answers the schedule calls with Unimplemented.
+func Test_Grpc_WorkflowSchedulesUnimplemented(t *testing.T) {
+	_, err := grpcClient.CreateWorkflowSchedule(ctx, "s", "foo", "@every 1s")
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	_, err = grpcClient.GetWorkflowSchedule(ctx, "s")
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	_, err = grpcClient.ListWorkflowSchedules(ctx)
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	_, err = grpcClient.DeleteWorkflowSchedule(ctx, "s")
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	_, err = grpcClient.TriggerWorkflowSchedule(ctx, "s")
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+}
+
+// Test_Grpc_WorkflowScheduleHandler checks that WithWorkflowScheduleHandler
+// serves each schedule call with the runtime's handler, request, response and
+// error included.
+func Test_Grpc_WorkflowScheduleHandler(t *testing.T) {
+	h := new(fakeScheduleHandler)
+	_, register := backend.NewGrpcExecutor(nil, backend.DefaultLogger(), backend.WithWorkflowScheduleHandler(h))
+	srv := grpc.NewServer()
+	register(srv)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	c := client.NewTaskHubGrpcClient(conn, backend.DefaultLogger())
+
+	_, err = c.CreateWorkflowSchedule(ctx, "s", "foo", "@every 1s", api.WithScheduleRepeats(3), api.WithScheduleOverwrite())
+	require.NoError(t, err)
+	created := h.created.Load()
+	assert.Equal(t, "s", created.GetSchedule().GetName())
+	assert.Equal(t, "foo", created.GetSchedule().GetWorkflowName())
+	assert.Equal(t, "@every 1s", created.GetSchedule().GetSchedule())
+	assert.Equal(t, uint32(3), created.GetSchedule().GetRepeats())
+	assert.True(t, created.GetOverwrite())
+
+	got, err := c.GetWorkflowSchedule(ctx, "s")
+	require.NoError(t, err)
+	assert.Equal(t, "foo", got.GetSchedule().GetWorkflowName())
+
+	list, err := c.ListWorkflowSchedules(ctx, api.WithListWorkflowSchedulesPageSize(1), api.WithListWorkflowSchedulesContinuationToken("t1"))
+	require.NoError(t, err)
+	assert.Equal(t, uint32(1), h.listed.Load().GetPageSize())
+	assert.Equal(t, "t1", h.listed.Load().GetContinuationToken())
+	require.Len(t, list.GetSchedules(), 1)
+	assert.Equal(t, "s", list.GetSchedules()[0].GetName())
+	assert.Equal(t, "t2", list.GetContinuationToken())
+
+	trig, err := c.TriggerWorkflowSchedule(ctx, "s")
+	require.NoError(t, err)
+	assert.Equal(t, "s_manual", trig.GetInstanceId())
+
+	_, err = c.DeleteWorkflowSchedule(ctx, "s")
+	require.NoError(t, err)
+
+	for name, call := range map[string]func() error{
+		"get":     func() error { _, err := c.GetWorkflowSchedule(ctx, "missing"); return err },
+		"delete":  func() error { _, err := c.DeleteWorkflowSchedule(ctx, "missing"); return err },
+		"trigger": func() error { _, err := c.TriggerWorkflowSchedule(ctx, "missing"); return err },
+	} {
+		assert.Equal(t, codes.NotFound, status.Code(call()), name)
+	}
+}
+
+// fakeScheduleHandler knows one schedule, "s", and records the last create
+// and list requests.
+type fakeScheduleHandler struct {
+	created atomic.Pointer[protos.CreateWorkflowScheduleRequest]
+	listed  atomic.Pointer[protos.ListWorkflowSchedulesRequest]
+}
+
+var errNoSchedule = status.Error(codes.NotFound, "no such schedule")
+
+func (f *fakeScheduleHandler) CreateWorkflowSchedule(_ context.Context, req *protos.CreateWorkflowScheduleRequest) (*protos.CreateWorkflowScheduleResponse, error) {
+	f.created.Store(req)
+	return new(protos.CreateWorkflowScheduleResponse), nil
+}
+
+func (f *fakeScheduleHandler) GetWorkflowSchedule(_ context.Context, req *protos.GetWorkflowScheduleRequest) (*protos.GetWorkflowScheduleResponse, error) {
+	if req.GetName() != "s" {
+		return nil, errNoSchedule
+	}
+	return &protos.GetWorkflowScheduleResponse{Schedule: &protos.WorkflowSchedule{Name: "s", WorkflowName: "foo"}}, nil
+}
+
+func (f *fakeScheduleHandler) ListWorkflowSchedules(_ context.Context, req *protos.ListWorkflowSchedulesRequest) (*protos.ListWorkflowSchedulesResponse, error) {
+	f.listed.Store(req)
+	next := "t2"
+	return &protos.ListWorkflowSchedulesResponse{
+		Schedules:         []*protos.WorkflowSchedule{{Name: "s"}},
+		ContinuationToken: &next,
+	}, nil
+}
+
+func (f *fakeScheduleHandler) DeleteWorkflowSchedule(_ context.Context, req *protos.DeleteWorkflowScheduleRequest) (*protos.DeleteWorkflowScheduleResponse, error) {
+	if req.GetName() != "s" {
+		return nil, errNoSchedule
+	}
+	return new(protos.DeleteWorkflowScheduleResponse), nil
+}
+
+func (f *fakeScheduleHandler) TriggerWorkflowSchedule(_ context.Context, req *protos.TriggerWorkflowScheduleRequest) (*protos.TriggerWorkflowScheduleResponse, error) {
+	if req.GetName() != "s" {
+		return nil, errNoSchedule
+	}
+	return &protos.TriggerWorkflowScheduleResponse{InstanceId: "s_manual"}, nil
 }
 
 func Test_Grpc_GetInstanceHistory(t *testing.T) {
