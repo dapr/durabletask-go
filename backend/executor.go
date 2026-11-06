@@ -69,6 +69,7 @@ type grpcExecutor struct {
 	streamSendTimeout        *time.Duration
 	healthPingInterval       time.Duration
 	skipWaitForInstanceStart bool
+	workflowSchedules        WorkflowScheduleHandler
 }
 
 type grpcExecutorOptions func(g *grpcExecutor)

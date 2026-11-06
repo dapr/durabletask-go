@@ -1231,6 +1231,9 @@ func (be *sqliteBackend) ListInstanceIDs(ctx context.Context, wi *backend.ListIn
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("failed to read instance ID: %w", err)
 		}
+		if !strings.HasPrefix(id, wi.GetInstanceIdPrefix()) {
+			continue
+		}
 
 		ids = append(ids, id)
 	}

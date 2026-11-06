@@ -562,6 +562,29 @@ func Test_Grpc_ListInstanceIDs(t *testing.T) {
 	resp, err := grpcClient.ListInstanceIDs(ctx)
 	require.NoError(t, err)
 	assert.Subset(t, resp.InstanceIds, []string{"0", "1", "2", "3", "4"})
+
+	for _, id := range []string{"sched-a", "sched-b", "schedX"} {
+		_, err = grpcClient.ScheduleNewWorkflow(ctx, "foo", api.WithInstanceID(api.InstanceID(id)))
+		require.NoError(t, err)
+	}
+	resp, err = grpcClient.ListInstanceIDs(ctx, api.WithListInstanceIDsInstanceIDPrefix("sched-"))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"sched-a", "sched-b"}, resp.InstanceIds)
+}
+
+// Test_Grpc_WorkflowSchedulesUnimplemented checks that a runtime with no
+// workflow schedule handler answers the schedule calls with Unimplemented.
+func Test_Grpc_WorkflowSchedulesUnimplemented(t *testing.T) {
+	_, err := grpcClient.CreateWorkflowSchedule(ctx, "s", "foo", "@every 1s")
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	_, err = grpcClient.GetWorkflowSchedule(ctx, "s")
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	_, err = grpcClient.ListWorkflowSchedules(ctx)
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	_, err = grpcClient.DeleteWorkflowSchedule(ctx, "s")
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
+	_, err = grpcClient.TriggerWorkflowSchedule(ctx, "s")
+	assert.Equal(t, codes.Unimplemented, status.Code(err))
 }
 
 func Test_Grpc_GetInstanceHistory(t *testing.T) {

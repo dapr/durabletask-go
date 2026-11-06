@@ -962,6 +962,9 @@ func (be *postgresBackend) ListInstanceIDs(ctx context.Context, wi *backend.List
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("failed to read instance ID: %w", err)
 		}
+		if !strings.HasPrefix(id, wi.GetInstanceIdPrefix()) {
+			continue
+		}
 
 		ids = append(ids, id)
 	}
