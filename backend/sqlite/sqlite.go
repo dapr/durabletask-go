@@ -1219,7 +1219,10 @@ func (be *sqliteBackend) ListInstanceIDs(ctx context.Context, wi *backend.ListIn
 		return nil, err
 	}
 
-	rows, err := be.db.QueryContext(ctx, "SELECT [InstanceID] FROM Instances")
+	// substr, unlike LIKE, is case-sensitive and takes '%' and '_' literally.
+	rows, err := be.db.QueryContext(ctx,
+		"SELECT [InstanceID] FROM Instances WHERE substr([InstanceID], 1, length(?)) = ?",
+		wi.GetInstanceIdPrefix(), wi.GetInstanceIdPrefix())
 	if err != nil {
 		return nil, err
 	}
@@ -1230,9 +1233,6 @@ func (be *sqliteBackend) ListInstanceIDs(ctx context.Context, wi *backend.ListIn
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("failed to read instance ID: %w", err)
-		}
-		if !strings.HasPrefix(id, wi.GetInstanceIdPrefix()) {
-			continue
 		}
 
 		ids = append(ids, id)

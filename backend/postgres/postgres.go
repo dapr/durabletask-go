@@ -950,7 +950,9 @@ func (be *postgresBackend) ListInstanceIDs(ctx context.Context, wi *backend.List
 		return nil, err
 	}
 
-	rows, err := be.db.Query(ctx, "SELECT InstanceID FROM Instances ORDER BY SequenceNumber ASC")
+	rows, err := be.db.Query(ctx,
+		"SELECT InstanceID FROM Instances WHERE starts_with(InstanceID, $1) ORDER BY SequenceNumber ASC",
+		wi.GetInstanceIdPrefix())
 	if err != nil {
 		return nil, err
 	}
@@ -961,9 +963,6 @@ func (be *postgresBackend) ListInstanceIDs(ctx context.Context, wi *backend.List
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			return nil, fmt.Errorf("failed to read instance ID: %w", err)
-		}
-		if !strings.HasPrefix(id, wi.GetInstanceIdPrefix()) {
-			continue
 		}
 
 		ids = append(ids, id)
