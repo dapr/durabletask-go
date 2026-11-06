@@ -743,11 +743,12 @@ func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventReq
 		},
 		Router: req.GetRouter(),
 	}
-	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
+	staged, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e))
+	if err != nil {
 		return nil, err
 	}
 
-	return &protos.RaiseEventResponse{}, nil
+	return &protos.RaiseEventResponse{Staged: staged}, nil
 }
 
 // StartInstance implements protos.TaskHubSidecarServiceServer
@@ -781,24 +782,25 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 		},
 		Router: req.GetRouter(),
 	}
-	if err := g.backend.CreateWorkflowInstance(ctx, &CreateWorkflowInstanceRequest{
+	staged, err := isStaged(g.backend.CreateWorkflowInstance(ctx, &CreateWorkflowInstanceRequest{
 		StartEvent:              e,
 		EnforceUniqueInstanceId: req.EnforceUniqueInstanceId,
-	}); err != nil {
+	}))
+	if err != nil {
 		if errors.Is(err, api.ErrDuplicateInstance) {
 			return nil, status.Error(codes.AlreadyExists, err.Error())
 		}
 		return nil, fmt.Errorf("failed to create workflow instance: %w", err)
 	}
 
-	if req.ScheduledStartTimestamp == nil && !g.skipWaitForInstanceStart {
+	if req.ScheduledStartTimestamp == nil && !g.skipWaitForInstanceStart && !staged {
 		_, err := g.WaitForInstanceStart(ctx, &protos.GetInstanceRequest{InstanceId: instanceID, Router: req.GetRouter()})
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	return &protos.CreateInstanceResponse{InstanceId: instanceID}, nil
+	return &protos.CreateInstanceResponse{InstanceId: instanceID, Staged: staged}, nil
 }
 
 // RerunWorkflowFromEvent reruns a workflow from a specific event ID of some
@@ -807,16 +809,19 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 // event ID to rerun from.
 func (g *grpcExecutor) RerunWorkflowFromEvent(ctx context.Context, req *protos.RerunWorkflowFromEventRequest) (*protos.RerunWorkflowFromEventResponse, error) {
 	newInstanceID, err := g.backend.RerunWorkflowFromEvent(ctx, req)
+	staged, err := isStaged(err)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = g.WaitForInstanceStart(ctx, &protos.GetInstanceRequest{InstanceId: newInstanceID.String(), Router: req.GetRouter()})
-	if err != nil {
-		return nil, err
+	if !staged {
+		_, err = g.WaitForInstanceStart(ctx, &protos.GetInstanceRequest{InstanceId: newInstanceID.String(), Router: req.GetRouter()})
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return &protos.RerunWorkflowFromEventResponse{NewInstanceID: newInstanceID.String()}, nil
+	return &protos.RerunWorkflowFromEventResponse{NewInstanceID: newInstanceID.String(), Staged: staged}, nil
 }
 
 func (g *grpcExecutor) ListInstanceIDs(ctx context.Context, req *protos.ListInstanceIDsRequest) (*protos.ListInstanceIDsResponse, error) {
@@ -840,11 +845,15 @@ func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.Termin
 		},
 		Router: req.GetRouter(),
 	}
-	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
+	staged, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e))
+	if err != nil {
 		return nil, fmt.Errorf("failed to submit termination request: %w", err)
 	}
+	if staged {
+		return &protos.TerminateResponse{Staged: true}, nil
+	}
 
-	_, err := g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId, Router: req.GetRouter()})
+	_, err = g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId, Router: req.GetRouter()})
 
 	return &protos.TerminateResponse{}, err
 }
@@ -865,11 +874,15 @@ func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendR
 		},
 		Router: req.GetRouter(),
 	}
-	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
+	staged, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e))
+	if err != nil {
 		return nil, err
 	}
+	if staged {
+		return &protos.SuspendResponse{Staged: true}, nil
+	}
 
-	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
+	_, err = g.waitForInstance(ctx, &protos.GetInstanceRequest{
 		InstanceId: req.InstanceId,
 		Router:     req.GetRouter(),
 	}, func(metadata *WorkflowMetadata) bool {
@@ -896,11 +909,15 @@ func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeReq
 		},
 		Router: req.GetRouter(),
 	}
-	if err := g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e); err != nil {
+	staged, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e))
+	if err != nil {
 		return nil, err
 	}
+	if staged {
+		return &protos.ResumeResponse{Staged: true}, nil
+	}
 
-	_, err := g.waitForInstance(ctx, &protos.GetInstanceRequest{
+	_, err = g.waitForInstance(ctx, &protos.GetInstanceRequest{
 		InstanceId: req.InstanceId,
 		Router:     req.GetRouter(),
 	}, func(metadata *WorkflowMetadata) bool {

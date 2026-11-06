@@ -80,10 +80,10 @@ func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interf
 		},
 		Router: req.GetRouter(),
 	}
-	if err := c.be.CreateWorkflowInstance(ctx, &CreateWorkflowInstanceRequest{
+	if _, err := isStaged(c.be.CreateWorkflowInstance(ctx, &CreateWorkflowInstanceRequest{
 		StartEvent:              e,
 		EnforceUniqueInstanceId: req.EnforceUniqueInstanceId,
-	}); err != nil {
+	})); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return api.EmptyInstanceID, fmt.Errorf("failed to start workflow: %w", err)
@@ -173,7 +173,7 @@ func (c *backendClient) TerminateWorkflow(ctx context.Context, id api.InstanceID
 		},
 		Router: req.GetRouter(),
 	}
-	if err := c.be.AddNewWorkflowEvent(ctx, id, e); err != nil {
+	if _, err := isStaged(c.be.AddNewWorkflowEvent(ctx, id, e)); err != nil {
 		return fmt.Errorf("failed to submit termination request:: %w", err)
 	}
 	return nil
@@ -206,7 +206,7 @@ func (c *backendClient) RaiseEvent(ctx context.Context, id api.InstanceID, event
 		},
 		Router: req.GetRouter(),
 	}
-	if err := c.be.AddNewWorkflowEvent(ctx, id, e); err != nil {
+	if _, err := isStaged(c.be.AddNewWorkflowEvent(ctx, id, e)); err != nil {
 		return fmt.Errorf("failed to raise event: %w", err)
 	}
 	return nil
@@ -239,7 +239,7 @@ func (c *backendClient) SuspendWorkflow(ctx context.Context, id api.InstanceID, 
 		},
 		Router: req.GetRouter(),
 	}
-	if err := c.be.AddNewWorkflowEvent(ctx, id, e); err != nil {
+	if _, err := isStaged(c.be.AddNewWorkflowEvent(ctx, id, e)); err != nil {
 		return fmt.Errorf("failed to suspend workflow: %w", err)
 	}
 	return nil
@@ -270,7 +270,7 @@ func (c *backendClient) ResumeWorkflow(ctx context.Context, id api.InstanceID, r
 		},
 		Router: req.GetRouter(),
 	}
-	if err := c.be.AddNewWorkflowEvent(ctx, id, e); err != nil {
+	if _, err := isStaged(c.be.AddNewWorkflowEvent(ctx, id, e)); err != nil {
 		return fmt.Errorf("failed to resume workflow: %w", err)
 	}
 	return nil
@@ -312,5 +312,6 @@ func (c *backendClient) RerunWorkflowFromEvent(ctx context.Context, id api.Insta
 	}
 
 	id, err := c.be.RerunWorkflowFromEvent(ctx, req)
+	_, err = isStaged(err)
 	return id, err
 }
