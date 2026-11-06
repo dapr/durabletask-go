@@ -59,29 +59,33 @@ func (b *stagingBackend) WatchWorkflowRuntimeStatus(_ context.Context, id api.In
 func TestGrpcExecutor_StagedOperation(t *testing.T) {
 	ctx := t.Context()
 
-	ops := map[string]func(protos.TaskHubSidecarServiceServer) error{
-		"start": func(s protos.TaskHubSidecarServiceServer) error {
-			_, err := s.StartInstance(ctx, &protos.CreateInstanceRequest{InstanceId: "iid", Name: "wf"})
-			return err
+	// Each op returns the staged field of its response.
+	ops := map[string]func(protos.TaskHubSidecarServiceServer) (bool, error){
+		"start": func(s protos.TaskHubSidecarServiceServer) (bool, error) {
+			res, err := s.StartInstance(ctx, &protos.CreateInstanceRequest{InstanceId: "iid", Name: "wf"})
+			if err == nil {
+				assert.Equal(t, "iid", res.GetInstanceId())
+			}
+			return res.GetStaged(), err
 		},
-		"rerun": func(s protos.TaskHubSidecarServiceServer) error {
+		"rerun": func(s protos.TaskHubSidecarServiceServer) (bool, error) {
 			res, err := s.RerunWorkflowFromEvent(ctx, &protos.RerunWorkflowFromEventRequest{SourceInstanceID: "iid"})
 			if err == nil {
 				assert.Equal(t, "rerun", res.GetNewInstanceID())
 			}
-			return err
+			return res.GetStaged(), err
 		},
-		"terminate": func(s protos.TaskHubSidecarServiceServer) error {
-			_, err := s.TerminateInstance(ctx, &protos.TerminateRequest{InstanceId: "iid"})
-			return err
+		"terminate": func(s protos.TaskHubSidecarServiceServer) (bool, error) {
+			res, err := s.TerminateInstance(ctx, &protos.TerminateRequest{InstanceId: "iid"})
+			return res.GetStaged(), err
 		},
-		"suspend": func(s protos.TaskHubSidecarServiceServer) error {
-			_, err := s.SuspendInstance(ctx, &protos.SuspendRequest{InstanceId: "iid"})
-			return err
+		"suspend": func(s protos.TaskHubSidecarServiceServer) (bool, error) {
+			res, err := s.SuspendInstance(ctx, &protos.SuspendRequest{InstanceId: "iid"})
+			return res.GetStaged(), err
 		},
-		"resume": func(s protos.TaskHubSidecarServiceServer) error {
-			_, err := s.ResumeInstance(ctx, &protos.ResumeRequest{InstanceId: "iid"})
-			return err
+		"resume": func(s protos.TaskHubSidecarServiceServer) (bool, error) {
+			res, err := s.ResumeInstance(ctx, &protos.ResumeRequest{InstanceId: "iid"})
+			return res.GetStaged(), err
 		},
 	}
 
@@ -89,30 +93,44 @@ func TestGrpcExecutor_StagedOperation(t *testing.T) {
 		t.Run(name+" staged returns without waiting", func(t *testing.T) {
 			be := &stagingBackend{err: fmt.Errorf("on fallback host: %w", ErrOperationStaged)}
 			exec, _ := NewGrpcExecutor(be, DefaultLogger())
-			require.NoError(t, op(exec.(*grpcExecutor)))
+			staged, err := op(exec.(*grpcExecutor))
+			require.NoError(t, err)
+			assert.True(t, staged)
 			assert.Zero(t, be.watches)
 		})
 
 		t.Run(name+" applied waits", func(t *testing.T) {
 			be := new(stagingBackend)
 			exec, _ := NewGrpcExecutor(be, DefaultLogger())
-			require.NoError(t, op(exec.(*grpcExecutor)))
+			staged, err := op(exec.(*grpcExecutor))
+			require.NoError(t, err)
+			assert.False(t, staged)
 			assert.Equal(t, 1, be.watches)
 		})
 
 		t.Run(name+" failed returns the error", func(t *testing.T) {
 			be := &stagingBackend{err: errors.New("boom")}
 			exec, _ := NewGrpcExecutor(be, DefaultLogger())
-			require.ErrorContains(t, op(exec.(*grpcExecutor)), "boom")
+			_, err := op(exec.(*grpcExecutor))
+			require.ErrorContains(t, err, "boom")
 			assert.Zero(t, be.watches)
 		})
 	}
 
 	t.Run("raise event staged succeeds", func(t *testing.T) {
-		be := &stagingBackend{err: ErrOperationStaged}
+		be := &stagingBackend{err: fmt.Errorf("on fallback host: %w", ErrOperationStaged)}
 		exec, _ := NewGrpcExecutor(be, DefaultLogger())
-		_, err := exec.(*grpcExecutor).RaiseEvent(ctx, &protos.RaiseEventRequest{InstanceId: "iid", Name: "ev"})
+		res, err := exec.(*grpcExecutor).RaiseEvent(ctx, &protos.RaiseEventRequest{InstanceId: "iid", Name: "ev"})
 		require.NoError(t, err)
+		assert.True(t, res.GetStaged())
+	})
+
+	t.Run("raise event applied is not staged", func(t *testing.T) {
+		be := new(stagingBackend)
+		exec, _ := NewGrpcExecutor(be, DefaultLogger())
+		res, err := exec.(*grpcExecutor).RaiseEvent(ctx, &protos.RaiseEventRequest{InstanceId: "iid", Name: "ev"})
+		require.NoError(t, err)
+		assert.False(t, res.GetStaged())
 	})
 }
 

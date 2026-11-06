@@ -743,11 +743,12 @@ func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventReq
 		},
 		Router: req.GetRouter(),
 	}
-	if _, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e)); err != nil {
+	staged, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e))
+	if err != nil {
 		return nil, err
 	}
 
-	return &protos.RaiseEventResponse{}, nil
+	return &protos.RaiseEventResponse{Staged: staged}, nil
 }
 
 // StartInstance implements protos.TaskHubSidecarServiceServer
@@ -799,7 +800,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 		}
 	}
 
-	return &protos.CreateInstanceResponse{InstanceId: instanceID}, nil
+	return &protos.CreateInstanceResponse{InstanceId: instanceID, Staged: staged}, nil
 }
 
 // RerunWorkflowFromEvent reruns a workflow from a specific event ID of some
@@ -820,7 +821,7 @@ func (g *grpcExecutor) RerunWorkflowFromEvent(ctx context.Context, req *protos.R
 		}
 	}
 
-	return &protos.RerunWorkflowFromEventResponse{NewInstanceID: newInstanceID.String()}, nil
+	return &protos.RerunWorkflowFromEventResponse{NewInstanceID: newInstanceID.String(), Staged: staged}, nil
 }
 
 func (g *grpcExecutor) ListInstanceIDs(ctx context.Context, req *protos.ListInstanceIDsRequest) (*protos.ListInstanceIDsResponse, error) {
@@ -849,7 +850,7 @@ func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.Termin
 		return nil, fmt.Errorf("failed to submit termination request: %w", err)
 	}
 	if staged {
-		return &protos.TerminateResponse{}, nil
+		return &protos.TerminateResponse{Staged: true}, nil
 	}
 
 	_, err = g.WaitForInstanceCompletion(ctx, &protos.GetInstanceRequest{InstanceId: req.InstanceId, Router: req.GetRouter()})
@@ -878,7 +879,7 @@ func (g *grpcExecutor) SuspendInstance(ctx context.Context, req *protos.SuspendR
 		return nil, err
 	}
 	if staged {
-		return &protos.SuspendResponse{}, nil
+		return &protos.SuspendResponse{Staged: true}, nil
 	}
 
 	_, err = g.waitForInstance(ctx, &protos.GetInstanceRequest{
@@ -913,7 +914,7 @@ func (g *grpcExecutor) ResumeInstance(ctx context.Context, req *protos.ResumeReq
 		return nil, err
 	}
 	if staged {
-		return &protos.ResumeResponse{}, nil
+		return &protos.ResumeResponse{Staged: true}, nil
 	}
 
 	_, err = g.waitForInstance(ctx, &protos.GetInstanceRequest{
