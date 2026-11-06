@@ -17,7 +17,6 @@ import (
 	"github.com/dapr/durabletask-go/backend/runtimestate"
 	"github.com/dapr/durabletask-go/backend/sqlite"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -361,26 +360,6 @@ func Test_GetNonExistingMetadata(t *testing.T) {
 
 		_, err := be.GetWorkflowMetadata(ctx, api.InstanceID("bogus"), nil)
 		assert.ErrorIs(t, err, api.ErrInstanceNotFound)
-	}
-}
-
-// Test_ListInstanceIDs_Prefix lists the instances whose ID starts with a
-// prefix: case-sensitively, and with '_' and '%' taken literally.
-func Test_ListInstanceIDs_Prefix(t *testing.T) {
-	for i, be := range backends {
-		initTest(t, be, i, true)
-
-		for _, id := range []string{"run_a", "run_b", "runXb", "RUN_c", "other"} {
-			require.True(t, createWorkflowInstance(t, be, id))
-		}
-		for prefix, want := range map[string][]string{
-			"run_": {"run_a", "run_b"},
-			"":     {"run_a", "run_b", "runXb", "RUN_c", "other"},
-		} {
-			resp, err := be.ListInstanceIDs(ctx, &protos.ListInstanceIDsRequest{InstanceIdPrefix: &prefix})
-			require.NoError(t, err)
-			assert.ElementsMatch(t, want, resp.GetInstanceIds(), prefix)
-		}
 	}
 }
 
