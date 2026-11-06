@@ -639,6 +639,19 @@ func Test_Grpc_WorkflowScheduleHandler(t *testing.T) {
 	} {
 		assert.Equal(t, codes.NotFound, status.Code(call()), name)
 	}
+
+	// A cancelled call returns the context's error, as the other client calls do.
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	for name, call := range map[string]func() error{
+		"create":  func() error { _, err := c.CreateWorkflowSchedule(cctx, "s", "foo", "@every 1s"); return err },
+		"get":     func() error { _, err := c.GetWorkflowSchedule(cctx, "s"); return err },
+		"list":    func() error { _, err := c.ListWorkflowSchedules(cctx); return err },
+		"delete":  func() error { _, err := c.DeleteWorkflowSchedule(cctx, "s"); return err },
+		"trigger": func() error { _, err := c.TriggerWorkflowSchedule(cctx, "s"); return err },
+	} {
+		assert.ErrorIs(t, call(), context.Canceled, name)
+	}
 }
 
 // fakeScheduleHandler knows one schedule, "s", and records the last create

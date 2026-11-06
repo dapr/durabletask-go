@@ -21,6 +21,9 @@ func (c *TaskHubGrpcClient) CreateWorkflowSchedule(ctx context.Context, name, wo
 	}
 	resp, err := c.client.CreateWorkflowSchedule(ctx, req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("failed to create workflow schedule %q: %w", name, err)
 	}
 	return resp, nil
@@ -31,6 +34,9 @@ func (c *TaskHubGrpcClient) CreateWorkflowSchedule(ctx context.Context, name, wo
 func (c *TaskHubGrpcClient) GetWorkflowSchedule(ctx context.Context, name string) (*protos.GetWorkflowScheduleResponse, error) {
 	resp, err := c.client.GetWorkflowSchedule(ctx, &protos.GetWorkflowScheduleRequest{Name: name})
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("failed to get workflow schedule %q: %w", name, err)
 	}
 	return resp, nil
@@ -47,6 +53,9 @@ func (c *TaskHubGrpcClient) ListWorkflowSchedules(ctx context.Context, opts ...a
 	}
 	resp, err := c.client.ListWorkflowSchedules(ctx, req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("failed to list workflow schedules: %w", err)
 	}
 	return resp, nil
@@ -57,6 +66,9 @@ func (c *TaskHubGrpcClient) ListWorkflowSchedules(ctx context.Context, opts ...a
 func (c *TaskHubGrpcClient) DeleteWorkflowSchedule(ctx context.Context, name string) (*protos.DeleteWorkflowScheduleResponse, error) {
 	resp, err := c.client.DeleteWorkflowSchedule(ctx, &protos.DeleteWorkflowScheduleRequest{Name: name})
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("failed to delete workflow schedule %q: %w", name, err)
 	}
 	return resp, nil
@@ -67,6 +79,9 @@ func (c *TaskHubGrpcClient) DeleteWorkflowSchedule(ctx context.Context, name str
 func (c *TaskHubGrpcClient) TriggerWorkflowSchedule(ctx context.Context, name string) (*protos.TriggerWorkflowScheduleResponse, error) {
 	resp, err := c.client.TriggerWorkflowSchedule(ctx, &protos.TriggerWorkflowScheduleRequest{Name: name})
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("failed to trigger workflow schedule %q: %w", name, err)
 	}
 	return resp, nil
