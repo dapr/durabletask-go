@@ -123,12 +123,6 @@ func WithListInstanceIDsContinuationToken(token string) ListInstanceIDsOptions {
 	return ListInstanceIDsOptions(api.WithListInstanceIDsContinuationToken(token))
 }
 
-// WithListInstanceIDsInstanceIDPrefix lists only the instances whose ID starts
-// with prefix, such as the runs of a workflow schedule ("<name>_").
-func WithListInstanceIDsInstanceIDPrefix(prefix string) ListInstanceIDsOptions {
-	return ListInstanceIDsOptions(api.WithListInstanceIDsInstanceIDPrefix(prefix))
-}
-
 // WithAppID targets the new workflow at the app with the given app ID rather
 // than the local app.
 func WithAppID(appID string) NewWorkflowOptions {

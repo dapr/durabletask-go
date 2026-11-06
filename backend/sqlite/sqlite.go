@@ -1219,10 +1219,7 @@ func (be *sqliteBackend) ListInstanceIDs(ctx context.Context, wi *backend.ListIn
 		return nil, err
 	}
 
-	// substr, unlike LIKE, is case-sensitive and takes '%' and '_' literally.
-	rows, err := be.db.QueryContext(ctx,
-		"SELECT [InstanceID] FROM Instances WHERE substr([InstanceID], 1, length(?)) = ?",
-		wi.GetInstanceIdPrefix(), wi.GetInstanceIdPrefix())
+	rows, err := be.db.QueryContext(ctx, "SELECT [InstanceID] FROM Instances")
 	if err != nil {
 		return nil, err
 	}

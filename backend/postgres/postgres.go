@@ -950,9 +950,7 @@ func (be *postgresBackend) ListInstanceIDs(ctx context.Context, wi *backend.List
 		return nil, err
 	}
 
-	rows, err := be.db.Query(ctx,
-		"SELECT InstanceID FROM Instances WHERE starts_with(InstanceID, $1) ORDER BY SequenceNumber ASC",
-		wi.GetInstanceIdPrefix())
+	rows, err := be.db.Query(ctx, "SELECT InstanceID FROM Instances ORDER BY SequenceNumber ASC")
 	if err != nil {
 		return nil, err
 	}
