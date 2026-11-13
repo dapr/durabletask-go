@@ -480,3 +480,29 @@ func TestGetStartedTime_NewEventsOnly(t *testing.T) {
 	got := GetStartedTime(s)
 	assert.Equal(t, ts.AsTime(), got)
 }
+
+func TestTerminationReason(t *testing.T) {
+    t.Parallel()
+
+    const reason = "deployment was replaced"
+
+    terminated := &protos.HistoryEvent{
+        EventId:   -1,
+        Timestamp: timestamppb.Now(),
+        EventType: &protos.HistoryEvent_ExecutionTerminated{
+            ExecutionTerminated: &protos.ExecutionTerminatedEvent{
+                Reason: wrapperspb.String(reason),
+            },
+        },
+    }
+
+    state := NewWorkflowRuntimeState("test-instance", nil, []*protos.HistoryEvent{
+        startedEvent(),
+        terminated,
+    })
+
+    result := TerminationReason(state)
+
+    require.NotNil(t, result)
+    require.Equal(t, reason, result.GetValue())
+}

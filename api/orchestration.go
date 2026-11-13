@@ -169,6 +169,15 @@ func WithRecursiveTerminate(recursive bool) TerminateOptions {
 	}
 }
 
+// WithReason configures a reason for terminating a workflow.
+// The reason is stored in workflow history and is available in workflow metadata.
+func WithReason(reason string) TerminateOptions {
+    return func(req *protos.TerminateRequest) error {
+        req.Reason = wrapperspb.String(reason)
+        return nil
+    }
+}
+
 // WithRecursivePurge configures whether to purge all child workflows created by the target workflow.
 func WithRecursivePurge(recursive bool) PurgeOptions {
 	return func(req *protos.PurgeInstancesRequest) error {

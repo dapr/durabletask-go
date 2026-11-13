@@ -169,6 +169,7 @@ func (c *backendClient) TerminateWorkflow(ctx context.Context, id api.InstanceID
 			ExecutionTerminated: &protos.ExecutionTerminatedEvent{
 				Input:   req.Output,
 				Recurse: req.Recursive,
+				Reason:  req.Reason,
 			},
 		},
 		Router: req.GetRouter(),
