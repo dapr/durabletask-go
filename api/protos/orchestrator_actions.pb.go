@@ -328,7 +328,6 @@ type CreateTimerAction struct {
 	// If set, provides additional context attached to this timer.
 	//
 	// Types that are assignable to Origin:
-	//
 	//	*CreateTimerAction_CreateTimer
 	//	*CreateTimerAction_ExternalEvent
 	//	*CreateTimerAction_ActivityRetry
@@ -703,7 +702,6 @@ type WorkflowAction struct {
 
 	Id int32 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Types that are assignable to WorkflowActionType:
-	//
 	//	*WorkflowAction_ScheduleTask
 	//	*WorkflowAction_CreateChildWorkflow
 	//	*WorkflowAction_CreateTimer
