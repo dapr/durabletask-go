@@ -461,6 +461,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 						ExecutionTerminated: &protos.ExecutionTerminatedEvent{
 							Input:   terminate.Reason,
 							Recurse: terminate.Recurse,
+							Reason:  terminate.Reason,
 						},
 					},
 					Router: action.Router,

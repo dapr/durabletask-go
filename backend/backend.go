@@ -306,6 +306,7 @@ func appendCascadeTerminateMessages(state *WorkflowRuntimeState, et *protos.Exec
 					ExecutionTerminated: &protos.ExecutionTerminatedEvent{
 						Input:   et.Input,
 						Recurse: et.Recurse,
+						Reason: et.Reason,
 					},
 				},
 				Router: child.Router,
