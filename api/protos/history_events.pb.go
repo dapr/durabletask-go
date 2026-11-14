@@ -2714,7 +2714,7 @@ var file_history_events_proto_depIdxs = []int32{
 	40, // 38: WorkflowStartedEvent.version:type_name -> WorkflowVersion
 	28, // 39: EventSentEvent.input:type_name -> google.protobuf.StringValue
 	28, // 40: EventRaisedEvent.input:type_name -> google.protobuf.StringValue
-	34, // 42: EventRaisedEvent.failureDetails:type_name -> TaskFailureDetails
+	34, // 41: EventRaisedEvent.failureDetails:type_name -> TaskFailureDetails
 	28, // 42: ContinueAsNewEvent.input:type_name -> google.protobuf.StringValue
 	28, // 43: ExecutionSuspendedEvent.input:type_name -> google.protobuf.StringValue
 	28, // 44: ExecutionResumedEvent.input:type_name -> google.protobuf.StringValue
