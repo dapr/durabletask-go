@@ -46,6 +46,23 @@ func WithStartTime(startTime time.Time) NewWorkflowOptions {
 	return NewWorkflowOptions(api.WithStartTime(startTime))
 }
 
+type (
+	Ordering              = api.Ordering
+	OrderingFailurePolicy = api.OrderingFailurePolicy
+)
+
+const (
+	OrderingFailurePolicyContinue = api.OrderingFailurePolicyContinue
+	OrderingFailurePolicyBlock    = api.OrderingFailurePolicyBlock
+	OrderingFailurePolicyCancel   = api.OrderingFailurePolicyCancel
+)
+
+// WithOrdering queues the workflow under o: it stays pending and runs only
+// once each workflow accepted before it under the key has finished.
+func WithOrdering(o Ordering) NewWorkflowOptions {
+	return NewWorkflowOptions(api.WithOrdering(o))
+}
+
 // WithFetchPayloads configures whether to load workflow inputs, outputs, and
 // custom status values, which could be large.
 func WithFetchPayloads(fetchPayloads bool) FetchWorkflowMetadataOptions {

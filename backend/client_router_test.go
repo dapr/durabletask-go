@@ -67,10 +67,12 @@ func TestBackendClient_RouterStamping(t *testing.T) {
 	t.Run("schedule", func(t *testing.T) {
 		be := new(fakeRouterBackend)
 		c := NewTaskHubClient(be)
-		_, err := c.ScheduleNewWorkflow(ctx, "wf", api.WithAppID("app2"))
+		_, err := c.ScheduleNewWorkflow(ctx, "wf", api.WithAppID("app2"), api.WithOrdering(api.Ordering{Key: "k", OnPredecessorFailure: api.OrderingFailurePolicyBlock}))
 		require.NoError(t, err)
 		require.NotNil(t, be.createdEvent)
 		assert.Equal(t, "app2", be.createdEvent.GetRouter().GetTargetAppID())
+		assert.Equal(t, "k", be.createdEvent.GetExecutionStarted().GetOrdering().GetKey())
+		assert.Equal(t, api.OrderingFailurePolicyBlock, be.createdEvent.GetExecutionStarted().GetOrdering().GetOnPredecessorFailure())
 	})
 
 	t.Run("terminate", func(t *testing.T) {
