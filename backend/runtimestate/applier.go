@@ -143,7 +143,8 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 								// Tags describe the instance, not one
 								// execution of it, so the next execution
 								// keeps them.
-								Tags: maps.Clone(s.StartEvent.GetTags()),
+								Tags:     maps.Clone(s.StartEvent.GetTags()),
+								Ordering: s.StartEvent.GetOrdering(),
 							},
 						},
 						Router: action.Router,
