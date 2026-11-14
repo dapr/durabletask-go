@@ -126,7 +126,12 @@ func Test_WaitForSingleEvent_RaisedErrorFailsPendingWait(t *testing.T) {
 	r := NewTaskRegistry()
 	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
 		if err := ctx.WaitForSingleEvent("approval", -1).Await(nil); err != nil {
-			return err.Error(), nil
+			var failure *TaskFailedError
+			if !errors.As(err, &failure) {
+				return nil, fmt.Errorf("expected TaskFailedError, got %T: %w", err, err)
+			}
+			return fmt.Sprintf("%s: %s", failure.FailureDetails.GetErrorType(),
+				failure.FailureDetails.GetErrorMessage()), nil
 		}
 		return "success", nil
 	}))
@@ -142,6 +147,7 @@ func Test_WaitForSingleEvent_RaisedErrorFailsPendingWait(t *testing.T) {
 	co := completeAction(t, actions)
 	require.NotNil(t, co)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
+	assert.Contains(t, co.GetResult().GetValue(), "example.FooBarException")
 	assert.Contains(t, co.GetResult().GetValue(), "approval was rejected")
 	assert.Empty(t, cl.warns)
 }
