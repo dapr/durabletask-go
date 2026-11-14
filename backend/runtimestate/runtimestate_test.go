@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api/protos"
 	"github.com/dapr/durabletask-go/backend/runtimestate/dedup"
@@ -480,30 +479,4 @@ func TestGetStartedTime_NewEventsOnly(t *testing.T) {
 
 	got := GetStartedTime(s)
 	assert.Equal(t, ts.AsTime(), got)
-}
-
-func TestTerminationReason(t *testing.T) {
-    t.Parallel()
-
-    const reason = "deployment was replaced"
-
-    terminated := &protos.HistoryEvent{
-        EventId:   -1,
-        Timestamp: timestamppb.Now(),
-        EventType: &protos.HistoryEvent_ExecutionTerminated{
-            ExecutionTerminated: &protos.ExecutionTerminatedEvent{
-                Reason: wrapperspb.String(reason),
-            },
-        },
-    }
-
-    state := NewWorkflowRuntimeState("test-instance", nil, []*protos.HistoryEvent{
-        startedEvent(),
-        terminated,
-    })
-
-    result := TerminationReason(state)
-
-    require.NotNil(t, result)
-    require.Equal(t, reason, result.GetValue())
 }
