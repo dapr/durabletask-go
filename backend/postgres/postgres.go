@@ -822,6 +822,16 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 		}
 	}
 
+	var terminationReason *wrapperspb.StringValue
+
+	if helpers.FromRuntimeStatusString(*runtimeStatus) ==
+		protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED {
+		terminationReason, err = be.getTerminationReason(ctx, iid)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &backend.WorkflowMetadata{
 		InstanceId:       string(iid),
 		Name:             *name,
@@ -836,6 +846,7 @@ func (be *postgresBackend) GetWorkflowMetadata(ctx context.Context, iid api.Inst
 		ParentInstanceId: parentInstanceID,
 		ParentAppId:      parentAppIDw,
 		StartedAt:        startedAt,
+		TerminationReason: terminationReason,
 	}, nil
 }
 
@@ -1243,4 +1254,41 @@ func (be *postgresBackend) String() string {
 
 func (be *postgresBackend) RerunWorkflowFromEvent(ctx context.Context, req *backend.RerunWorkflowFromEventRequest) (api.InstanceID, error) {
 	return "", status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (be *postgresBackend) getTerminationReason(ctx context.Context, iid api.InstanceID) (*wrapperspb.StringValue, error) {
+    rows, err := be.db.Query(
+        ctx,
+        `SELECT EventPayload
+         FROM History
+         WHERE InstanceID = $1
+         ORDER BY SequenceNumber ASC`,
+        string(iid),
+    )
+    if err != nil {
+        return nil, fmt.Errorf("failed to query workflow termination history: %w", err)
+    }
+    defer rows.Close()
+
+    for rows.Next() {
+        var payload []byte
+        if err := rows.Scan(&payload); err != nil {
+            return nil, fmt.Errorf("failed to scan workflow history event: %w", err)
+        }
+
+        event, err := backend.UnmarshalHistoryEvent(payload)
+        if err != nil {
+            return nil, fmt.Errorf("failed to unmarshal workflow history event: %w", err)
+        }
+
+        if terminated := event.GetExecutionTerminated(); terminated != nil {
+            return terminated.GetReason(), nil
+        }
+    }
+
+    if err := rows.Err(); err != nil {
+        return nil, fmt.Errorf("failed to iterate workflow history: %w", err)
+    }
+
+    return nil, nil
 }
