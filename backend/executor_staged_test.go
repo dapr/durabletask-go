@@ -144,6 +144,14 @@ func TestGrpcExecutor_StagedOperation(t *testing.T) {
 			res, err := s.ResumeInstance(ctx, &protos.ResumeRequest{InstanceId: "iid"})
 			return res.GetStaged(), err
 		},
+		"raise error": func(s protos.TaskHubSidecarServiceServer) (bool, error) {
+			res, err := s.RaiseError(ctx, &protos.RaiseEventRequest{
+				InstanceId: "iid",
+				Name:       "ev",
+				Input:      wrapperspb.String(`{"errorType":"example.Failure","errorMessage":"failed"}`),
+			})
+			return res.GetStaged(), err
+		},
 	}
 
 	for name, op := range ops {
