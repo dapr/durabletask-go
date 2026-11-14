@@ -25,7 +25,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
@@ -110,18 +109,14 @@ func evEventRaised(name string) *protos.HistoryEvent {
 	}
 }
 
-func evEventRaisedError(t *testing.T, name string, failure *protos.TaskFailureDetails) *protos.HistoryEvent {
-	t.Helper()
-	encoded, err := helpers.EncodeExternalEventError(failure)
-	require.NoError(t, err)
-
+func evEventRaisedError(name string, failure *protos.TaskFailureDetails) *protos.HistoryEvent {
 	return &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.Now(),
 		EventType: &protos.HistoryEvent_EventRaised{
 			EventRaised: &protos.EventRaisedEvent{
-				Name:  name,
-				Input: wrapperspb.String(encoded),
+				Name:           name,
+				FailureDetails: failure,
 			},
 		},
 	}
@@ -138,7 +133,7 @@ func Test_WaitForSingleEvent_RaisedErrorFailsPendingWait(t *testing.T) {
 
 	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
 		evExecutionStarted("wf"),
-		evEventRaisedError(t, "approval", &protos.TaskFailureDetails{
+		evEventRaisedError("approval", &protos.TaskFailureDetails{
 			ErrorType:    "example.FooBarException",
 			ErrorMessage: "approval was rejected",
 		}),
@@ -178,58 +173,6 @@ func Test_WaitForSingleEvent_RaisedErrorIsBufferedUntilWaitIsCreated(t *testing.
 	require.NotNil(t, co)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
 	assert.Contains(t, co.GetResult().GetValue(), "approval was rejected before waiter registration")
-	assert.Empty(t, cl.warns)
-}
-
-func Test_WaitForSingleEvent_MalformedRaisedErrorFailsOnlyTheMatchingWait(t *testing.T) {
-	r := NewTaskRegistry()
-	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
-		if err := ctx.WaitForSingleEvent("approval", -1).Await(nil); err != nil {
-			return err.Error(), nil
-		}
-		return "success", nil
-	}))
-
-	malformed := evEventRaised("approval")
-	malformed.GetEventRaised().Input = wrapperspb.String(helpers.ExternalEventErrorPrefix + "{")
-	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
-		evExecutionStarted("wf"),
-		malformed,
-	})
-
-	co := completeAction(t, actions)
-	require.NotNil(t, co)
-	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
-	assert.Contains(t, co.GetResult().GetValue(), "InvalidExternalEventError")
-	assert.Empty(t, cl.warns)
-}
-
-func Test_WaitForSingleEvent_MalformedRaisedErrorBufferedBeforeWaitFailsOnlyThatWait(t *testing.T) {
-	r := NewTaskRegistry()
-	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
-		if err := ctx.CallActivity("gate").Await(nil); err != nil {
-			return nil, err
-		}
-		if err := ctx.WaitForSingleEvent("approval", -1).Await(nil); err != nil {
-			return err.Error(), nil
-		}
-		return "success", nil
-	}))
-	require.NoError(t, r.AddActivityN("gate", func(ActivityContext) (any, error) { return nil, nil }))
-
-	malformed := evEventRaised("approval")
-	malformed.GetEventRaised().Input = wrapperspb.String(helpers.ExternalEventErrorPrefix + "{")
-	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
-		evExecutionStarted("wf"),
-		evTaskScheduled(0, "gate"),
-		malformed,
-		evTaskCompleted(0, `null`),
-	})
-
-	co := completeAction(t, actions)
-	require.NotNil(t, co)
-	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
-	assert.Contains(t, co.GetResult().GetValue(), "InvalidExternalEventError")
 	assert.Empty(t, cl.warns)
 }
 

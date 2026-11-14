@@ -721,8 +721,7 @@ func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Du
 		} else {
 			delete(ctx.bufferedExternalEvents, key)
 		}
-		eventInput := next.Value.(*protos.HistoryEvent).GetEventRaised().GetInput().GetValue()
-		completeExternalEventTask(task, eventInput)
+		completeExternalEventTask(task, next.Value.(*protos.HistoryEvent).GetEventRaised())
 	} else if timeout == 0 {
 		// Zero-timeout means fail immediately if the event isn't already buffered.
 		task.cancel()
@@ -1053,21 +1052,14 @@ func (ctx *WorkflowContext) onTimerFired(tf *protos.TimerFiredEvent) error {
 }
 
 // completeExternalEventTask completes a single WaitForSingleEvent task with
-// either the event payload or its raised failure. A malformed reserved error
-// envelope fails that task rather than aborting the entire workflow replay.
-func completeExternalEventTask(task *completableTask, input string) {
-	failureDetails, isError, err := helpers.DecodeExternalEventError(input)
-	switch {
-	case err != nil:
-		task.fail(&protos.TaskFailureDetails{
-			ErrorType:    "InvalidExternalEventError",
-			ErrorMessage: err.Error(),
-		})
-	case isError:
+// either the event payload or its structured failure details.
+func completeExternalEventTask(task *completableTask, event *protos.EventRaisedEvent) {
+	if failureDetails := event.GetFailureDetails(); failureDetails != nil {
 		task.fail(failureDetails)
-	default:
-		task.complete([]byte(input))
+		return
 	}
+
+	task.complete([]byte(event.GetInput().GetValue()))
 }
 
 func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error {
@@ -1082,12 +1074,9 @@ func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error 
 		} else {
 			delete(ctx.pendingExternalEventTasks, key)
 		}
-		completeExternalEventTask(task, er.GetInput().GetValue())
+		completeExternalEventTask(task, er)
 	} else {
-		// Add this event to the buffered list of events with this name. Error
-		// envelopes are decoded when a waiter consumes them, so malformed
-		// envelopes fail that task consistently whether the event arrived
-		// before or after the waiter was registered.
+		// Add this event to the buffered list of events with this name.
 		var eventList *list.List
 		var ok bool
 		if eventList, ok = ctx.bufferedExternalEvents[key]; !ok {

@@ -26,7 +26,6 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api"
-	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
@@ -79,7 +78,10 @@ func TestGrpcExecutor_RaiseErrorEnqueuesFailureDetails(t *testing.T) {
 	res, err := exec.(*grpcExecutor).RaiseError(t.Context(), &protos.RaiseEventRequest{
 		InstanceId: "instance",
 		Name:       "approval",
-		Input: wrapperspb.String(`{"errorType":"example.FooBarException","errorMessage":"approval was rejected"}`),
+		FailureDetails: &protos.TaskFailureDetails{
+			ErrorType:    "example.FooBarException",
+			ErrorMessage: "approval was rejected",
+		},
 	})
 	require.NoError(t, err)
 	require.False(t, res.GetStaged())
@@ -88,11 +90,9 @@ func TestGrpcExecutor_RaiseErrorEnqueuesFailureDetails(t *testing.T) {
 	raised := be.event.GetEventRaised()
 	require.NotNil(t, raised)
 	require.Equal(t, "approval", raised.GetName())
-	failure, isError, err := helpers.DecodeExternalEventError(raised.GetInput().GetValue())
-	require.NoError(t, err)
-	require.True(t, isError)
-	require.Equal(t, "example.FooBarException", failure.GetErrorType())
-	require.Equal(t, "approval was rejected", failure.GetErrorMessage())
+	require.Nil(t, raised.GetInput())
+	require.Equal(t, "example.FooBarException", raised.GetFailureDetails().GetErrorType())
+	require.Equal(t, "approval was rejected", raised.GetFailureDetails().GetErrorMessage())
 }
 
 func TestGrpcExecutor_RaiseErrorRejectsInvalidFailureDetails(t *testing.T) {
@@ -107,7 +107,43 @@ func TestGrpcExecutor_RaiseErrorRejectsInvalidFailureDetails(t *testing.T) {
 	_, err = exec.(*grpcExecutor).RaiseError(t.Context(), &protos.RaiseEventRequest{
 		InstanceId: "instance",
 		Name:       "approval",
-		Input:      wrapperspb.String(`{"errorMessage":"missing error type"}`),
+		FailureDetails: &protos.TaskFailureDetails{
+			ErrorMessage: "missing error type",
+		},
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = exec.(*grpcExecutor).RaiseError(t.Context(), &protos.RaiseEventRequest{
+		InstanceId: "instance",
+		Name:       "approval",
+		FailureDetails: &protos.TaskFailureDetails{
+			ErrorType: "missing error message",
+		},
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = exec.(*grpcExecutor).RaiseError(t.Context(), &protos.RaiseEventRequest{
+		InstanceId: "instance",
+		Name:       "approval",
+		Input:      wrapperspb.String("unexpected payload"),
+		FailureDetails: &protos.TaskFailureDetails{
+			ErrorType:    "example.Failure",
+			ErrorMessage: "failed",
+		},
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestGrpcExecutor_RaiseEventRejectsFailureDetails(t *testing.T) {
+	exec, _ := NewGrpcExecutor(new(recordingEventBackend), DefaultLogger())
+
+	_, err := exec.(*grpcExecutor).RaiseEvent(t.Context(), &protos.RaiseEventRequest{
+		InstanceId: "instance",
+		Name:       "approval",
+		FailureDetails: &protos.TaskFailureDetails{
+			ErrorType:    "example.Failure",
+			ErrorMessage: "failed",
+		},
 	})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }

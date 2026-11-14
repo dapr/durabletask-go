@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -737,46 +736,54 @@ func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInst
 
 // RaiseEvent implements protos.TaskHubSidecarServiceServer.
 func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
-	return g.enqueueExternalEvent(ctx, req, req.GetInput())
+	if req.GetFailureDetails() != nil {
+		return nil, status.Error(codes.InvalidArgument, "failureDetails can only be set when raising an error")
+	}
+
+	return g.enqueueExternalEvent(ctx, req, &protos.EventRaisedEvent{
+		Name:  req.GetName(),
+		Input: req.GetInput(),
+	})
 }
 
-// RaiseError implements protos.TaskHubSidecarServiceServer. The request input is
-// a protojson-encoded TaskFailureDetails message; the encoded details are stored
-// in the EventRaised input so both Go and .NET workflow replay engines can fail
-// the matching WaitForSingleEvent task without introducing a separate history
-// event type.
+// RaiseError implements protos.TaskHubSidecarServiceServer. Failure details
+// are persisted on EventRaisedEvent so workflow replay can fail the matching
+// WaitForSingleEvent task without interpreting user payload data.
 func (g *grpcExecutor) RaiseError(ctx context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
-	if req.GetInput() == nil {
+	failureDetails := req.GetFailureDetails()
+	if failureDetails == nil {
 		return nil, status.Error(codes.InvalidArgument, "workflow error details are required")
 	}
-
-	failureDetails := new(protos.TaskFailureDetails)
-	if err := protojson.Unmarshal([]byte(req.GetInput().GetValue()), failureDetails); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid workflow error details: %v", err)
+	if strings.TrimSpace(failureDetails.GetErrorType()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "workflow error type is required")
+	}
+	if strings.TrimSpace(failureDetails.GetErrorMessage()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "workflow error message is required")
+	}
+	if req.GetInput() != nil {
+		return nil, status.Error(codes.InvalidArgument, "event input cannot be provided when raising an error")
 	}
 
-	encoded, err := helpers.EncodeExternalEventError(failureDetails)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	return g.enqueueExternalEvent(ctx, req, wrapperspb.String(encoded))
+	return g.enqueueExternalEvent(ctx, req, &protos.EventRaisedEvent{
+		Name:           req.GetName(),
+		FailureDetails: failureDetails,
+	})
 }
 
 func (g *grpcExecutor) enqueueExternalEvent(
 	ctx context.Context,
 	req *protos.RaiseEventRequest,
-	input *wrapperspb.StringValue,
+	event *protos.EventRaisedEvent,
 ) (*protos.RaiseEventResponse, error) {
 	e := &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.New(time.Now()),
 		EventType: &protos.HistoryEvent_EventRaised{
-			EventRaised: &protos.EventRaisedEvent{Name: req.Name, Input: input},
+			EventRaised: event,
 		},
 		Router: req.GetRouter(),
 	}
-	staged, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e))
+	staged, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.GetInstanceId()), e))
 	if err != nil {
 		return nil, err
 	}
