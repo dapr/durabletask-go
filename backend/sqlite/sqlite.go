@@ -1255,38 +1255,18 @@ func (be *sqliteBackend) ListInstanceIDs(ctx context.Context, wi *backend.ListIn
 }
 
 func (be *sqliteBackend) getTerminationReason(ctx context.Context, iid api.InstanceID) (*wrapperspb.StringValue, error) {
-    rows, err := be.db.QueryContext(
-        ctx,
-        `SELECT [EventPayload]
-         FROM History
-         WHERE [InstanceID] = ?
-         ORDER BY [SequenceNumber] DESC`,
-        string(iid),
-    )
-    if err != nil {
-        return nil, fmt.Errorf("failed to query workflow history: %w", err)
-    }
-    defer rows.Close()
+	rows, err := be.db.QueryContext(
+		ctx,
+		`SELECT [EventPayload]
+		 FROM History
+		 WHERE [InstanceID] = ?
+		 ORDER BY [SequenceNumber] DESC`,
+		string(iid),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query workflow termination history: %w", err)
+	}
+	defer rows.Close()
 
-    for rows.Next() {
-        var payload []byte
-        if err := rows.Scan(&payload); err != nil {
-            return nil, fmt.Errorf("failed to scan workflow history: %w", err)
-        }
-
-        event, err := backend.UnmarshalHistoryEvent(payload)
-        if err != nil {
-            return nil, fmt.Errorf("failed to unmarshal workflow history: %w", err)
-        }
-
-        if terminated := event.GetExecutionTerminated(); terminated != nil {
-            return terminated.GetReason(), nil
-        }
-    }
-
-    if err := rows.Err(); err != nil {
-        return nil, fmt.Errorf("failed to read workflow history: %w", err)
-    }
-
-    return nil, nil
+	return backend.TerminationReasonFromHistoryRows(rows)
 }
