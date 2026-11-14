@@ -721,8 +721,19 @@ func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Du
 		} else {
 			delete(ctx.bufferedExternalEvents, key)
 		}
-		rawValue := []byte(next.Value.(*protos.HistoryEvent).GetEventRaised().GetInput().GetValue())
-		task.complete(rawValue)
+		eventInput := next.Value.(*protos.HistoryEvent).GetEventRaised().GetInput().GetValue()
+		failureDetails, isError, err := helpers.DecodeExternalEventError(eventInput)
+		switch {
+		case err != nil:
+			task.fail(&protos.TaskFailureDetails{
+				ErrorType:    "InvalidExternalEventError",
+				ErrorMessage: err.Error(),
+			})
+		case isError:
+			task.fail(failureDetails)
+		default:
+			task.complete([]byte(eventInput))
+		}
 	} else if timeout == 0 {
 		// Zero-timeout means fail immediately if the event isn't already buffered.
 		task.cancel()
@@ -1064,9 +1075,23 @@ func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error 
 		} else {
 			delete(ctx.pendingExternalEventTasks, key)
 		}
-		rawValue := []byte(er.Input.GetValue())
-		task.complete(rawValue)
+		eventInput := er.GetInput().GetValue()
+		failureDetails, isError, err := helpers.DecodeExternalEventError(eventInput)
+		if err != nil {
+			return fmt.Errorf("invalid raised error for external event %q: %w", er.GetName(), err)
+		}
+		if isError {
+			task.fail(failureDetails)
+		} else {
+			task.complete([]byte(eventInput))
+		}
 	} else {
+		// Validate the versioned failure envelope before buffering it. The
+		// event will be decoded again when a matching waiter consumes it.
+		if _, _, err := helpers.DecodeExternalEventError(er.GetInput().GetValue()); err != nil {
+			return fmt.Errorf("invalid raised error for external event %q: %w", er.GetName(), err)
+		}
+
 		// Add this event to the buffered list of events with this name.
 		var eventList *list.List
 		var ok bool

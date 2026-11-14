@@ -29,6 +29,7 @@ const (
 	TaskHubSidecarService_WaitForInstanceStart_FullMethodName      = "/TaskHubSidecarService/WaitForInstanceStart"
 	TaskHubSidecarService_WaitForInstanceCompletion_FullMethodName = "/TaskHubSidecarService/WaitForInstanceCompletion"
 	TaskHubSidecarService_RaiseEvent_FullMethodName                = "/TaskHubSidecarService/RaiseEvent"
+	TaskHubSidecarService_RaiseError_FullMethodName                = "/TaskHubSidecarService/RaiseError"
 	TaskHubSidecarService_TerminateInstance_FullMethodName         = "/TaskHubSidecarService/TerminateInstance"
 	TaskHubSidecarService_SuspendInstance_FullMethodName           = "/TaskHubSidecarService/SuspendInstance"
 	TaskHubSidecarService_ResumeInstance_FullMethodName            = "/TaskHubSidecarService/ResumeInstance"
@@ -63,6 +64,8 @@ type TaskHubSidecarServiceClient interface {
 	WaitForInstanceCompletion(ctx context.Context, in *GetInstanceRequest, opts ...grpc.CallOption) (*GetInstanceResponse, error)
 	// Raises an event to a running workflow instance.
 	RaiseEvent(ctx context.Context, in *RaiseEventRequest, opts ...grpc.CallOption) (*RaiseEventResponse, error)
+	// Raises an error to the matching external-event wait in a workflow instance.
+	RaiseError(ctx context.Context, in *RaiseEventRequest, opts ...grpc.CallOption) (*RaiseEventResponse, error)
 	// Terminates a running workflow instance.
 	TerminateInstance(ctx context.Context, in *TerminateRequest, opts ...grpc.CallOption) (*TerminateResponse, error)
 	// Suspends a running workflow instance.
@@ -146,6 +149,15 @@ func (c *taskHubSidecarServiceClient) WaitForInstanceCompletion(ctx context.Cont
 func (c *taskHubSidecarServiceClient) RaiseEvent(ctx context.Context, in *RaiseEventRequest, opts ...grpc.CallOption) (*RaiseEventResponse, error) {
 	out := new(RaiseEventResponse)
 	err := c.cc.Invoke(ctx, TaskHubSidecarService_RaiseEvent_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taskHubSidecarServiceClient) RaiseError(ctx context.Context, in *RaiseEventRequest, opts ...grpc.CallOption) (*RaiseEventResponse, error) {
+	out := new(RaiseEventResponse)
+	err := c.cc.Invoke(ctx, TaskHubSidecarService_RaiseError_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -336,6 +348,8 @@ type TaskHubSidecarServiceServer interface {
 	WaitForInstanceCompletion(context.Context, *GetInstanceRequest) (*GetInstanceResponse, error)
 	// Raises an event to a running workflow instance.
 	RaiseEvent(context.Context, *RaiseEventRequest) (*RaiseEventResponse, error)
+	// Raises an error to the matching external-event wait in a workflow instance.
+	RaiseError(context.Context, *RaiseEventRequest) (*RaiseEventResponse, error)
 	// Terminates a running workflow instance.
 	TerminateInstance(context.Context, *TerminateRequest) (*TerminateResponse, error)
 	// Suspends a running workflow instance.
@@ -385,6 +399,9 @@ func (UnimplementedTaskHubSidecarServiceServer) WaitForInstanceCompletion(contex
 }
 func (UnimplementedTaskHubSidecarServiceServer) RaiseEvent(context.Context, *RaiseEventRequest) (*RaiseEventResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RaiseEvent not implemented")
+}
+func (UnimplementedTaskHubSidecarServiceServer) RaiseError(context.Context, *RaiseEventRequest) (*RaiseEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RaiseError not implemented")
 }
 func (UnimplementedTaskHubSidecarServiceServer) TerminateInstance(context.Context, *TerminateRequest) (*TerminateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TerminateInstance not implemented")
@@ -551,6 +568,24 @@ func _TaskHubSidecarService_RaiseEvent_Handler(srv interface{}, ctx context.Cont
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaskHubSidecarServiceServer).RaiseEvent(ctx, req.(*RaiseEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaskHubSidecarService_RaiseError_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RaiseEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskHubSidecarServiceServer).RaiseError(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskHubSidecarService_RaiseError_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskHubSidecarServiceServer).RaiseError(ctx, req.(*RaiseEventRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -876,6 +911,10 @@ var TaskHubSidecarService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RaiseEvent",
 			Handler:    _TaskHubSidecarService_RaiseEvent_Handler,
+		},
+		{
+			MethodName: "RaiseError",
+			Handler:    _TaskHubSidecarService_RaiseError_Handler,
 		},
 		{
 			MethodName: "TerminateInstance",
