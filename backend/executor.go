@@ -750,6 +750,13 @@ func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventReq
 // are persisted on EventRaisedEvent so workflow replay can fail the matching
 // WaitForSingleEvent task without interpreting user payload data.
 func (g *grpcExecutor) RaiseError(ctx context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
+	if strings.TrimSpace(req.GetInstanceId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "workflow instance ID is required")
+	}
+	if strings.TrimSpace(req.GetName()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "external event name is required")
+	}
+
 	failureDetails := req.GetFailureDetails()
 	if failureDetails == nil {
 		return nil, status.Error(codes.InvalidArgument, "workflow error details are required")
