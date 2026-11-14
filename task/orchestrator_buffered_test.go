@@ -167,6 +167,7 @@ func Test_WaitForSingleEvent_RaisedErrorIsBufferedUntilWaitIsCreated(t *testing.
 
 	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
 		evExecutionStarted("wf"),
+		evTaskScheduled(0, "gate"),
 		evEventRaisedError("approval", &protos.TaskFailureDetails{
 			ErrorType:    "example.FooBarException",
 			ErrorMessage: "approval was rejected before waiter registration",
