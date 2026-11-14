@@ -159,9 +159,6 @@ func WithFailureDetails(details *protos.TaskFailureDetails) RaiseErrorOptions {
 		if strings.TrimSpace(details.GetErrorType()) == "" {
 			return errors.New("workflow error type is required")
 		}
-		if strings.TrimSpace(details.GetErrorMessage()) == "" {
-			return errors.New("workflow error message is required")
-		}
 		req.FailureDetails = proto.Clone(details).(*protos.TaskFailureDetails)
 		return nil
 	}

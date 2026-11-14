@@ -764,9 +764,6 @@ func (g *grpcExecutor) RaiseError(ctx context.Context, req *protos.RaiseEventReq
 	if strings.TrimSpace(failureDetails.GetErrorType()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow error type is required")
 	}
-	if strings.TrimSpace(failureDetails.GetErrorMessage()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "workflow error message is required")
-	}
 	if req.GetInput() != nil {
 		return nil, status.Error(codes.InvalidArgument, "event input cannot be provided when raising an error")
 	}
