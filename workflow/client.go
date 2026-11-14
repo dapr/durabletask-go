@@ -140,6 +140,26 @@ func (c *Client) RaiseEventWithResult(ctx context.Context, id, eventName string,
 	return c.thgc.RaiseEventWithResult(ctx, api.InstanceID(id), eventName, oops...)
 }
 
+// RaiseError fails the oldest matching external-event wait with structured
+// failure details. The failure is buffered when no matching wait exists yet.
+func (c *Client) RaiseError(ctx context.Context, id, eventName string, opts ...RaiseErrorOptions) error {
+	oops := make([]api.RaiseErrorOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.RaiseErrorOptions(o)
+	}
+	return c.thgc.RaiseError(ctx, api.InstanceID(id), eventName, oops...)
+}
+
+// RaiseErrorWithResult raises an error like RaiseError and reports whether the
+// sidecar staged the notification.
+func (c *Client) RaiseErrorWithResult(ctx context.Context, id, eventName string, opts ...RaiseErrorOptions) (*RaiseErrorResult, error) {
+	oops := make([]api.RaiseErrorOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.RaiseErrorOptions(o)
+	}
+	return c.thgc.RaiseErrorWithResult(ctx, api.InstanceID(id), eventName, oops...)
+}
+
 // SuspendWorkflow suspends an workflow instance, halting processing of its
 // events until a "resume" operation resumes it.
 //

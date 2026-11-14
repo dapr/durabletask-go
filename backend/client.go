@@ -23,6 +23,7 @@ type TaskHubClient interface {
 	WaitForWorkflowCompletion(ctx context.Context, id api.InstanceID, opts ...api.FetchWorkflowMetadataOptions) (*WorkflowMetadata, error)
 	TerminateWorkflow(ctx context.Context, id api.InstanceID, opts ...api.TerminateOptions) error
 	RaiseEvent(ctx context.Context, id api.InstanceID, eventName string, opts ...api.RaiseEventOptions) error
+	RaiseError(ctx context.Context, id api.InstanceID, eventName string, opts ...api.RaiseErrorOptions) error
 	SuspendWorkflow(ctx context.Context, id api.InstanceID, reason string, opts ...api.SuspendOptions) error
 	ResumeWorkflow(ctx context.Context, id api.InstanceID, reason string, opts ...api.ResumeOptions) error
 	PurgeWorkflowState(ctx context.Context, id api.InstanceID, opts ...api.PurgeOptions) error
@@ -208,6 +209,42 @@ func (c *backendClient) RaiseEvent(ctx context.Context, id api.InstanceID, event
 	}
 	if _, err := isStaged(c.be.AddNewWorkflowEvent(ctx, id, e)); err != nil {
 		return fmt.Errorf("failed to raise event: %w", err)
+	}
+	return nil
+}
+
+// RaiseError fails the oldest matching external-event wait. The failure is
+// persisted as structured EventRaised history metadata, never as user input.
+func (c *backendClient) RaiseError(ctx context.Context, id api.InstanceID, eventName string, opts ...api.RaiseErrorOptions) error {
+	req := &protos.RaiseEventRequest{InstanceId: string(id), Name: eventName}
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return fmt.Errorf("failed to configure raise error request: %w", err)
+		}
+	}
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return err
+	}
+	if req.GetFailureDetails() == nil {
+		return errors.New("workflow error details are required")
+	}
+	if req.GetInput() != nil {
+		return errors.New("event input cannot be provided when raising an error")
+	}
+
+	e := &protos.HistoryEvent{
+		EventId:   -1,
+		Timestamp: timestamppb.New(time.Now()),
+		EventType: &protos.HistoryEvent_EventRaised{
+			EventRaised: &protos.EventRaisedEvent{
+				Name:           req.GetName(),
+				FailureDetails: req.GetFailureDetails(),
+			},
+		},
+		Router: req.GetRouter(),
+	}
+	if _, err := isStaged(c.be.AddNewWorkflowEvent(ctx, id, e)); err != nil {
+		return fmt.Errorf("failed to raise workflow error: %w", err)
 	}
 	return nil
 }

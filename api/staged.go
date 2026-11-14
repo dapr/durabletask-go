@@ -20,6 +20,12 @@ type RaiseEventResult struct {
 	Staged bool
 }
 
+// RaiseErrorResult is the result of raising an error to an external-event wait.
+type RaiseErrorResult struct {
+	// Staged is true when the sidecar staged the error notification.
+	Staged bool
+}
+
 // TerminateResult is the result of terminating a workflow.
 type TerminateResult struct {
 	// Staged is true when the sidecar staged the termination.

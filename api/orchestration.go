@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -43,6 +44,9 @@ type FetchWorkflowMetadataOptions func(*protos.GetInstanceRequest)
 
 // RaiseEventOptions is a set of options for raising a workflow event.
 type RaiseEventOptions func(*protos.RaiseEventRequest) error
+
+// RaiseErrorOptions is a set of options for failing a workflow external-event wait.
+type RaiseErrorOptions func(*protos.RaiseEventRequest) error
 
 // TerminateOptions is a set of options for terminating a workflow.
 type TerminateOptions func(*protos.TerminateRequest) error
@@ -137,6 +141,28 @@ func WithEventPayload(data any) RaiseEventOptions {
 func WithRawEventData(data *wrapperspb.StringValue) RaiseEventOptions {
 	return func(req *protos.RaiseEventRequest) error {
 		req.Input = data
+		return nil
+	}
+}
+
+// WithFailureDetails configures the structured failure delivered to the oldest
+// matching external-event wait. The details are cloned so subsequent caller
+// mutations cannot change the request being sent.
+func WithFailureDetails(details *protos.TaskFailureDetails) RaiseErrorOptions {
+	return func(req *protos.RaiseEventRequest) error {
+		if details == nil {
+			return errors.New("workflow failure details are required")
+		}
+		if req.Input != nil {
+			return errors.New("event input cannot be provided when raising an error")
+		}
+		if strings.TrimSpace(details.GetErrorType()) == "" {
+			return errors.New("workflow error type is required")
+		}
+		if strings.TrimSpace(details.GetErrorMessage()) == "" {
+			return errors.New("workflow error message is required")
+		}
+		req.FailureDetails = proto.Clone(details).(*protos.TaskFailureDetails)
 		return nil
 	}
 }
@@ -305,6 +331,15 @@ func WithFetchAppID(appID string) FetchWorkflowMetadataOptions {
 // WithRaiseEventAppID targets the event at the workflow instance owned by the
 // app with the given app ID rather than the local app.
 func WithRaiseEventAppID(appID string) RaiseEventOptions {
+	return func(req *protos.RaiseEventRequest) error {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
+		return nil
+	}
+}
+
+// WithRaiseErrorAppID targets the error notification at the workflow instance
+// owned by the app with the given app ID rather than the local app.
+func WithRaiseErrorAppID(appID string) RaiseErrorOptions {
 	return func(req *protos.RaiseEventRequest) error {
 		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
 		return nil

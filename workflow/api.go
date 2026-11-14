@@ -12,6 +12,7 @@ import (
 type NewWorkflowOptions api.NewWorkflowOptions
 type FetchWorkflowMetadataOptions api.FetchWorkflowMetadataOptions
 type RaiseEventOptions api.RaiseEventOptions
+type RaiseErrorOptions api.RaiseErrorOptions
 type TerminateOptions api.TerminateOptions
 type PurgeOptions api.PurgeOptions
 type SuspendOptions api.SuspendOptions
@@ -62,6 +63,12 @@ func WithEventPayload(data any) RaiseEventOptions {
 // string (e.g. JSON data).
 func WithRawEventData(data *wrapperspb.StringValue) RaiseEventOptions {
 	return RaiseEventOptions(api.WithRawEventData(data))
+}
+
+// WithFailureDetails configures the structured failure delivered to the oldest
+// matching external-event wait.
+func WithFailureDetails(details *protos.TaskFailureDetails) RaiseErrorOptions {
+	return RaiseErrorOptions(api.WithFailureDetails(details))
 }
 
 // WithOutput configures an output for the terminated workflow. The specified
@@ -145,6 +152,12 @@ func WithFetchAppID(appID string) FetchWorkflowMetadataOptions {
 // app with the given app ID rather than the local app.
 func WithRaiseEventAppID(appID string) RaiseEventOptions {
 	return RaiseEventOptions(api.WithRaiseEventAppID(appID))
+}
+
+// WithRaiseErrorAppID targets the error notification at the workflow instance
+// owned by the app with the given app ID rather than the local app.
+func WithRaiseErrorAppID(appID string) RaiseErrorOptions {
+	return RaiseErrorOptions(api.WithRaiseErrorAppID(appID))
 }
 
 // WithTerminateAppID targets the termination at the workflow instance owned by

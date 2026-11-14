@@ -67,6 +67,9 @@ type RerunResult struct {
 // RaiseEventResult is the result of raising an event.
 type RaiseEventResult = api.RaiseEventResult
 
+// RaiseErrorResult is the result of raising an error.
+type RaiseErrorResult = api.RaiseErrorResult
+
 // TerminateResult is the result of terminating a workflow.
 type TerminateResult = api.TerminateResult
 
