@@ -86,9 +86,6 @@ func (t *completableTask) TaskExecutionId() string {
 	return t.taskExecutionId
 }
 
-// completionError returns the error a completed task represents -- nil on success, the formatted
-// failure on a failed task, or ErrTaskCanceled on a canceled one -- without touching the task's raw
-// result. It must only be called once t.isCompleted is true.
 // TaskFailedError represents a task that completed with failure details.
 // It is returned by Await when an activity, child workflow, or external event fails.
 type TaskFailedError struct {
@@ -103,6 +100,9 @@ func (e *TaskFailedError) Error() string {
 	return fmt.Sprintf("task failed with an error: %v", e.FailureDetails.GetErrorMessage())
 }
 
+// completionError returns the error a completed task represents -- nil on success, the structured
+// failure on a failed task, or ErrTaskCanceled on a canceled one -- without touching the task's raw
+// result. It must only be called once t.isCompleted is true.
 func (t *completableTask) completionError() error {
 	if t.failureDetails != nil {
 		return &TaskFailedError{FailureDetails: t.failureDetails}
