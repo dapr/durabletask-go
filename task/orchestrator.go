@@ -1077,12 +1077,15 @@ func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error 
 		}
 		eventInput := er.GetInput().GetValue()
 		failureDetails, isError, err := helpers.DecodeExternalEventError(eventInput)
-		if err != nil {
-			return fmt.Errorf("invalid raised error for external event %q: %w", er.GetName(), err)
-		}
-		if isError {
+		switch {
+		case err != nil:
+			task.fail(&protos.TaskFailureDetails{
+				ErrorType:    "InvalidExternalEventError",
+				ErrorMessage: err.Error(),
+			})
+		case isError:
 			task.fail(failureDetails)
-		} else {
+		default:
 			task.complete([]byte(eventInput))
 		}
 	} else {

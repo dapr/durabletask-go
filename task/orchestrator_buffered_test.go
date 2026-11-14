@@ -110,11 +110,10 @@ func evEventRaised(name string) *protos.HistoryEvent {
 	}
 }
 
-func evEventRaisedError(name string, failure *protos.TaskFailureDetails) *protos.HistoryEvent {
+func evEventRaisedError(t *testing.T, name string, failure *protos.TaskFailureDetails) *protos.HistoryEvent {
+	t.Helper()
 	encoded, err := helpers.EncodeExternalEventError(failure)
-	if err != nil {
-		panic(err)
-	}
+	require.NoError(t, err)
 
 	return &protos.HistoryEvent{
 		EventId:   -1,
@@ -139,7 +138,7 @@ func Test_WaitForSingleEvent_RaisedErrorFailsPendingWait(t *testing.T) {
 
 	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
 		evExecutionStarted("wf"),
-		evEventRaisedError("approval", &protos.TaskFailureDetails{
+		evEventRaisedError(t, "approval", &protos.TaskFailureDetails{
 			ErrorType:    "example.FooBarException",
 			ErrorMessage: "approval was rejected",
 		}),
@@ -179,6 +178,29 @@ func Test_WaitForSingleEvent_RaisedErrorIsBufferedUntilWaitIsCreated(t *testing.
 	require.NotNil(t, co)
 	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
 	assert.Contains(t, co.GetResult().GetValue(), "approval was rejected before waiter registration")
+	assert.Empty(t, cl.warns)
+}
+
+func Test_WaitForSingleEvent_MalformedRaisedErrorFailsOnlyTheMatchingWait(t *testing.T) {
+	r := NewTaskRegistry()
+	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+		if err := ctx.WaitForSingleEvent("approval", -1).Await(nil); err != nil {
+			return err.Error(), nil
+		}
+		return "success", nil
+	}))
+
+	malformed := evEventRaised("approval")
+	malformed.GetEventRaised().Input = wrapperspb.String(helpers.ExternalEventErrorPrefix + "{")
+	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		malformed,
+	})
+
+	co := completeAction(t, actions)
+	require.NotNil(t, co)
+	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
+	assert.Contains(t, co.GetResult().GetValue(), "InvalidExternalEventError")
 	assert.Empty(t, cl.warns)
 }
 
