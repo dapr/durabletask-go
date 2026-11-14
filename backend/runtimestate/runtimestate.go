@@ -225,3 +225,26 @@ func GetStartedTime(s *protos.WorkflowRuntimeState) time.Time {
 func IsCompleted(s *protos.WorkflowRuntimeState) bool {
 	return s.CompletedEvent != nil
 }
+
+// TerminationReason returns the most recent reason stored in the workflow's
+// ExecutionTerminated history event. It returns nil when no termination event
+// or no reason is present.
+func TerminationReason(s *protos.WorkflowRuntimeState) *wrapperspb.StringValue {
+	if s == nil {
+		return nil
+	}
+
+	// NewEvents follow OldEvents, and events are appended in sequence order.
+	for i := len(s.NewEvents) - 1; i >= 0; i-- {
+		if terminated := s.NewEvents[i].GetExecutionTerminated(); terminated != nil {
+			return terminated.GetReason()
+		}
+	}
+	for i := len(s.OldEvents) - 1; i >= 0; i-- {
+		if terminated := s.OldEvents[i].GetExecutionTerminated(); terminated != nil {
+			return terminated.GetReason()
+		}
+	}
+
+	return nil
+}

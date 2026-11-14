@@ -475,6 +475,7 @@ func makeWorkflowMetadata(resp *protos.GetInstanceResponse) (*backend.WorkflowMe
 		StartedAt:        resp.GetWorkflowState().GetStartedAt(),
 		ParentInstanceId: resp.GetWorkflowState().GetParentInstanceId().GetValue(),
 		ParentAppId:      resp.GetWorkflowState().GetParentAppId(),
+		TerminationReason: resp.GetWorkflowState().GetTerminationReason(),
 	}
 	return metadata, nil
 }

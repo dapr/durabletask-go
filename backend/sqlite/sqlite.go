@@ -730,6 +730,16 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 		}
 	}
 
+	var terminationReason *wrapperspb.StringValue
+
+	if helpers.FromRuntimeStatusString(*runtimeStatus) ==
+		protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED {
+		terminationReason, err = be.getTerminationReason(ctx, iid)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &backend.WorkflowMetadata{
 		InstanceId:       string(iid),
 		Name:             *name,
@@ -744,6 +754,7 @@ func (be *sqliteBackend) GetWorkflowMetadata(ctx context.Context, iid api.Instan
 		ParentInstanceId: parentInstanceID,
 		ParentAppId:      parentAppIDw,
 		StartedAt:        startedAt,
+		TerminationReason: terminationReason,
 	}, nil
 }
 
@@ -1241,4 +1252,21 @@ func (be *sqliteBackend) ListInstanceIDs(ctx context.Context, wi *backend.ListIn
 	return &backend.ListInstanceIDsResponse{
 		InstanceIds: ids,
 	}, nil
+}
+
+func (be *sqliteBackend) getTerminationReason(ctx context.Context, iid api.InstanceID) (*wrapperspb.StringValue, error) {
+	rows, err := be.db.QueryContext(
+		ctx,
+		`SELECT [EventPayload]
+		 FROM History
+		 WHERE [InstanceID] = ?
+		 ORDER BY [SequenceNumber] DESC`,
+		string(iid),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query workflow termination history: %w", err)
+	}
+	defer rows.Close()
+
+	return backend.TerminationReasonFromHistoryRows(rows)
 }

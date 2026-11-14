@@ -842,6 +842,7 @@ func (g *grpcExecutor) TerminateInstance(ctx context.Context, req *protos.Termin
 			ExecutionTerminated: &protos.ExecutionTerminatedEvent{
 				Input:   req.Output,
 				Recurse: req.Recursive,
+				Reason:  req.Reason,
 			},
 		},
 		Router: req.GetRouter(),
@@ -969,6 +970,7 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Workflo
 		LastUpdatedTimestamp: metadata.LastUpdatedAt,
 		Version:              metadata.Version,
 		StartedAt:            metadata.StartedAt,
+		TerminationReason:    metadata.GetTerminationReason(),
 	}
 
 	if metadata.ParentInstanceId != "" {
