@@ -722,18 +722,7 @@ func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Du
 			delete(ctx.bufferedExternalEvents, key)
 		}
 		eventInput := next.Value.(*protos.HistoryEvent).GetEventRaised().GetInput().GetValue()
-		failureDetails, isError, err := helpers.DecodeExternalEventError(eventInput)
-		switch {
-		case err != nil:
-			task.fail(&protos.TaskFailureDetails{
-				ErrorType:    "InvalidExternalEventError",
-				ErrorMessage: err.Error(),
-			})
-		case isError:
-			task.fail(failureDetails)
-		default:
-			task.complete([]byte(eventInput))
-		}
+		completeExternalEventTask(task, eventInput)
 	} else if timeout == 0 {
 		// Zero-timeout means fail immediately if the event isn't already buffered.
 		task.cancel()
@@ -1063,6 +1052,24 @@ func (ctx *WorkflowContext) onTimerFired(tf *protos.TimerFiredEvent) error {
 	return nil
 }
 
+// completeExternalEventTask completes a single WaitForSingleEvent task with
+// either the event payload or its raised failure. A malformed reserved error
+// envelope fails that task rather than aborting the entire workflow replay.
+func completeExternalEventTask(task *completableTask, input string) {
+	failureDetails, isError, err := helpers.DecodeExternalEventError(input)
+	switch {
+	case err != nil:
+		task.fail(&protos.TaskFailureDetails{
+			ErrorType:    "InvalidExternalEventError",
+			ErrorMessage: err.Error(),
+		})
+	case isError:
+		task.fail(failureDetails)
+	default:
+		task.complete([]byte(input))
+	}
+}
+
 func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error {
 	er := e.GetEventRaised()
 	key := strings.ToUpper(er.GetName())
@@ -1075,19 +1082,7 @@ func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error 
 		} else {
 			delete(ctx.pendingExternalEventTasks, key)
 		}
-		eventInput := er.GetInput().GetValue()
-		failureDetails, isError, err := helpers.DecodeExternalEventError(eventInput)
-		switch {
-		case err != nil:
-			task.fail(&protos.TaskFailureDetails{
-				ErrorType:    "InvalidExternalEventError",
-				ErrorMessage: err.Error(),
-			})
-		case isError:
-			task.fail(failureDetails)
-		default:
-			task.complete([]byte(eventInput))
-		}
+		completeExternalEventTask(task, er.GetInput().GetValue())
 	} else {
 		// Validate the versioned failure envelope before buffering it. The
 		// event will be decoded again when a matching waiter consumes it.

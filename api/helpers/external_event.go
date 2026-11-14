@@ -20,10 +20,10 @@ func EncodeExternalEventError(failureDetails *protos.TaskFailureDetails) (string
 	if failureDetails == nil {
 		return "", fmt.Errorf("workflow error details are required")
 	}
-	if failureDetails.GetErrorType() == "" {
+	if strings.TrimSpace(failureDetails.GetErrorType()) == "" {
 		return "", fmt.Errorf("workflow error type is required")
 	}
-	if failureDetails.GetErrorMessage() == "" {
+	if strings.TrimSpace(failureDetails.GetErrorMessage()) == "" {
 		return "", fmt.Errorf("workflow error message is required")
 	}
 

@@ -55,4 +55,10 @@ func TestEncodeExternalEventError_RequiresDetails(t *testing.T) {
 
 	_, err = EncodeExternalEventError(&protos.TaskFailureDetails{ErrorType: "example.Failure"})
 	require.Error(t, err)
+
+	_, err = EncodeExternalEventError(&protos.TaskFailureDetails{ErrorType: " ", ErrorMessage: "failed"})
+	require.Error(t, err)
+
+	_, err = EncodeExternalEventError(&protos.TaskFailureDetails{ErrorType: "example.Failure", ErrorMessage: " "})
+	require.Error(t, err)
 }
