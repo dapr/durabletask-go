@@ -21,8 +21,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api"
+	"github.com/dapr/durabletask-go/api/helpers"
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
@@ -55,6 +59,59 @@ func (b *stagingBackend) WatchWorkflowRuntimeStatus(_ context.Context, id api.In
 	})
 	return nil
 }
+
+type recordingEventBackend struct {
+	Backend
+	instanceID api.InstanceID
+	event      *HistoryEvent
+}
+
+func (b *recordingEventBackend) AddNewWorkflowEvent(_ context.Context, id api.InstanceID, event *HistoryEvent) error {
+	b.instanceID = id
+	b.event = event
+	return nil
+}
+
+func TestGrpcExecutor_RaiseErrorEnqueuesFailureDetails(t *testing.T) {
+	be := new(recordingEventBackend)
+	exec, _ := NewGrpcExecutor(be, DefaultLogger())
+
+	res, err := exec.(*grpcExecutor).RaiseError(t.Context(), &protos.RaiseEventRequest{
+		InstanceId: "instance",
+		Name:       "approval",
+		Input: wrapperspb.String(`{"errorType":"example.FooBarException","errorMessage":"approval was rejected"}`),
+	})
+	require.NoError(t, err)
+	require.False(t, res.GetStaged())
+	require.Equal(t, api.InstanceID("instance"), be.instanceID)
+
+	raised := be.event.GetEventRaised()
+	require.NotNil(t, raised)
+	require.Equal(t, "approval", raised.GetName())
+	failure, isError, err := helpers.DecodeExternalEventError(raised.GetInput().GetValue())
+	require.NoError(t, err)
+	require.True(t, isError)
+	require.Equal(t, "example.FooBarException", failure.GetErrorType())
+	require.Equal(t, "approval was rejected", failure.GetErrorMessage())
+}
+
+func TestGrpcExecutor_RaiseErrorRejectsInvalidFailureDetails(t *testing.T) {
+	exec, _ := NewGrpcExecutor(new(recordingEventBackend), DefaultLogger())
+
+	_, err := exec.(*grpcExecutor).RaiseError(t.Context(), &protos.RaiseEventRequest{
+		InstanceId: "instance",
+		Name:       "approval",
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = exec.(*grpcExecutor).RaiseError(t.Context(), &protos.RaiseEventRequest{
+		InstanceId: "instance",
+		Name:       "approval",
+		Input:      wrapperspb.String(`{"errorMessage":"missing error type"}`),
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
 
 func TestGrpcExecutor_StagedOperation(t *testing.T) {
 	ctx := t.Context()

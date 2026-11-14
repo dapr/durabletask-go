@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/dapr/durabletask-go/api/protos"
 )
@@ -27,7 +28,7 @@ func TestExternalEventErrorRoundTrip(t *testing.T) {
 	got, isError, err := DecodeExternalEventError(encoded)
 	require.NoError(t, err)
 	require.True(t, isError)
-	require.Equal(t, want, got)
+	require.True(t, proto.Equal(want, got))
 }
 
 func TestDecodeExternalEventError_LeavesNormalPayloadUntouched(t *testing.T) {
