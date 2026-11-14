@@ -46,6 +46,16 @@ func TestDecodeExternalEventError_RejectsMalformedReservedPayload(t *testing.T) 
 	require.True(t, isError)
 }
 
+func TestDecodeExternalEventError_RejectsWhitespaceRequiredFields(t *testing.T) {
+	_, isError, err := DecodeExternalEventError(ExternalEventErrorPrefix + `{"errorType":" ","errorMessage":"failed"}`)
+	require.Error(t, err)
+	require.True(t, isError)
+
+	_, isError, err = DecodeExternalEventError(ExternalEventErrorPrefix + `{"errorType":"example.Failure","errorMessage":" "}`)
+	require.Error(t, err)
+	require.True(t, isError)
+}
+
 func TestEncodeExternalEventError_RequiresDetails(t *testing.T) {
 	_, err := EncodeExternalEventError(nil)
 	require.Error(t, err)

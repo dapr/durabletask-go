@@ -204,6 +204,35 @@ func Test_WaitForSingleEvent_MalformedRaisedErrorFailsOnlyTheMatchingWait(t *tes
 	assert.Empty(t, cl.warns)
 }
 
+func Test_WaitForSingleEvent_MalformedRaisedErrorBufferedBeforeWaitFailsOnlyThatWait(t *testing.T) {
+	r := NewTaskRegistry()
+	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {
+		if err := ctx.CallActivity("gate").Await(nil); err != nil {
+			return nil, err
+		}
+		if err := ctx.WaitForSingleEvent("approval", -1).Await(nil); err != nil {
+			return err.Error(), nil
+		}
+		return "success", nil
+	}))
+	require.NoError(t, r.AddActivityN("gate", func(ActivityContext) (any, error) { return nil, nil }))
+
+	malformed := evEventRaised("approval")
+	malformed.GetEventRaised().Input = wrapperspb.String(helpers.ExternalEventErrorPrefix + "{")
+	actions, cl := runBuffered(t, r, nil, []*protos.HistoryEvent{
+		evExecutionStarted("wf"),
+		evTaskScheduled(0, "gate"),
+		malformed,
+		evTaskCompleted(0, `null`),
+	})
+
+	co := completeAction(t, actions)
+	require.NotNil(t, co)
+	assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, co.WorkflowStatus)
+	assert.Contains(t, co.GetResult().GetValue(), "InvalidExternalEventError")
+	assert.Empty(t, cl.warns)
+}
+
 func Test_WaitForSingleEvent_RaisedErrorResolvesOneWaiterInFIFOOrder(t *testing.T) {
 	r := NewTaskRegistry()
 	require.NoError(t, r.AddWorkflowN("wf", func(ctx *WorkflowContext) (any, error) {

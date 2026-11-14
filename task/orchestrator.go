@@ -1084,13 +1084,10 @@ func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error 
 		}
 		completeExternalEventTask(task, er.GetInput().GetValue())
 	} else {
-		// Validate the versioned failure envelope before buffering it. The
-		// event will be decoded again when a matching waiter consumes it.
-		if _, _, err := helpers.DecodeExternalEventError(er.GetInput().GetValue()); err != nil {
-			return fmt.Errorf("invalid raised error for external event %q: %w", er.GetName(), err)
-		}
-
-		// Add this event to the buffered list of events with this name.
+		// Add this event to the buffered list of events with this name. Error
+		// envelopes are decoded when a waiter consumes them, so malformed
+		// envelopes fail that task consistently whether the event arrived
+		// before or after the waiter was registered.
 		var eventList *list.List
 		var ok bool
 		if eventList, ok = ctx.bufferedExternalEvents[key]; !ok {

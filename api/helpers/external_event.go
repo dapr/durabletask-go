@@ -48,10 +48,10 @@ func DecodeExternalEventError(input string) (*protos.TaskFailureDetails, bool, e
 	if err := protojson.Unmarshal([]byte(data), failureDetails); err != nil {
 		return nil, true, fmt.Errorf("decode workflow error details: %w", err)
 	}
-	if failureDetails.GetErrorType() == "" {
+	if strings.TrimSpace(failureDetails.GetErrorType()) == "" {
 		return nil, true, fmt.Errorf("workflow error type is required")
 	}
-	if failureDetails.GetErrorMessage() == "" {
+	if strings.TrimSpace(failureDetails.GetErrorMessage()) == "" {
 		return nil, true, fmt.Errorf("workflow error message is required")
 	}
 
