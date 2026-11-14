@@ -1257,38 +1257,18 @@ func (be *postgresBackend) RerunWorkflowFromEvent(ctx context.Context, req *back
 }
 
 func (be *postgresBackend) getTerminationReason(ctx context.Context, iid api.InstanceID) (*wrapperspb.StringValue, error) {
-    rows, err := be.db.Query(
-        ctx,
-        `SELECT EventPayload
-         FROM History
-         WHERE InstanceID = $1
-         ORDER BY SequenceNumber ASC`,
-        string(iid),
-    )
-    if err != nil {
-        return nil, fmt.Errorf("failed to query workflow termination history: %w", err)
-    }
-    defer rows.Close()
+	rows, err := be.db.Query(
+		ctx,
+		`SELECT EventPayload
+		 FROM History
+		 WHERE InstanceID = $1
+		 ORDER BY SequenceNumber DESC`,
+		string(iid),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query workflow termination history: %w", err)
+	}
+	defer rows.Close()
 
-    for rows.Next() {
-        var payload []byte
-        if err := rows.Scan(&payload); err != nil {
-            return nil, fmt.Errorf("failed to scan workflow history event: %w", err)
-        }
-
-        event, err := backend.UnmarshalHistoryEvent(payload)
-        if err != nil {
-            return nil, fmt.Errorf("failed to unmarshal workflow history event: %w", err)
-        }
-
-        if terminated := event.GetExecutionTerminated(); terminated != nil {
-            return terminated.GetReason(), nil
-        }
-    }
-
-    if err := rows.Err(); err != nil {
-        return nil, fmt.Errorf("failed to iterate workflow history: %w", err)
-    }
-
-    return nil, nil
+	return backend.TerminationReasonFromHistoryRows(rows)
 }
