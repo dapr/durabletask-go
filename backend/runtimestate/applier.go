@@ -137,6 +137,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 									ExecutionId: wrapperspb.String(uuid.New().String()),
 								},
 								ParentTraceContext: newParentTraceContext,
+								Ordering:           s.StartEvent.GetOrdering(),
 							},
 						},
 						Router: action.Router,

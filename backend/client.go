@@ -76,6 +76,7 @@ func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interf
 				},
 				ParentTraceContext:      tc,
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
+				Ordering:                req.GetOrdering(),
 			},
 		},
 		Router: req.GetRouter(),

@@ -197,6 +197,7 @@ func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 						InstanceId:  iid,
 						ExecutionId: wrapperspb.String(uuid.New().String()),
 					},
+					Ordering: &protos.WorkflowOrdering{Key: "k"},
 				},
 			},
 		},
@@ -234,6 +235,7 @@ func Test_RuntimeState_ContinueAsNew(t *testing.T) {
 			if ec := state.NewEvents[1].GetExecutionStarted(); assert.NotNil(t, ec) {
 				assert.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING, runtimestate.RuntimeStatus(state))
 				assert.Equal(t, state.InstanceId, ec.WorkflowInstance.InstanceId)
+				assert.Equal(t, "k", ec.GetOrdering().GetKey(), "ContinueAsNew keeps the ordering")
 				if name, err := runtimestate.Name(state); assert.NoError(t, err) {
 					assert.Equal(t, expectedName, name)
 					assert.Equal(t, expectedName, ec.Name)

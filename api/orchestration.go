@@ -102,6 +102,42 @@ func WithStartTime(startTime time.Time) NewWorkflowOptions {
 	}
 }
 
+// OrderingFailurePolicy is what a workflow does when the workflow before it
+// under its ordering key ran and did not complete successfully.
+type OrderingFailurePolicy = protos.OrderingFailurePolicy
+
+const (
+	// OrderingFailurePolicyContinue runs the workflow anyway. The default.
+	OrderingFailurePolicyContinue = protos.OrderingFailurePolicy_ORDERING_FAILURE_POLICY_CONTINUE
+	// OrderingFailurePolicyBlock keeps the workflow pending, holding up the
+	// key, until the failed workflow is started again under its instance ID
+	// and completes, or is purged.
+	OrderingFailurePolicyBlock = protos.OrderingFailurePolicy_ORDERING_FAILURE_POLICY_BLOCK
+	// OrderingFailurePolicyCancel completes the workflow as terminated
+	// without running it.
+	OrderingFailurePolicyCancel = protos.OrderingFailurePolicy_ORDERING_FAILURE_POLICY_CANCEL
+)
+
+// Ordering queues a workflow behind every other workflow of the same app
+// started with the same key: it stays pending and runs only once each
+// workflow accepted before it under the key has finished. The Dapr backend
+// enforces it.
+type Ordering struct {
+	// Key names the queue.
+	Key string
+	// OnPredecessorFailure is what the workflow does when the workflow
+	// before it under the key did not complete successfully.
+	OnPredecessorFailure OrderingFailurePolicy
+}
+
+// WithOrdering queues the workflow under o.
+func WithOrdering(o Ordering) NewWorkflowOptions {
+	return func(req *protos.CreateInstanceRequest) error {
+		req.Ordering = &protos.WorkflowOrdering{Key: o.Key, OnPredecessorFailure: ptr.Of(o.OnPredecessorFailure)}
+		return nil
+	}
+}
+
 // WithEnforceUniqueInstanceID configures scheduling to fail if an instance
 // with the same ID already exists, whether active or completed. The gRPC
 // client surfaces the failure as a gRPC ALREADY_EXISTS status, while the
