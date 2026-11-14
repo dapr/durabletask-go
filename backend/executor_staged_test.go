@@ -184,7 +184,10 @@ func TestGrpcExecutor_StagedOperation(t *testing.T) {
 			res, err := s.RaiseError(ctx, &protos.RaiseEventRequest{
 				InstanceId: "iid",
 				Name:       "ev",
-				Input:      wrapperspb.String(`{"errorType":"example.Failure","errorMessage":"failed"}`),
+				FailureDetails: &protos.TaskFailureDetails{
+					ErrorType:    "example.Failure",
+					ErrorMessage: "failed",
+				},
 			})
 			return res.GetStaged(), err
 		},
