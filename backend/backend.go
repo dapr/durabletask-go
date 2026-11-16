@@ -12,14 +12,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var (
-	ErrTaskHubExists         = errors.New("task hub already exists")
-	ErrTaskHubNotFound       = errors.New("task hub not found")
-	ErrNotInitialized        = errors.New("backend not initialized")
-	ErrWorkItemLockLost      = errors.New("lock on work-item was lost")
-	ErrBackendAlreadyStarted = errors.New("backend is already started")
-)
-
 type (
 	HistoryEvent                  = protos.HistoryEvent
 	TaskFailureDetails            = protos.TaskFailureDetails
@@ -64,15 +56,22 @@ type Backend interface {
 
 	// CreateWorkflowInstance creates a new workflow instance with a request that
 	// wraps an ExecutionStarted history event.
+	//
+	// Returns [ErrOperationStaged] if the instance was stored but cannot start yet.
 	CreateWorkflowInstance(context.Context, *CreateWorkflowInstanceRequest) error
 
 	// RerunWorkflowFromEvent reruns a workflow from a specific event ID of some
 	// source instance ID. If not given, a random new instance ID will be
 	// generated and returned. Can optionally give a new input to the target
 	// event ID to rerun from.
+	//
+	// Returns the new instance ID with [ErrOperationStaged] if the rerun was
+	// stored but cannot start yet.
 	RerunWorkflowFromEvent(ctx context.Context, req *protos.RerunWorkflowFromEventRequest) (api.InstanceID, error)
 
 	// AddNewEvent adds a new workflow event to the specified workflow instance.
+	//
+	// Returns [ErrOperationStaged] if the event was stored but cannot be applied yet.
 	AddNewWorkflowEvent(context.Context, api.InstanceID, *HistoryEvent) error
 
 	// NextWorkflowWorkItem blocks and returns the next workflow work

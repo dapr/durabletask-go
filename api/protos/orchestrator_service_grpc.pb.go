@@ -40,6 +40,11 @@ const (
 	TaskHubSidecarService_RerunWorkflowFromEvent_FullMethodName    = "/TaskHubSidecarService/RerunWorkflowFromEvent"
 	TaskHubSidecarService_ListInstanceIDs_FullMethodName           = "/TaskHubSidecarService/ListInstanceIDs"
 	TaskHubSidecarService_GetInstanceHistory_FullMethodName        = "/TaskHubSidecarService/GetInstanceHistory"
+	TaskHubSidecarService_CreateWorkflowSchedule_FullMethodName    = "/TaskHubSidecarService/CreateWorkflowSchedule"
+	TaskHubSidecarService_GetWorkflowSchedule_FullMethodName       = "/TaskHubSidecarService/GetWorkflowSchedule"
+	TaskHubSidecarService_ListWorkflowSchedules_FullMethodName     = "/TaskHubSidecarService/ListWorkflowSchedules"
+	TaskHubSidecarService_DeleteWorkflowSchedule_FullMethodName    = "/TaskHubSidecarService/DeleteWorkflowSchedule"
+	TaskHubSidecarService_TriggerWorkflowSchedule_FullMethodName   = "/TaskHubSidecarService/TriggerWorkflowSchedule"
 )
 
 // TaskHubSidecarServiceClient is the client API for TaskHubSidecarService service.
@@ -76,6 +81,13 @@ type TaskHubSidecarServiceClient interface {
 	RerunWorkflowFromEvent(ctx context.Context, in *RerunWorkflowFromEventRequest, opts ...grpc.CallOption) (*RerunWorkflowFromEventResponse, error)
 	ListInstanceIDs(ctx context.Context, in *ListInstanceIDsRequest, opts ...grpc.CallOption) (*ListInstanceIDsResponse, error)
 	GetInstanceHistory(ctx context.Context, in *GetInstanceHistoryRequest, opts ...grpc.CallOption) (*GetInstanceHistoryResponse, error)
+	// Workflow schedules start a workflow on a cron schedule. See
+	// workflow_schedule.proto.
+	CreateWorkflowSchedule(ctx context.Context, in *CreateWorkflowScheduleRequest, opts ...grpc.CallOption) (*CreateWorkflowScheduleResponse, error)
+	GetWorkflowSchedule(ctx context.Context, in *GetWorkflowScheduleRequest, opts ...grpc.CallOption) (*GetWorkflowScheduleResponse, error)
+	ListWorkflowSchedules(ctx context.Context, in *ListWorkflowSchedulesRequest, opts ...grpc.CallOption) (*ListWorkflowSchedulesResponse, error)
+	DeleteWorkflowSchedule(ctx context.Context, in *DeleteWorkflowScheduleRequest, opts ...grpc.CallOption) (*DeleteWorkflowScheduleResponse, error)
+	TriggerWorkflowSchedule(ctx context.Context, in *TriggerWorkflowScheduleRequest, opts ...grpc.CallOption) (*TriggerWorkflowScheduleResponse, error)
 }
 
 type taskHubSidecarServiceClient struct {
@@ -263,6 +275,51 @@ func (c *taskHubSidecarServiceClient) GetInstanceHistory(ctx context.Context, in
 	return out, nil
 }
 
+func (c *taskHubSidecarServiceClient) CreateWorkflowSchedule(ctx context.Context, in *CreateWorkflowScheduleRequest, opts ...grpc.CallOption) (*CreateWorkflowScheduleResponse, error) {
+	out := new(CreateWorkflowScheduleResponse)
+	err := c.cc.Invoke(ctx, TaskHubSidecarService_CreateWorkflowSchedule_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taskHubSidecarServiceClient) GetWorkflowSchedule(ctx context.Context, in *GetWorkflowScheduleRequest, opts ...grpc.CallOption) (*GetWorkflowScheduleResponse, error) {
+	out := new(GetWorkflowScheduleResponse)
+	err := c.cc.Invoke(ctx, TaskHubSidecarService_GetWorkflowSchedule_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taskHubSidecarServiceClient) ListWorkflowSchedules(ctx context.Context, in *ListWorkflowSchedulesRequest, opts ...grpc.CallOption) (*ListWorkflowSchedulesResponse, error) {
+	out := new(ListWorkflowSchedulesResponse)
+	err := c.cc.Invoke(ctx, TaskHubSidecarService_ListWorkflowSchedules_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taskHubSidecarServiceClient) DeleteWorkflowSchedule(ctx context.Context, in *DeleteWorkflowScheduleRequest, opts ...grpc.CallOption) (*DeleteWorkflowScheduleResponse, error) {
+	out := new(DeleteWorkflowScheduleResponse)
+	err := c.cc.Invoke(ctx, TaskHubSidecarService_DeleteWorkflowSchedule_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taskHubSidecarServiceClient) TriggerWorkflowSchedule(ctx context.Context, in *TriggerWorkflowScheduleRequest, opts ...grpc.CallOption) (*TriggerWorkflowScheduleResponse, error) {
+	out := new(TriggerWorkflowScheduleResponse)
+	err := c.cc.Invoke(ctx, TaskHubSidecarService_TriggerWorkflowSchedule_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaskHubSidecarServiceServer is the server API for TaskHubSidecarService service.
 // All implementations must embed UnimplementedTaskHubSidecarServiceServer
 // for forward compatibility
@@ -297,6 +354,13 @@ type TaskHubSidecarServiceServer interface {
 	RerunWorkflowFromEvent(context.Context, *RerunWorkflowFromEventRequest) (*RerunWorkflowFromEventResponse, error)
 	ListInstanceIDs(context.Context, *ListInstanceIDsRequest) (*ListInstanceIDsResponse, error)
 	GetInstanceHistory(context.Context, *GetInstanceHistoryRequest) (*GetInstanceHistoryResponse, error)
+	// Workflow schedules start a workflow on a cron schedule. See
+	// workflow_schedule.proto.
+	CreateWorkflowSchedule(context.Context, *CreateWorkflowScheduleRequest) (*CreateWorkflowScheduleResponse, error)
+	GetWorkflowSchedule(context.Context, *GetWorkflowScheduleRequest) (*GetWorkflowScheduleResponse, error)
+	ListWorkflowSchedules(context.Context, *ListWorkflowSchedulesRequest) (*ListWorkflowSchedulesResponse, error)
+	DeleteWorkflowSchedule(context.Context, *DeleteWorkflowScheduleRequest) (*DeleteWorkflowScheduleResponse, error)
+	TriggerWorkflowSchedule(context.Context, *TriggerWorkflowScheduleRequest) (*TriggerWorkflowScheduleResponse, error)
 	mustEmbedUnimplementedTaskHubSidecarServiceServer()
 }
 
@@ -354,6 +418,21 @@ func (UnimplementedTaskHubSidecarServiceServer) ListInstanceIDs(context.Context,
 }
 func (UnimplementedTaskHubSidecarServiceServer) GetInstanceHistory(context.Context, *GetInstanceHistoryRequest) (*GetInstanceHistoryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInstanceHistory not implemented")
+}
+func (UnimplementedTaskHubSidecarServiceServer) CreateWorkflowSchedule(context.Context, *CreateWorkflowScheduleRequest) (*CreateWorkflowScheduleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateWorkflowSchedule not implemented")
+}
+func (UnimplementedTaskHubSidecarServiceServer) GetWorkflowSchedule(context.Context, *GetWorkflowScheduleRequest) (*GetWorkflowScheduleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkflowSchedule not implemented")
+}
+func (UnimplementedTaskHubSidecarServiceServer) ListWorkflowSchedules(context.Context, *ListWorkflowSchedulesRequest) (*ListWorkflowSchedulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListWorkflowSchedules not implemented")
+}
+func (UnimplementedTaskHubSidecarServiceServer) DeleteWorkflowSchedule(context.Context, *DeleteWorkflowScheduleRequest) (*DeleteWorkflowScheduleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteWorkflowSchedule not implemented")
+}
+func (UnimplementedTaskHubSidecarServiceServer) TriggerWorkflowSchedule(context.Context, *TriggerWorkflowScheduleRequest) (*TriggerWorkflowScheduleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TriggerWorkflowSchedule not implemented")
 }
 func (UnimplementedTaskHubSidecarServiceServer) mustEmbedUnimplementedTaskHubSidecarServiceServer() {}
 
@@ -677,6 +756,96 @@ func _TaskHubSidecarService_GetInstanceHistory_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaskHubSidecarService_CreateWorkflowSchedule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateWorkflowScheduleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskHubSidecarServiceServer).CreateWorkflowSchedule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskHubSidecarService_CreateWorkflowSchedule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskHubSidecarServiceServer).CreateWorkflowSchedule(ctx, req.(*CreateWorkflowScheduleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaskHubSidecarService_GetWorkflowSchedule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetWorkflowScheduleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskHubSidecarServiceServer).GetWorkflowSchedule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskHubSidecarService_GetWorkflowSchedule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskHubSidecarServiceServer).GetWorkflowSchedule(ctx, req.(*GetWorkflowScheduleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaskHubSidecarService_ListWorkflowSchedules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorkflowSchedulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskHubSidecarServiceServer).ListWorkflowSchedules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskHubSidecarService_ListWorkflowSchedules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskHubSidecarServiceServer).ListWorkflowSchedules(ctx, req.(*ListWorkflowSchedulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaskHubSidecarService_DeleteWorkflowSchedule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteWorkflowScheduleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskHubSidecarServiceServer).DeleteWorkflowSchedule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskHubSidecarService_DeleteWorkflowSchedule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskHubSidecarServiceServer).DeleteWorkflowSchedule(ctx, req.(*DeleteWorkflowScheduleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaskHubSidecarService_TriggerWorkflowSchedule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TriggerWorkflowScheduleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskHubSidecarServiceServer).TriggerWorkflowSchedule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskHubSidecarService_TriggerWorkflowSchedule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskHubSidecarServiceServer).TriggerWorkflowSchedule(ctx, req.(*TriggerWorkflowScheduleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TaskHubSidecarService_ServiceDesc is the grpc.ServiceDesc for TaskHubSidecarService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -747,6 +916,26 @@ var TaskHubSidecarService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetInstanceHistory",
 			Handler:    _TaskHubSidecarService_GetInstanceHistory_Handler,
+		},
+		{
+			MethodName: "CreateWorkflowSchedule",
+			Handler:    _TaskHubSidecarService_CreateWorkflowSchedule_Handler,
+		},
+		{
+			MethodName: "GetWorkflowSchedule",
+			Handler:    _TaskHubSidecarService_GetWorkflowSchedule_Handler,
+		},
+		{
+			MethodName: "ListWorkflowSchedules",
+			Handler:    _TaskHubSidecarService_ListWorkflowSchedules_Handler,
+		},
+		{
+			MethodName: "DeleteWorkflowSchedule",
+			Handler:    _TaskHubSidecarService_DeleteWorkflowSchedule_Handler,
+		},
+		{
+			MethodName: "TriggerWorkflowSchedule",
+			Handler:    _TaskHubSidecarService_TriggerWorkflowSchedule_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

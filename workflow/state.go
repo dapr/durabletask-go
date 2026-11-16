@@ -45,3 +45,33 @@ func (w WorkflowMetadata) String() string {
 		return ""
 	}
 }
+
+// ScheduleResult is the result of scheduling a new workflow.
+type ScheduleResult struct {
+	// InstanceID is the ID of the new workflow instance.
+	InstanceID string
+	// Staged is true when the sidecar accepted the start with no workflow
+	// worker connected. The workflow starts once a worker connects.
+	Staged bool
+}
+
+// RerunResult is the result of rerunning a workflow from an event.
+type RerunResult struct {
+	// NewInstanceID is the ID of the new workflow instance.
+	NewInstanceID string
+	// Staged is true when the sidecar accepted the rerun with no workflow
+	// worker connected. The rerun runs once a worker connects.
+	Staged bool
+}
+
+// RaiseEventResult is the result of raising an event.
+type RaiseEventResult = api.RaiseEventResult
+
+// TerminateResult is the result of terminating a workflow.
+type TerminateResult = api.TerminateResult
+
+// SuspendResult is the result of suspending a workflow.
+type SuspendResult = api.SuspendResult
+
+// ResumeResult is the result of resuming a workflow.
+type ResumeResult = api.ResumeResult
