@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api"
 	"github.com/dapr/durabletask-go/api/protos"
@@ -604,14 +605,40 @@ func Test_Grpc_WorkflowScheduleHandler(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 	c := client.NewTaskHubGrpcClient(conn, backend.DefaultLogger())
 
-	_, err = c.CreateWorkflowSchedule(ctx, "s", "foo", "@every 1s", api.WithScheduleRepeats(3), api.WithScheduleOverwrite())
+	due := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+	exp := due.Add(time.Hour)
+	_, err = c.CreateWorkflowSchedule(ctx, "s", "foo", "@every 1s",
+		api.WithScheduleInput(map[string]int{"n": 1}),
+		api.WithScheduleDueTime(due),
+		api.WithScheduleExpirationTime(exp),
+		api.WithScheduleRepeats(3),
+		api.WithScheduleTargetAppID("target"),
+		api.WithScheduleTargetAppNamespace("ns"),
+		api.WithScheduleSkipMissed(),
+		api.WithScheduleOverwrite(),
+	)
 	require.NoError(t, err)
-	created := h.created.Load()
-	assert.Equal(t, "s", created.GetSchedule().GetName())
-	assert.Equal(t, "foo", created.GetSchedule().GetWorkflowName())
-	assert.Equal(t, "@every 1s", created.GetSchedule().GetSchedule())
-	assert.Equal(t, uint32(3), created.GetSchedule().GetRepeats())
-	assert.True(t, created.GetOverwrite())
+	created := h.created.Load().GetSchedule()
+	assert.Equal(t, "s", created.GetName())
+	assert.Equal(t, "foo", created.GetWorkflowName())
+	assert.Equal(t, "@every 1s", created.GetSchedule())
+	assert.Equal(t, `{"n":1}`, created.GetInput().GetValue())
+	assert.Equal(t, due, created.GetDueTime().AsTime())
+	assert.Equal(t, exp, created.GetExpirationTime().AsTime())
+	assert.Equal(t, uint32(3), created.GetRepeats())
+	assert.Equal(t, "target", created.GetTargetAppID())
+	assert.Equal(t, "ns", created.GetTargetAppNamespace())
+	assert.True(t, created.GetSkipMissed())
+	assert.True(t, h.created.Load().GetOverwrite())
+
+	_, err = c.CreateWorkflowSchedule(ctx, "s", "foo", "@every 1s", api.WithRawScheduleInput(wrapperspb.String("raw")))
+	require.NoError(t, err)
+	assert.Equal(t, "raw", h.created.Load().GetSchedule().GetInput().GetValue())
+
+	// An input that cannot be marshalled fails before anything is sent.
+	_, err = c.CreateWorkflowSchedule(ctx, "s", "foo", "@every 1s", api.WithScheduleInput(make(chan int)))
+	require.Error(t, err)
+	assert.Equal(t, "raw", h.created.Load().GetSchedule().GetInput().GetValue())
 
 	got, err := c.GetWorkflowSchedule(ctx, "s")
 	require.NoError(t, err)
@@ -639,6 +666,57 @@ func Test_Grpc_WorkflowScheduleHandler(t *testing.T) {
 	} {
 		assert.Equal(t, codes.NotFound, status.Code(call()), name)
 	}
+
+	// The workflow package wrappers forward each call and option unchanged.
+	wc := workflow.NewClient(conn)
+	_, err = wc.CreateWorkflowSchedule(ctx, "s", "foo", "@every 2s",
+		workflow.WithScheduleInput("in"),
+		workflow.WithScheduleDueTime(due),
+		workflow.WithScheduleExpirationTime(exp),
+		workflow.WithScheduleRepeats(4),
+		workflow.WithScheduleTargetAppID("target"),
+		workflow.WithScheduleTargetAppNamespace("ns"),
+		workflow.WithScheduleSkipMissed(),
+		workflow.WithScheduleOverwrite(),
+	)
+	require.NoError(t, err)
+	created = h.created.Load().GetSchedule()
+	assert.Equal(t, "s", created.GetName())
+	assert.Equal(t, "foo", created.GetWorkflowName())
+	assert.Equal(t, "@every 2s", created.GetSchedule())
+	assert.Equal(t, `"in"`, created.GetInput().GetValue())
+	assert.Equal(t, due, created.GetDueTime().AsTime())
+	assert.Equal(t, exp, created.GetExpirationTime().AsTime())
+	assert.Equal(t, uint32(4), created.GetRepeats())
+	assert.Equal(t, "target", created.GetTargetAppID())
+	assert.Equal(t, "ns", created.GetTargetAppNamespace())
+	assert.True(t, created.GetSkipMissed())
+	assert.True(t, h.created.Load().GetOverwrite())
+
+	_, err = wc.CreateWorkflowSchedule(ctx, "s", "foo", "@every 2s", workflow.WithRawScheduleInput(wrapperspb.String("raw")))
+	require.NoError(t, err)
+	assert.Equal(t, "raw", h.created.Load().GetSchedule().GetInput().GetValue())
+
+	wgot, err := wc.GetWorkflowSchedule(ctx, "s")
+	require.NoError(t, err)
+	assert.Equal(t, "foo", wgot.GetSchedule().GetWorkflowName())
+
+	wlist, err := wc.ListWorkflowSchedules(ctx, workflow.WithListWorkflowSchedulesPageSize(2), workflow.WithListWorkflowSchedulesContinuationToken("t3"))
+	require.NoError(t, err)
+	assert.Equal(t, uint32(2), h.listed.Load().GetPageSize())
+	assert.Equal(t, "t3", h.listed.Load().GetContinuationToken())
+	require.Len(t, wlist.GetSchedules(), 1)
+	assert.Equal(t, "s", wlist.GetSchedules()[0].GetName())
+	assert.Equal(t, "t2", wlist.GetContinuationToken())
+
+	wtrig, err := wc.TriggerWorkflowSchedule(ctx, "s")
+	require.NoError(t, err)
+	assert.Equal(t, "s_manual", wtrig.GetInstanceId())
+
+	_, err = wc.DeleteWorkflowSchedule(ctx, "s")
+	require.NoError(t, err)
+	_, err = wc.GetWorkflowSchedule(ctx, "missing")
+	assert.Equal(t, codes.NotFound, status.Code(err))
 
 	// A cancelled call returns the context's error, as the other client calls do.
 	cctx, cancel := context.WithCancel(ctx)
