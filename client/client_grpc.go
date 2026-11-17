@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -284,6 +285,9 @@ func (c *TaskHubGrpcClient) RaiseErrorWithResult(ctx context.Context, id api.Ins
 	}
 	if req.GetFailureDetails() == nil {
 		return nil, fmt.Errorf("workflow error details are required")
+	}
+	if strings.TrimSpace(req.GetFailureDetails().GetErrorType()) == "" {
+		return nil, fmt.Errorf("workflow error details must include a non-empty error type")
 	}
 	if req.GetInput() != nil {
 		return nil, fmt.Errorf("event input cannot be provided when raising an error")
