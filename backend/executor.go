@@ -779,6 +779,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				},
 				ParentTraceContext:      helpers.TraceContextFromSpan(span),
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
+				Priority:                req.Priority,
 			},
 		},
 		Router: req.GetRouter(),
