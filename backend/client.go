@@ -2,7 +2,9 @@ package backend
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -227,6 +229,9 @@ func (c *backendClient) RaiseError(ctx context.Context, id api.InstanceID, event
 	}
 	if req.GetFailureDetails() == nil {
 		return errors.New("workflow error details are required")
+	}
+	if strings.TrimSpace(req.GetFailureDetails().GetErrorType()) == "" {
+		return errors.New("workflow error details must include a non-empty error type")
 	}
 	if req.GetInput() != nil {
 		return errors.New("event input cannot be provided when raising an error")
