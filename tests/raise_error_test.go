@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -77,6 +78,11 @@ func Test_RaiseError_FailsPendingExternalEventWait(t *testing.T) {
 func Test_RaiseError_BuffersFailureUntilExternalEventWaitIsRegistered(t *testing.T) {
 	activityStarted := make(chan struct{}, 1)
 	releaseActivity := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseGate := func() {
+		releaseOnce.Do(func() { close(releaseActivity) })
+	}
+	defer releaseGate()
 
 	r := task.NewTaskRegistry()
 	r.AddActivityN("WaitAtGate", func(task.ActivityContext) (any, error) {
@@ -114,7 +120,7 @@ func Test_RaiseError_BuffersFailureUntilExternalEventWaitIsRegistered(t *testing
 		ErrorMessage: "",
 	}
 	require.NoError(t, client.RaiseError(ctx, id, raiseErrorEventName, api.WithFailureDetails(failure)))
-	close(releaseActivity)
+	releaseGate()
 
 	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
