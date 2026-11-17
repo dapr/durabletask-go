@@ -21,6 +21,7 @@ import (
 type stagedServer struct {
 	protos.UnimplementedTaskHubSidecarServiceServer
 	staged bool
+	raiseErrorRequest *protos.RaiseEventRequest
 }
 
 func (s *stagedServer) StartInstance(_ context.Context, req *protos.CreateInstanceRequest) (*protos.CreateInstanceResponse, error) {
@@ -28,6 +29,11 @@ func (s *stagedServer) StartInstance(_ context.Context, req *protos.CreateInstan
 }
 
 func (s *stagedServer) RaiseEvent(context.Context, *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
+	return &protos.RaiseEventResponse{Staged: s.staged}, nil
+}
+
+func (s *stagedServer) RaiseError(_ context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
+	s.raiseErrorRequest = req
 	return &protos.RaiseEventResponse{Staged: s.staged}, nil
 }
 
@@ -82,6 +88,15 @@ func TestStagedResults(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, staged, raise.Staged)
 
+		raiseError, err := c.RaiseErrorWithResult(
+			ctx,
+			"abc",
+			"event",
+			api.WithFailureDetails(&protos.TaskFailureDetails{ErrorType: "example.Failure"}),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, staged, raiseError.Staged)
+
 		terminate, err := c.TerminateWorkflowWithResult(ctx, "abc")
 		require.NoError(t, err)
 		assert.Equal(t, staged, terminate.Staged)
@@ -103,6 +118,30 @@ func TestStagedResults(t *testing.T) {
 
 // An option that fails must fail the start, not start the workflow without
 // the options that follow it.
+func TestRaiseErrorRequiresStructuredFailureDetails(t *testing.T) {
+	c := newStagedClient(t, false)
+	ctx := t.Context()
+
+	_, err := c.RaiseErrorWithResult(ctx, "abc", "approval")
+	require.ErrorContains(t, err, "workflow error details are required")
+
+	_, err = c.RaiseErrorWithResult(
+		ctx,
+		"abc",
+		"approval",
+		api.WithFailureDetails(&protos.TaskFailureDetails{ErrorType: "  "}),
+	)
+	require.ErrorContains(t, err, "workflow error details must include a non-empty error type")
+
+	_, err = c.RaiseErrorWithResult(
+		ctx,
+		"abc",
+		"approval",
+		api.WithFailureDetails(&protos.TaskFailureDetails{ErrorType: "example.Failure", ErrorMessage: ""}),
+	)
+	require.NoError(t, err)
+}
+
 func TestScheduleNewWorkflowOptionError(t *testing.T) {
 	c := newStagedClient(t, false)
 
