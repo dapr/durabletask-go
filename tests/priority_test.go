@@ -88,3 +88,21 @@ func Test_RuntimeState_ChildWorkflow_StartsWithParentPriority(t *testing.T) {
 		})
 	}
 }
+
+func Test_RuntimeState_ChildPriorityIsACopy(t *testing.T) {
+	parent := &protos.Priority{PriorityLevel: new("high"), FairnessWeight: new(uint32(7))}
+	state := runtimestate.NewWorkflowRuntimeState("parent", nil, []*protos.HistoryEvent{startedWithPriority("parent", parent)})
+	actions := []*protos.WorkflowAction{
+		{Id: 1, WorkflowActionType: &protos.WorkflowAction_CreateChildWorkflow{CreateChildWorkflow: &protos.CreateChildWorkflowAction{Name: "Child", InstanceId: "a"}}},
+		{Id: 2, WorkflowActionType: &protos.WorkflowAction_CreateChildWorkflow{CreateChildWorkflow: &protos.CreateChildWorkflowAction{Name: "Child", InstanceId: "b"}}},
+	}
+	_, err := runtimestate.NewApplier("example", "").Actions(state, nil, actions, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, state.PendingMessages, 2)
+
+	a := state.PendingMessages[0].GetHistoryEvent().GetExecutionStarted().GetPriority()
+	b := state.PendingMessages[1].GetHistoryEvent().GetExecutionStarted().GetPriority()
+	a.PriorityLevel = new("low")
+	assert.Equal(t, "high", parent.GetPriorityLevel(), "changing a child leaves the parent alone")
+	assert.Equal(t, "high", b.GetPriorityLevel(), "and its sibling")
+}

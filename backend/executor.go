@@ -754,6 +754,9 @@ func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventReq
 
 // StartInstance implements protos.TaskHubSidecarServiceServer
 func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInstanceRequest) (*protos.CreateInstanceResponse, error) {
+	if err := api.ValidatePriority(req.GetPriority()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	if req.ParentTraceContext != nil {
 		var err error
 		ctx, err = helpers.ContextFromTraceContext(ctx, req.ParentTraceContext)
@@ -779,7 +782,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				},
 				ParentTraceContext:      helpers.TraceContextFromSpan(span),
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
-				Priority:                req.Priority,
+				Priority:                clonePriority(req.GetPriority()),
 			},
 		},
 		Router: req.GetRouter(),

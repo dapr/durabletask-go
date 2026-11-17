@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -137,7 +138,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 									ExecutionId: wrapperspb.String(uuid.New().String()),
 								},
 								ParentTraceContext: newParentTraceContext,
-								Priority:           s.StartEvent.Priority,
+								Priority:           clonePriority(s.StartEvent.Priority),
 							},
 						},
 						Router: action.Router,
@@ -329,7 +330,7 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 							ExecutionId: wrapperspb.String(uuid.New().String()),
 						},
 						ParentTraceContext: currentTraceContext,
-						Priority:           s.StartEvent.Priority,
+						Priority:           clonePriority(s.StartEvent.Priority),
 					},
 				},
 				Router: action.Router,
@@ -521,4 +522,11 @@ func parentInstanceInfo(parentNamespace string, action *protos.WorkflowAction, s
 		pi.AppNamespace = ptr.Of(parentNamespace)
 	}
 	return pi
+}
+
+func clonePriority(p *protos.Priority) *protos.Priority {
+	if p == nil {
+		return nil
+	}
+	return proto.Clone(p).(*protos.Priority)
 }

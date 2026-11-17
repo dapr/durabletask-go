@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -57,6 +58,9 @@ func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interf
 	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
 		return api.EmptyInstanceID, err
 	}
+	if err := api.ValidatePriority(req.GetPriority()); err != nil {
+		return api.EmptyInstanceID, err
+	}
 
 	var span trace.Span
 	ctx, span = helpers.StartNewCreateWorkflowSpan(ctx, req.Name, req.Version.GetValue(), req.InstanceId)
@@ -76,7 +80,7 @@ func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interf
 				},
 				ParentTraceContext:      tc,
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
-				Priority:                req.Priority,
+				Priority:                clonePriority(req.GetPriority()),
 			},
 		},
 		Router: req.GetRouter(),
@@ -315,4 +319,11 @@ func (c *backendClient) RerunWorkflowFromEvent(ctx context.Context, id api.Insta
 	id, err := c.be.RerunWorkflowFromEvent(ctx, req)
 	_, err = isStaged(err)
 	return id, err
+}
+
+func clonePriority(p *protos.Priority) *protos.Priority {
+	if p == nil {
+		return nil
+	}
+	return proto.Clone(p).(*protos.Priority)
 }
