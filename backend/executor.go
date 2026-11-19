@@ -736,20 +736,6 @@ func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInst
 
 // RaiseEvent implements protos.TaskHubSidecarServiceServer.
 func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
-	if req.GetFailureDetails() != nil {
-		return nil, status.Error(codes.InvalidArgument, "failureDetails can only be set when raising an error")
-	}
-
-	return g.enqueueExternalEvent(ctx, req, &protos.EventRaisedEvent{
-		Name:  req.GetName(),
-		Input: req.GetInput(),
-	})
-}
-
-// RaiseError implements protos.TaskHubSidecarServiceServer. Failure details
-// are persisted on EventRaisedEvent so workflow replay can fail the matching
-// WaitForSingleEvent task without interpreting user payload data.
-func (g *grpcExecutor) RaiseError(ctx context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
 	if strings.TrimSpace(req.GetInstanceId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow instance ID is required")
 	}
@@ -757,21 +743,22 @@ func (g *grpcExecutor) RaiseError(ctx context.Context, req *protos.RaiseEventReq
 		return nil, status.Error(codes.InvalidArgument, "external event name is required")
 	}
 
-	failureDetails := req.GetFailureDetails()
-	if failureDetails == nil {
-		return nil, status.Error(codes.InvalidArgument, "workflow error details are required")
+	event := &protos.EventRaisedEvent{
+		Name:  req.GetName(),
+		Input: req.GetInput(),
 	}
-	if strings.TrimSpace(failureDetails.GetErrorType()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "workflow error type is required")
-	}
-	if req.GetInput() != nil {
-		return nil, status.Error(codes.InvalidArgument, "event input cannot be provided when raising an error")
+	if failureDetails := req.GetFailureDetails(); failureDetails != nil {
+		if strings.TrimSpace(failureDetails.GetErrorType()) == "" {
+			return nil, status.Error(codes.InvalidArgument, "workflow error type is required")
+		}
+		if req.GetInput() != nil {
+			return nil, status.Error(codes.InvalidArgument, "event input cannot be provided when raising an error")
+		}
+		event.Input = nil
+		event.FailureDetails = failureDetails
 	}
 
-	return g.enqueueExternalEvent(ctx, req, &protos.EventRaisedEvent{
-		Name:           req.GetName(),
-		FailureDetails: failureDetails,
-	})
+	return g.enqueueExternalEvent(ctx, req, event)
 }
 
 func (g *grpcExecutor) enqueueExternalEvent(
