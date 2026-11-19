@@ -19,7 +19,6 @@ import (
 const (
 	raiseErrorWorkflowName = "RaiseErrorWorkflow"
 	raiseErrorEventName    = "Approval"
-	raiseErrorType         = "example.ApprovalRejected"
 )
 
 func raisedErrorWorkflowResult(ctx *task.WorkflowContext) (any, error) {
