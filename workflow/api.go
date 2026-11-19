@@ -71,6 +71,12 @@ func WithFailureDetails(details *protos.TaskFailureDetails) RaiseErrorOptions {
 	return RaiseErrorOptions(api.WithFailureDetails(details))
 }
 
+// WithError converts a Go error and its unwrap chain into structured failure
+// details for the oldest matching external-event wait.
+func WithError(err error) RaiseErrorOptions {
+	return RaiseErrorOptions(api.WithError(err))
+}
+
 // WithOutput configures an output for the terminated workflow. The specified
 // output must be serializable.
 func WithOutput(data any) TerminateOptions {
