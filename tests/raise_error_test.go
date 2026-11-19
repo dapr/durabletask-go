@@ -45,11 +45,11 @@ func raisedErrorWorkflowResult(ctx *task.WorkflowContext) (any, error) {
 		return nil, err
 	}
 
-return map[string]string{
+	return map[string]string{
 		"errorType":         taskError.ErrorType(),
 		"errorMessage":      taskError.ErrorMessage(),
 		"innerErrorMessage": taskError.FailureDetails.GetInnerFailure().GetErrorMessage(),
-		"hasInnerError":     fmt.Sprint(taskError.IsCausedBy("*errors.errorString")),
+		"hasInnerError":     fmt.Sprint(taskError.IsCausedBy("tests.riskServiceUnavailableError")),
 	}, nil
 }
 
