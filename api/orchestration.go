@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -143,6 +145,38 @@ func WithRawEventData(data *wrapperspb.StringValue) RaiseEventOptions {
 		req.Input = data
 		return nil
 	}
+}
+
+// WithError configures a Go error to be delivered to the oldest matching
+// external-event wait. The concrete Go type and message are preserved as
+// structured failure metadata; an arbitrary remote error type is never
+// instantiated in the receiving process. Wrapped errors are represented
+// through InnerFailure.
+func WithError(err error) RaiseErrorOptions {
+	return func(req *protos.RaiseEventRequest) error {
+		if err == nil {
+			return errors.New("workflow error is required")
+		}
+		return WithFailureDetails(failureDetailsFromError(err, 0))(req)
+	}
+}
+
+func failureDetailsFromError(err error, depth int) *protos.TaskFailureDetails {
+	details := &protos.TaskFailureDetails{
+		ErrorType:    fmt.Sprintf("%T", err),
+		ErrorMessage: err.Error(),
+	}
+	if depth == 0 {
+		details.StackTrace = wrapperspb.String(string(debug.Stack()))
+	}
+	// Bound cause traversal in case an application error implements a cyclic
+	// Unwrap chain.
+	if depth < 16 {
+		if cause := errors.Unwrap(err); cause != nil {
+			details.InnerFailure = failureDetailsFromError(cause, depth+1)
+		}
+	}
+	return details
 }
 
 // WithFailureDetails configures the structured failure delivered to the oldest
