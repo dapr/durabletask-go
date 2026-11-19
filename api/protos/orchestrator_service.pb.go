@@ -2802,7 +2802,7 @@ var file_orchestrator_service_proto_depIdxs = []int32{
 	8,  // 51: TaskHubSidecarService.WaitForInstanceStart:input_type -> GetInstanceRequest
 	8,  // 52: TaskHubSidecarService.WaitForInstanceCompletion:input_type -> GetInstanceRequest
 	10, // 53: TaskHubSidecarService.RaiseEvent:input_type -> RaiseEventRequest
-	12, // 55: TaskHubSidecarService.TerminateInstance:input_type -> TerminateRequest
+	12, // 54: TaskHubSidecarService.TerminateInstance:input_type -> TerminateRequest
 	14, // 55: TaskHubSidecarService.SuspendInstance:input_type -> SuspendRequest
 	16, // 56: TaskHubSidecarService.ResumeInstance:input_type -> ResumeRequest
 	18, // 57: TaskHubSidecarService.PurgeInstances:input_type -> PurgeInstancesRequest
@@ -2824,22 +2824,22 @@ var file_orchestrator_service_proto_depIdxs = []int32{
 	9,  // 73: TaskHubSidecarService.WaitForInstanceStart:output_type -> GetInstanceResponse
 	9,  // 74: TaskHubSidecarService.WaitForInstanceCompletion:output_type -> GetInstanceResponse
 	11, // 75: TaskHubSidecarService.RaiseEvent:output_type -> RaiseEventResponse
-	13, // 77: TaskHubSidecarService.TerminateInstance:output_type -> TerminateResponse
-	15, // 78: TaskHubSidecarService.SuspendInstance:output_type -> SuspendResponse
-	17, // 79: TaskHubSidecarService.ResumeInstance:output_type -> ResumeResponse
-	20, // 80: TaskHubSidecarService.PurgeInstances:output_type -> PurgeInstancesResponse
-	22, // 81: TaskHubSidecarService.GetWorkItems:output_type -> WorkItem
-	24, // 82: TaskHubSidecarService.CompleteActivityTask:output_type -> CompleteTaskResponse
-	24, // 83: TaskHubSidecarService.CompleteOrchestratorTask:output_type -> CompleteTaskResponse
-	24, // 84: TaskHubSidecarService.CompleteWorkflowTask:output_type -> CompleteTaskResponse
-	26, // 85: TaskHubSidecarService.RerunWorkflowFromEvent:output_type -> RerunWorkflowFromEventResponse
-	28, // 86: TaskHubSidecarService.ListInstanceIDs:output_type -> ListInstanceIDsResponse
-	30, // 87: TaskHubSidecarService.GetInstanceHistory:output_type -> GetInstanceHistoryResponse
-	52, // 88: TaskHubSidecarService.CreateWorkflowSchedule:output_type -> CreateWorkflowScheduleResponse
-	53, // 89: TaskHubSidecarService.GetWorkflowSchedule:output_type -> GetWorkflowScheduleResponse
-	54, // 90: TaskHubSidecarService.ListWorkflowSchedules:output_type -> ListWorkflowSchedulesResponse
-	55, // 91: TaskHubSidecarService.DeleteWorkflowSchedule:output_type -> DeleteWorkflowScheduleResponse
-	56, // 92: TaskHubSidecarService.TriggerWorkflowSchedule:output_type -> TriggerWorkflowScheduleResponse
+	13, // 76: TaskHubSidecarService.TerminateInstance:output_type -> TerminateResponse
+	15, // 77: TaskHubSidecarService.SuspendInstance:output_type -> SuspendResponse
+	17, // 78: TaskHubSidecarService.ResumeInstance:output_type -> ResumeResponse
+	20, // 79: TaskHubSidecarService.PurgeInstances:output_type -> PurgeInstancesResponse
+	22, // 80: TaskHubSidecarService.GetWorkItems:output_type -> WorkItem
+	24, // 81: TaskHubSidecarService.CompleteActivityTask:output_type -> CompleteTaskResponse
+	24, // 82: TaskHubSidecarService.CompleteOrchestratorTask:output_type -> CompleteTaskResponse
+	24, // 83: TaskHubSidecarService.CompleteWorkflowTask:output_type -> CompleteTaskResponse
+	26, // 84: TaskHubSidecarService.RerunWorkflowFromEvent:output_type -> RerunWorkflowFromEventResponse
+	28, // 85: TaskHubSidecarService.ListInstanceIDs:output_type -> ListInstanceIDsResponse
+	30, // 86: TaskHubSidecarService.GetInstanceHistory:output_type -> GetInstanceHistoryResponse
+	52, // 87: TaskHubSidecarService.CreateWorkflowSchedule:output_type -> CreateWorkflowScheduleResponse
+	53, // 88: TaskHubSidecarService.GetWorkflowSchedule:output_type -> GetWorkflowScheduleResponse
+	54, // 89: TaskHubSidecarService.ListWorkflowSchedules:output_type -> ListWorkflowSchedulesResponse
+	55, // 90: TaskHubSidecarService.DeleteWorkflowSchedule:output_type -> DeleteWorkflowScheduleResponse
+	56, // 91: TaskHubSidecarService.TriggerWorkflowSchedule:output_type -> TriggerWorkflowScheduleResponse
 	92, // [70:92] is the sub-list for method output_type
 	48, // [48:70] is the sub-list for method input_type
 	48, // [48:48] is the sub-list for extension type_name
