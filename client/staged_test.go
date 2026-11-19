@@ -21,19 +21,15 @@ import (
 type stagedServer struct {
 	protos.UnimplementedTaskHubSidecarServiceServer
 	staged            bool
-	raiseErrorRequest *protos.RaiseEventRequest
+	lastRaiseEventRequest *protos.RaiseEventRequest
 }
 
 func (s *stagedServer) StartInstance(_ context.Context, req *protos.CreateInstanceRequest) (*protos.CreateInstanceResponse, error) {
 	return &protos.CreateInstanceResponse{InstanceId: req.GetInstanceId(), Staged: s.staged}, nil
 }
 
-func (s *stagedServer) RaiseEvent(context.Context, *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
-	return &protos.RaiseEventResponse{Staged: s.staged}, nil
-}
-
-func (s *stagedServer) RaiseError(_ context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
-	s.raiseErrorRequest = req
+func (s *stagedServer) RaiseEvent(_ context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
+	s.lastRaiseEventRequest = req
 	return &protos.RaiseEventResponse{Staged: s.staged}, nil
 }
 
@@ -97,8 +93,8 @@ func TestStagedResults(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assert.Equal(t, staged, raiseError.Staged)
-		assert.Equal(t, "example.Failure", server.raiseErrorRequest.GetFailureDetails().GetErrorType())
-		assert.Empty(t, server.raiseErrorRequest.GetFailureDetails().GetErrorMessage())
+		assert.Equal(t, "example.Failure", server.lastRaiseEventRequest.GetFailureDetails().GetErrorType())
+		assert.Empty(t, server.lastRaiseEventRequest.GetFailureDetails().GetErrorMessage())
 
 		terminate, err := c.TerminateWorkflowWithResult(ctx, "abc")
 		require.NoError(t, err)
@@ -143,8 +139,8 @@ func TestRaiseErrorRequiresStructuredFailureDetails(t *testing.T) {
 		api.WithFailureDetails(&protos.TaskFailureDetails{ErrorType: "example.Failure", ErrorMessage: ""}),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "example.Failure", server.raiseErrorRequest.GetFailureDetails().GetErrorType())
-	assert.Empty(t, server.raiseErrorRequest.GetFailureDetails().GetErrorMessage())
+	assert.Equal(t, "example.Failure", server.lastRaiseEventRequest.GetFailureDetails().GetErrorType())
+	assert.Empty(t, server.lastRaiseEventRequest.GetFailureDetails().GetErrorMessage())
 }
 
 func TestScheduleNewWorkflowOptionError(t *testing.T) {
