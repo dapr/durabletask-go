@@ -293,7 +293,7 @@ func (c *TaskHubGrpcClient) RaiseErrorWithResult(ctx context.Context, id api.Ins
 		return nil, fmt.Errorf("event input cannot be provided when raising an error")
 	}
 
-	resp, err := c.client.RaiseError(ctx, req)
+	resp, err := c.client.RaiseEvent(ctx, req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
