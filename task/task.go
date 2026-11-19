@@ -99,6 +99,45 @@ func (e *TaskFailedError) Error() string {
 	}
 	return fmt.Sprintf("task failed with an error: %v", e.FailureDetails.GetErrorMessage())
 }
+ 
+// ErrorType returns the original error type recorded by the caller.
+func (e *TaskFailedError) ErrorType() string {
+	if e == nil || e.FailureDetails == nil {
+		return ""
+	}
+	return e.FailureDetails.GetErrorType()
+}
+
+// ErrorMessage returns the original error message recorded by the caller.
+func (e *TaskFailedError) ErrorMessage() string {
+	if e == nil || e.FailureDetails == nil {
+		return ""
+	}
+	return e.FailureDetails.GetErrorMessage()
+}
+
+// StackTrace returns the remote stack trace, when the caller provided one.
+func (e *TaskFailedError) StackTrace() string {
+	if e == nil || e.FailureDetails == nil {
+		return ""
+	}
+	return e.FailureDetails.GetStackTrace().GetValue()
+}
+
+// IsCausedBy reports whether the failure or any nested cause has the supplied
+// error type name. Error types are metadata from the sending process, not Go
+// types to instantiate in this process.
+func (e *TaskFailedError) IsCausedBy(errorType string) bool {
+	if e == nil || e.FailureDetails == nil || errorType == "" {
+		return false
+	}
+	for details := e.FailureDetails; details != nil; details = details.GetInnerFailure() {
+		if details.GetErrorType() == errorType {
+			return true
+		}
+	}
+	return false
+}
 
 // completionError returns the error a completed task represents -- nil on success, the structured
 // failure on a failed task, or ErrTaskCanceled on a canceled one -- without touching the task's raw
