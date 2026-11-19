@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -166,8 +165,14 @@ func failureDetailsFromError(err error, depth int) *protos.TaskFailureDetails {
 		ErrorType:    fmt.Sprintf("%T", err),
 		ErrorMessage: err.Error(),
 	}
-	if depth == 0 {
-		details.StackTrace = wrapperspb.String(string(debug.Stack()))
+	// Go errors do not carry stack traces by default. Preserve one only when
+	// the concrete error explicitly exposes it; do not substitute the current
+	// RaiseError call stack, which would misrepresent the original failure.
+	var stackTracer interface{ StackTrace() string }
+	if errors.As(err, &stackTracer) {
+		if stack := stackTracer.StackTrace(); stack != "" {
+			details.StackTrace = wrapperspb.String(stack)
+		}
 	}
 	// Bound cause traversal in case an application error implements a cyclic
 	// Unwrap chain.
