@@ -21,6 +21,19 @@ const (
 	raiseErrorEventName    = "Approval"
 )
 
+type approvalRejectedError struct{}
+
+func (approvalRejectedError) Error() string { return "approval rejected" }
+func (approvalRejectedError) Unwrap() error { return riskServiceUnavailableError{} }
+
+type riskServiceUnavailableError struct{}
+
+func (riskServiceUnavailableError) Error() string { return "risk service unavailable" }
+
+type bufferedApprovalError struct{}
+
+func (bufferedApprovalError) Error() string { return "buffered external error" }
+
 func raisedErrorWorkflowResult(ctx *task.WorkflowContext) (any, error) {
 	err := ctx.WaitForSingleEvent(raiseErrorEventName, -1).Await(nil)
 
@@ -64,13 +77,12 @@ func Test_RaiseError_FailsPendingExternalEventWait(t *testing.T) {
 		return err == nil && metadata.GetCustomStatus().GetValue() == "waiting"
 	}, 3*time.Second, 10*time.Millisecond, "workflow did not register its external-event wait")
 
-	failure := fmt.Errorf("approval rejected: %w", errors.New("risk service unavailable"))
-	require.NoError(t, client.RaiseError(ctx, id, raiseErrorEventName, api.WithError(failure)))
+	require.NoError(t, client.RaiseError(ctx, id, raiseErrorEventName, api.WithError(approvalRejectedError{})))
 
 	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.GetRuntimeStatus())
-	assert.JSONEq(t, `{"errorType":"*fmt.wrapError","errorMessage":"approval rejected: risk service unavailable","innerErrorMessage":"risk service unavailable","hasInnerError":"true"}`, metadata.GetOutput().GetValue())
+	assert.JSONEq(t, `{"errorType":"tests.approvalRejectedError","errorMessage":"approval rejected","innerErrorMessage":"risk service unavailable","hasInnerError":"true"}`, metadata.GetOutput().GetValue())
 }
 
 func Test_RaiseError_BuffersFailureUntilExternalEventWaitIsRegistered(t *testing.T) {
@@ -113,11 +125,11 @@ func Test_RaiseError_BuffersFailureUntilExternalEventWaitIsRegistered(t *testing
 		t.Fatal("workflow did not reach its activity gate")
 	}
 
-	require.NoError(t, client.RaiseError(ctx, id, raiseErrorEventName, api.WithError(errors.New("buffered external error"))))
+	require.NoError(t, client.RaiseError(ctx, id, raiseErrorEventName, api.WithError(bufferedApprovalError{})))
 	releaseGate()
 
 	metadata, err := client.WaitForWorkflowCompletion(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED, metadata.GetRuntimeStatus())
-	assert.JSONEq(t, `{"errorType":"*errors.errorString","errorMessage":"buffered external error","innerErrorMessage":"","hasInnerError":"false"}`, metadata.GetOutput().GetValue())
+	assert.JSONEq(t, `{"errorType":"tests.bufferedApprovalError","errorMessage":"buffered external error","innerErrorMessage":"","hasInnerError":"false"}`, metadata.GetOutput().GetValue())
 }
