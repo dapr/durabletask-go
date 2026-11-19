@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -263,6 +264,43 @@ func (c *TaskHubGrpcClient) RaiseEventWithResult(ctx context.Context, id api.Ins
 		return nil, fmt.Errorf("failed to raise event: %w", err)
 	}
 	return &api.RaiseEventResult{Staged: resp.GetStaged()}, nil
+}
+
+// RaiseError fails the oldest matching external-event wait.
+func (c *TaskHubGrpcClient) RaiseError(ctx context.Context, id api.InstanceID, eventName string, opts ...api.RaiseErrorOptions) error {
+	_, err := c.RaiseErrorWithResult(ctx, id, eventName, opts...)
+	return err
+}
+
+// RaiseErrorWithResult raises an error and reports whether the sidecar staged it.
+func (c *TaskHubGrpcClient) RaiseErrorWithResult(ctx context.Context, id api.InstanceID, eventName string, opts ...api.RaiseErrorOptions) (*api.RaiseErrorResult, error) {
+	req := &protos.RaiseEventRequest{InstanceId: string(id), Name: eventName}
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return nil, fmt.Errorf("failed to configure raise error request: %w", err)
+		}
+	}
+	if err := api.ValidateTaskRouter(req.GetRouter()); err != nil {
+		return nil, err
+	}
+	if req.GetFailureDetails() == nil {
+		return nil, fmt.Errorf("workflow error details are required")
+	}
+	if strings.TrimSpace(req.GetFailureDetails().GetErrorType()) == "" {
+		return nil, fmt.Errorf("workflow error details must include a non-empty error type")
+	}
+	if req.GetInput() != nil {
+		return nil, fmt.Errorf("event input cannot be provided when raising an error")
+	}
+
+	resp, err := c.client.RaiseEvent(ctx, req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("failed to raise workflow error: %w", err)
+	}
+	return &api.RaiseErrorResult{Staged: resp.GetStaged()}, nil
 }
 
 // SuspendWorkflow suspends a workflow instance, halting processing of its events until a "resume" operation resumes it.

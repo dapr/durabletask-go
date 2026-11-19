@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -43,6 +45,9 @@ type FetchWorkflowMetadataOptions func(*protos.GetInstanceRequest)
 
 // RaiseEventOptions is a set of options for raising a workflow event.
 type RaiseEventOptions func(*protos.RaiseEventRequest) error
+
+// RaiseErrorOptions is a set of options for failing a workflow external-event wait.
+type RaiseErrorOptions func(*protos.RaiseEventRequest) error
 
 // TerminateOptions is a set of options for terminating a workflow.
 type TerminateOptions func(*protos.TerminateRequest) error
@@ -137,6 +142,63 @@ func WithEventPayload(data any) RaiseEventOptions {
 func WithRawEventData(data *wrapperspb.StringValue) RaiseEventOptions {
 	return func(req *protos.RaiseEventRequest) error {
 		req.Input = data
+		return nil
+	}
+}
+
+// WithError configures a Go error to be delivered to the oldest matching
+// external-event wait. The concrete Go type and message are preserved as
+// structured failure metadata; an arbitrary remote error type is never
+// instantiated in the receiving process. Wrapped errors are represented
+// through InnerFailure.
+func WithError(err error) RaiseErrorOptions {
+	return func(req *protos.RaiseEventRequest) error {
+		if err == nil {
+			return errors.New("workflow error is required")
+		}
+		return WithFailureDetails(failureDetailsFromError(err, 0))(req)
+	}
+}
+
+func failureDetailsFromError(err error, depth int) *protos.TaskFailureDetails {
+	details := &protos.TaskFailureDetails{
+		ErrorType:    fmt.Sprintf("%T", err),
+		ErrorMessage: err.Error(),
+	}
+	// Go errors do not carry stack traces by default. Preserve one only when
+	// the concrete error explicitly exposes it; do not substitute the current
+	// RaiseError call stack, which would misrepresent the original failure.
+	var stackTracer interface{ StackTrace() string }
+	if errors.As(err, &stackTracer) {
+		if stack := stackTracer.StackTrace(); stack != "" {
+			details.StackTrace = wrapperspb.String(stack)
+		}
+	}
+	// Bound cause traversal in case an application error implements a cyclic
+	// Unwrap chain.
+	if depth < 16 {
+		if cause := errors.Unwrap(err); cause != nil {
+			details.InnerFailure = failureDetailsFromError(cause, depth+1)
+		}
+	}
+	return details
+}
+
+// WithFailureDetails configures the structured failure delivered to the oldest
+// matching external-event wait. The details are cloned so subsequent caller
+// mutations cannot change the request being sent.
+func WithFailureDetails(details *protos.TaskFailureDetails) RaiseErrorOptions {
+	return func(req *protos.RaiseEventRequest) error {
+		if details == nil {
+			return errors.New("workflow failure details are required")
+		}
+		if req.Input != nil {
+			return errors.New("event input cannot be provided when raising an error")
+		}
+		if strings.TrimSpace(details.GetErrorType()) == "" {
+			return errors.New("workflow error type is required")
+		}
+		req.FailureDetails = proto.Clone(details).(*protos.TaskFailureDetails)
 		return nil
 	}
 }
@@ -305,6 +367,15 @@ func WithFetchAppID(appID string) FetchWorkflowMetadataOptions {
 // WithRaiseEventAppID targets the event at the workflow instance owned by the
 // app with the given app ID rather than the local app.
 func WithRaiseEventAppID(appID string) RaiseEventOptions {
+	return func(req *protos.RaiseEventRequest) error {
+		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
+		return nil
+	}
+}
+
+// WithRaiseErrorAppID targets the error notification at the workflow instance
+// owned by the app with the given app ID rather than the local app.
+func WithRaiseErrorAppID(appID string) RaiseErrorOptions {
 	return func(req *protos.RaiseEventRequest) error {
 		req.Router = routerWithTargetAppID(req.GetRouter(), appID)
 		return nil

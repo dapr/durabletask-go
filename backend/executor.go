@@ -734,17 +734,47 @@ func (g *grpcExecutor) PurgeInstances(ctx context.Context, req *protos.PurgeInst
 	return resp, nil
 }
 
-// RaiseEvent implements protos.TaskHubSidecarServiceServer
+// RaiseEvent implements protos.TaskHubSidecarServiceServer.
 func (g *grpcExecutor) RaiseEvent(ctx context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
+	if strings.TrimSpace(req.GetInstanceId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "workflow instance ID is required")
+	}
+	if strings.TrimSpace(req.GetName()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "external event name is required")
+	}
+
+	event := &protos.EventRaisedEvent{
+		Name:  req.GetName(),
+		Input: req.GetInput(),
+	}
+	if failureDetails := req.GetFailureDetails(); failureDetails != nil {
+		if strings.TrimSpace(failureDetails.GetErrorType()) == "" {
+			return nil, status.Error(codes.InvalidArgument, "workflow error type is required")
+		}
+		if req.GetInput() != nil {
+			return nil, status.Error(codes.InvalidArgument, "event input cannot be provided when raising an error")
+		}
+		event.Input = nil
+		event.FailureDetails = failureDetails
+	}
+
+	return g.enqueueExternalEvent(ctx, req, event)
+}
+
+func (g *grpcExecutor) enqueueExternalEvent(
+	ctx context.Context,
+	req *protos.RaiseEventRequest,
+	event *protos.EventRaisedEvent,
+) (*protos.RaiseEventResponse, error) {
 	e := &protos.HistoryEvent{
 		EventId:   -1,
 		Timestamp: timestamppb.New(time.Now()),
 		EventType: &protos.HistoryEvent_EventRaised{
-			EventRaised: &protos.EventRaisedEvent{Name: req.Name, Input: req.Input},
+			EventRaised: event,
 		},
 		Router: req.GetRouter(),
 	}
-	staged, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.InstanceId), e))
+	staged, err := isStaged(g.backend.AddNewWorkflowEvent(ctx, api.InstanceID(req.GetInstanceId()), e))
 	if err != nil {
 		return nil, err
 	}

@@ -20,14 +20,16 @@ import (
 // stagedServer answers every client operation with the given staged value.
 type stagedServer struct {
 	protos.UnimplementedTaskHubSidecarServiceServer
-	staged bool
+	staged            bool
+	lastRaiseEventRequest *protos.RaiseEventRequest
 }
 
 func (s *stagedServer) StartInstance(_ context.Context, req *protos.CreateInstanceRequest) (*protos.CreateInstanceResponse, error) {
 	return &protos.CreateInstanceResponse{InstanceId: req.GetInstanceId(), Staged: s.staged}, nil
 }
 
-func (s *stagedServer) RaiseEvent(context.Context, *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
+func (s *stagedServer) RaiseEvent(_ context.Context, req *protos.RaiseEventRequest) (*protos.RaiseEventResponse, error) {
+	s.lastRaiseEventRequest = req
 	return &protos.RaiseEventResponse{Staged: s.staged}, nil
 }
 
@@ -47,12 +49,13 @@ func (s *stagedServer) RerunWorkflowFromEvent(_ context.Context, req *protos.Rer
 	return &protos.RerunWorkflowFromEventResponse{NewInstanceID: req.GetNewInstanceID(), Staged: s.staged}, nil
 }
 
-func newStagedClient(t *testing.T, staged bool) *TaskHubGrpcClient {
+func newStagedClient(t *testing.T, staged bool) (*TaskHubGrpcClient, *stagedServer) {
 	t.Helper()
 
 	lis := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer()
-	protos.RegisterTaskHubSidecarServiceServer(srv, &stagedServer{staged: staged})
+	server := &stagedServer{staged: staged}
+	protos.RegisterTaskHubSidecarServiceServer(srv, server)
 	go srv.Serve(lis)
 	t.Cleanup(srv.Stop)
 
@@ -65,12 +68,12 @@ func newStagedClient(t *testing.T, staged bool) *TaskHubGrpcClient {
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 
-	return NewTaskHubGrpcClient(conn, backend.DefaultLogger())
+	return NewTaskHubGrpcClient(conn, backend.DefaultLogger()), server
 }
 
 func TestStagedResults(t *testing.T) {
 	for _, staged := range []bool{true, false} {
-		c := newStagedClient(t, staged)
+		c, server := newStagedClient(t, staged)
 		ctx := t.Context()
 
 		start, err := c.ScheduleNewWorkflowWithResult(ctx, "wf", api.WithInstanceID("abc"))
@@ -81,6 +84,17 @@ func TestStagedResults(t *testing.T) {
 		raise, err := c.RaiseEventWithResult(ctx, "abc", "event")
 		require.NoError(t, err)
 		assert.Equal(t, staged, raise.Staged)
+
+		raiseError, err := c.RaiseErrorWithResult(
+			ctx,
+			"abc",
+			"event",
+			api.WithFailureDetails(&protos.TaskFailureDetails{ErrorType: "example.Failure"}),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, staged, raiseError.Staged)
+		assert.Equal(t, "example.Failure", server.lastRaiseEventRequest.GetFailureDetails().GetErrorType())
+		assert.Empty(t, server.lastRaiseEventRequest.GetFailureDetails().GetErrorMessage())
 
 		terminate, err := c.TerminateWorkflowWithResult(ctx, "abc")
 		require.NoError(t, err)
@@ -103,8 +117,34 @@ func TestStagedResults(t *testing.T) {
 
 // An option that fails must fail the start, not start the workflow without
 // the options that follow it.
+func TestRaiseErrorRequiresStructuredFailureDetails(t *testing.T) {
+	c, server := newStagedClient(t, false)
+	ctx := t.Context()
+
+	_, err := c.RaiseErrorWithResult(ctx, "abc", "approval")
+	require.ErrorContains(t, err, "workflow error details are required")
+
+	_, err = c.RaiseErrorWithResult(
+		ctx,
+		"abc",
+		"approval",
+		api.WithFailureDetails(&protos.TaskFailureDetails{ErrorType: "  "}),
+	)
+	require.ErrorContains(t, err, "workflow error details must include a non-empty error type")
+
+	_, err = c.RaiseErrorWithResult(
+		ctx,
+		"abc",
+		"approval",
+		api.WithFailureDetails(&protos.TaskFailureDetails{ErrorType: "example.Failure", ErrorMessage: ""}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "example.Failure", server.lastRaiseEventRequest.GetFailureDetails().GetErrorType())
+	assert.Empty(t, server.lastRaiseEventRequest.GetFailureDetails().GetErrorMessage())
+}
+
 func TestScheduleNewWorkflowOptionError(t *testing.T) {
-	c := newStagedClient(t, false)
+	c, _ := newStagedClient(t, false)
 
 	failing := func(*protos.CreateInstanceRequest) error { return errors.New("bad option") }
 	_, err := c.ScheduleNewWorkflow(t.Context(), "wf", failing, api.WithInstanceID("abc"))

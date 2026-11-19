@@ -721,8 +721,7 @@ func (ctx *WorkflowContext) WaitForSingleEvent(eventName string, timeout time.Du
 		} else {
 			delete(ctx.bufferedExternalEvents, key)
 		}
-		rawValue := []byte(next.Value.(*protos.HistoryEvent).GetEventRaised().GetInput().GetValue())
-		task.complete(rawValue)
+		completeExternalEventTask(task, next.Value.(*protos.HistoryEvent).GetEventRaised())
 	} else if timeout == 0 {
 		// Zero-timeout means fail immediately if the event isn't already buffered.
 		task.cancel()
@@ -1052,6 +1051,17 @@ func (ctx *WorkflowContext) onTimerFired(tf *protos.TimerFiredEvent) error {
 	return nil
 }
 
+// completeExternalEventTask completes a single WaitForSingleEvent task with
+// either the event payload or its structured failure details.
+func completeExternalEventTask(task *completableTask, event *protos.EventRaisedEvent) {
+	if failureDetails := event.GetFailureDetails(); failureDetails != nil {
+		task.fail(failureDetails)
+		return
+	}
+
+	task.complete([]byte(event.GetInput().GetValue()))
+}
+
 func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error {
 	er := e.GetEventRaised()
 	key := strings.ToUpper(er.GetName())
@@ -1064,8 +1074,7 @@ func (ctx *WorkflowContext) onExternalEventRaised(e *protos.HistoryEvent) error 
 		} else {
 			delete(ctx.pendingExternalEventTasks, key)
 		}
-		rawValue := []byte(er.Input.GetValue())
-		task.complete(rawValue)
+		completeExternalEventTask(task, er)
 	} else {
 		// Add this event to the buffered list of events with this name.
 		var eventList *list.List

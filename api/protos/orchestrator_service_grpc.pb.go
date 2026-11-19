@@ -62,8 +62,7 @@ type TaskHubSidecarServiceClient interface {
 	// Waits for a workflow instance to reach a completion state (completed, failed, terminated, etc.).
 	WaitForInstanceCompletion(ctx context.Context, in *GetInstanceRequest, opts ...grpc.CallOption) (*GetInstanceResponse, error)
 	// Raises an event to a running workflow instance.
-	RaiseEvent(ctx context.Context, in *RaiseEventRequest, opts ...grpc.CallOption) (*RaiseEventResponse, error)
-	// Terminates a running workflow instance.
+	RaiseEvent(ctx context.Context, in *RaiseEventRequest, opts ...grpc.CallOption) (*RaiseEventResponse, error)	// Terminates a running workflow instance.
 	TerminateInstance(ctx context.Context, in *TerminateRequest, opts ...grpc.CallOption) (*TerminateResponse, error)
 	// Suspends a running workflow instance.
 	SuspendInstance(ctx context.Context, in *SuspendRequest, opts ...grpc.CallOption) (*SuspendResponse, error)
@@ -335,8 +334,7 @@ type TaskHubSidecarServiceServer interface {
 	// Waits for a workflow instance to reach a completion state (completed, failed, terminated, etc.).
 	WaitForInstanceCompletion(context.Context, *GetInstanceRequest) (*GetInstanceResponse, error)
 	// Raises an event to a running workflow instance.
-	RaiseEvent(context.Context, *RaiseEventRequest) (*RaiseEventResponse, error)
-	// Terminates a running workflow instance.
+	RaiseEvent(context.Context, *RaiseEventRequest) (*RaiseEventResponse, error)	// Terminates a running workflow instance.
 	TerminateInstance(context.Context, *TerminateRequest) (*TerminateResponse, error)
 	// Suspends a running workflow instance.
 	SuspendInstance(context.Context, *SuspendRequest) (*SuspendResponse, error)
@@ -385,8 +383,7 @@ func (UnimplementedTaskHubSidecarServiceServer) WaitForInstanceCompletion(contex
 }
 func (UnimplementedTaskHubSidecarServiceServer) RaiseEvent(context.Context, *RaiseEventRequest) (*RaiseEventResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RaiseEvent not implemented")
-}
-func (UnimplementedTaskHubSidecarServiceServer) TerminateInstance(context.Context, *TerminateRequest) (*TerminateResponse, error) {
+}func (UnimplementedTaskHubSidecarServiceServer) TerminateInstance(context.Context, *TerminateRequest) (*TerminateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TerminateInstance not implemented")
 }
 func (UnimplementedTaskHubSidecarServiceServer) SuspendInstance(context.Context, *SuspendRequest) (*SuspendResponse, error) {
@@ -876,8 +873,7 @@ var TaskHubSidecarService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RaiseEvent",
 			Handler:    _TaskHubSidecarService_RaiseEvent_Handler,
-		},
-		{
+		},		{
 			MethodName: "TerminateInstance",
 			Handler:    _TaskHubSidecarService_TerminateInstance_Handler,
 		},
