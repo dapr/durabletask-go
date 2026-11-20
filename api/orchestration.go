@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -90,6 +91,41 @@ func WithRawInput(rawInput *wrapperspb.StringValue) NewWorkflowOptions {
 		req.Input = rawInput
 		return nil
 	}
+}
+
+// WithPriority sets the caller's priority level name and fairness weight.
+// An empty level or a zero weight leaves that field unset.
+func WithPriority(level string, weight uint32) NewWorkflowOptions {
+	return func(req *protos.CreateInstanceRequest) error {
+		if level == "" && weight == 0 {
+			return nil
+		}
+		p := new(protos.Priority)
+		if level != "" {
+			p.PriorityLevel = &level
+		}
+		if weight > 0 {
+			p.FairnessWeight = &weight
+		}
+		req.Priority = p
+		return nil
+	}
+}
+
+// ValidatePriority rejects a fairness weight above 1000 and an empty level
+// name. A weight of 0 means unset. Which level names are valid is up to the
+// host.
+func ValidatePriority(p *protos.Priority) error {
+	if p == nil {
+		return nil
+	}
+	if p.PriorityLevel != nil && p.GetPriorityLevel() == "" {
+		return errors.New("priority level must not be empty")
+	}
+	if p.GetFairnessWeight() > 1000 {
+		return fmt.Errorf("fairness weight %d must be between 1 and 1000", p.GetFairnessWeight())
+	}
+	return nil
 }
 
 // WithStartTime configures a start time at which the workflow should start running.
