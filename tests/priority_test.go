@@ -14,6 +14,12 @@ import (
 	"github.com/dapr/durabletask-go/backend/runtimestate"
 )
 
+const (
+	priorityLow      = protos.PriorityLevel_PRIORITY_LEVEL_LOW
+	priorityHigh     = protos.PriorityLevel_PRIORITY_LEVEL_HIGH
+	priorityCritical = protos.PriorityLevel_PRIORITY_LEVEL_CRITICAL
+)
+
 func startedWithPriority(iid string, priority *protos.Priority) *protos.HistoryEvent {
 	return &protos.HistoryEvent{
 		EventId:   -1,
@@ -34,8 +40,8 @@ func startedWithPriority(iid string, priority *protos.Priority) *protos.HistoryE
 func Test_RuntimeState_ContinueAsNew_KeepsPriority(t *testing.T) {
 	for name, priority := range map[string]*protos.Priority{
 		"unset":      nil,
-		"level only": {PriorityLevel: new("critical")},
-		"both":       {PriorityLevel: new("low"), FairnessWeight: new(uint32(300))},
+		"level only": {PriorityLevel: priorityCritical.Enum()},
+		"both":       {PriorityLevel: priorityLow.Enum(), FairnessWeight: new(uint32(300))},
 	} {
 		t.Run(name, func(t *testing.T) {
 			state := runtimestate.NewWorkflowRuntimeState("abc", nil, []*protos.HistoryEvent{startedWithPriority("abc", priority)})
@@ -65,7 +71,7 @@ func Test_RuntimeState_ContinueAsNew_KeepsPriority(t *testing.T) {
 func Test_RuntimeState_ChildWorkflow_StartsWithParentPriority(t *testing.T) {
 	for name, priority := range map[string]*protos.Priority{
 		"unset": nil,
-		"both":  {PriorityLevel: new("high"), FairnessWeight: new(uint32(7))},
+		"both":  {PriorityLevel: priorityHigh.Enum(), FairnessWeight: new(uint32(7))},
 	} {
 		t.Run(name, func(t *testing.T) {
 			state := runtimestate.NewWorkflowRuntimeState("parent", nil, []*protos.HistoryEvent{startedWithPriority("parent", priority)})
@@ -90,7 +96,7 @@ func Test_RuntimeState_ChildWorkflow_StartsWithParentPriority(t *testing.T) {
 }
 
 func Test_RuntimeState_ChildPriorityIsACopy(t *testing.T) {
-	parent := &protos.Priority{PriorityLevel: new("high"), FairnessWeight: new(uint32(7))}
+	parent := &protos.Priority{PriorityLevel: priorityHigh.Enum(), FairnessWeight: new(uint32(7))}
 	state := runtimestate.NewWorkflowRuntimeState("parent", nil, []*protos.HistoryEvent{startedWithPriority("parent", parent)})
 	actions := []*protos.WorkflowAction{
 		{Id: 1, WorkflowActionType: &protos.WorkflowAction_CreateChildWorkflow{CreateChildWorkflow: &protos.CreateChildWorkflowAction{Name: "Child", InstanceId: "a"}}},
@@ -102,7 +108,7 @@ func Test_RuntimeState_ChildPriorityIsACopy(t *testing.T) {
 
 	a := state.PendingMessages[0].GetHistoryEvent().GetExecutionStarted().GetPriority()
 	b := state.PendingMessages[1].GetHistoryEvent().GetExecutionStarted().GetPriority()
-	a.PriorityLevel = new("low")
-	assert.Equal(t, "high", parent.GetPriorityLevel(), "changing a child leaves the parent alone")
-	assert.Equal(t, "high", b.GetPriorityLevel(), "and its sibling")
+	a.PriorityLevel = priorityLow.Enum()
+	assert.Equal(t, priorityHigh, parent.GetPriorityLevel(), "changing a child leaves the parent alone")
+	assert.Equal(t, priorityHigh, b.GetPriorityLevel(), "and its sibling")
 }

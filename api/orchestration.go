@@ -93,16 +93,16 @@ func WithRawInput(rawInput *wrapperspb.StringValue) NewWorkflowOptions {
 	}
 }
 
-// WithPriority sets the caller's priority level name and fairness weight.
-// An empty level or a zero weight leaves that field unset.
-func WithPriority(level string, weight uint32) NewWorkflowOptions {
+// WithPriority sets the caller's priority level and fairness weight. An
+// unspecified level or a zero weight leaves that field unset.
+func WithPriority(level protos.PriorityLevel, weight uint32) NewWorkflowOptions {
 	return func(req *protos.CreateInstanceRequest) error {
-		if level == "" && weight == 0 {
+		if level == protos.PriorityLevel_PRIORITY_LEVEL_UNSPECIFIED && weight == 0 {
 			return nil
 		}
 		p := new(protos.Priority)
-		if level != "" {
-			p.PriorityLevel = &level
+		if level != protos.PriorityLevel_PRIORITY_LEVEL_UNSPECIFIED {
+			p.PriorityLevel = level.Enum()
 		}
 		if weight > 0 {
 			p.FairnessWeight = &weight
@@ -112,15 +112,14 @@ func WithPriority(level string, weight uint32) NewWorkflowOptions {
 	}
 }
 
-// ValidatePriority rejects a fairness weight above 1000 and an empty level
-// name. A weight of 0 means unset. Which level names are valid is up to the
-// host.
+// ValidatePriority rejects a level the enum does not have and a fairness
+// weight above 1000. A weight of 0 means unset.
 func ValidatePriority(p *protos.Priority) error {
 	if p == nil {
 		return nil
 	}
-	if p.PriorityLevel != nil && p.GetPriorityLevel() == "" {
-		return errors.New("priority level must not be empty")
+	if _, ok := protos.PriorityLevel_name[int32(p.GetPriorityLevel())]; !ok {
+		return fmt.Errorf("unknown priority level %d", p.GetPriorityLevel())
 	}
 	if p.GetFairnessWeight() > 1000 {
 		return fmt.Errorf("fairness weight %d must be between 1 and 1000", p.GetFairnessWeight())

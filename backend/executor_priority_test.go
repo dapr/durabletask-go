@@ -14,6 +14,12 @@ import (
 	"github.com/dapr/durabletask-go/api/protos"
 )
 
+const (
+	priorityLow      = protos.PriorityLevel_PRIORITY_LEVEL_LOW
+	priorityHigh     = protos.PriorityLevel_PRIORITY_LEVEL_HIGH
+	priorityCritical = protos.PriorityLevel_PRIORITY_LEVEL_CRITICAL
+)
+
 // captureBackend keeps the create request it was given.
 type captureBackend struct {
 	Backend
@@ -39,10 +45,10 @@ func TestGrpcExecutor_StartInstancePriority(t *testing.T) {
 
 	for name, priority := range map[string]*protos.Priority{
 		"unset":       nil,
-		"level only":  {PriorityLevel: new("critical")},
+		"level only":  {PriorityLevel: priorityCritical.Enum()},
 		"weight only": {FairnessWeight: new(uint32(300))},
-		"both":        {PriorityLevel: new("low"), FairnessWeight: new(uint32(5))},
-		"weight 0":    {PriorityLevel: new("low"), FairnessWeight: new(uint32(0))},
+		"both":        {PriorityLevel: priorityLow.Enum(), FairnessWeight: new(uint32(5))},
+		"weight 0":    {PriorityLevel: priorityLow.Enum(), FairnessWeight: new(uint32(0))},
 	} {
 		t.Run(name, func(t *testing.T) {
 			be := new(captureBackend)
@@ -65,7 +71,7 @@ func TestGrpcExecutor_StartInstancePriority(t *testing.T) {
 func TestBackendClient_ScheduleNewWorkflowPriority(t *testing.T) {
 	for name, priority := range map[string]*protos.Priority{
 		"unset": nil,
-		"both":  {PriorityLevel: new("high"), FairnessWeight: new(uint32(7))},
+		"both":  {PriorityLevel: priorityHigh.Enum(), FairnessWeight: new(uint32(7))},
 	} {
 		t.Run(name, func(t *testing.T) {
 			be := new(captureBackend)
@@ -89,26 +95,26 @@ func TestBackendClient_ScheduleNewWorkflowPriority(t *testing.T) {
 
 func TestBackendClient_WithPriority(t *testing.T) {
 	be := new(captureBackend)
-	_, err := NewTaskHubClient(be).ScheduleNewWorkflow(t.Context(), "wf", api.WithPriority("high", 7))
+	_, err := NewTaskHubClient(be).ScheduleNewWorkflow(t.Context(), "wf", api.WithPriority(priorityHigh, 7))
 	require.NoError(t, err)
 	started := be.created.StartEvent.GetExecutionStarted()
-	assert.Equal(t, "high", started.GetPriority().GetPriorityLevel())
+	assert.Equal(t, priorityHigh, started.GetPriority().GetPriorityLevel())
 	assert.Equal(t, uint32(7), started.GetPriority().GetFairnessWeight())
 
-	_, err = NewTaskHubClient(be).ScheduleNewWorkflow(t.Context(), "wf", api.WithPriority("", 0))
+	_, err = NewTaskHubClient(be).ScheduleNewWorkflow(t.Context(), "wf", api.WithPriority(protos.PriorityLevel_PRIORITY_LEVEL_UNSPECIFIED, 0))
 	require.NoError(t, err)
 	assert.Nil(t, be.created.StartEvent.GetExecutionStarted().GetPriority())
 
 	be.created = nil
-	_, err = NewTaskHubClient(be).ScheduleNewWorkflow(t.Context(), "wf", api.WithPriority("low", 1001))
+	_, err = NewTaskHubClient(be).ScheduleNewWorkflow(t.Context(), "wf", api.WithPriority(priorityLow, 1001))
 	require.ErrorContains(t, err, "between 1 and 1000")
 	assert.Nil(t, be.created, "nothing is stored")
 }
 
 func TestGrpcExecutor_StartInstanceRejectsBadPriority(t *testing.T) {
 	for name, priority := range map[string]*protos.Priority{
-		"weight 1001": {FairnessWeight: new(uint32(1001))},
-		"empty level": {PriorityLevel: new("")},
+		"weight 1001":   {FairnessWeight: new(uint32(1001))},
+		"unknown level": {PriorityLevel: protos.PriorityLevel(42).Enum()},
 	} {
 		t.Run(name, func(t *testing.T) {
 			be := new(captureBackend)
