@@ -1358,6 +1358,46 @@ func Test_TerminateWorkflow_Recursive_TerminateCompletedChildWorkflow(t *testing
 	}
 }
 
+// Test_TerminateWorkflow_ChildFailsParentTask verifies that terminating only
+// a child workflow fails the parent's task for it. The parent receives a
+// ChildWorkflowInstanceFailed event with no failure details, and its Await
+// must still return an error rather than a nil-error success.
+func Test_TerminateWorkflow_ChildFailsParentTask(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Parent", func(ctx *task.WorkflowContext) (any, error) {
+		if err := ctx.CallChildWorkflow("Child", task.WithChildWorkflowInstanceID(string(ctx.ID)+"_child")).Await(nil); err != nil {
+			return nil, err
+		}
+		return "child succeeded", nil
+	})
+	r.AddWorkflowN("Child", func(ctx *task.WorkflowContext) (any, error) {
+		return nil, ctx.WaitForSingleEvent("never", -1).Await(nil)
+	})
+
+	ctx := context.Background()
+	client, worker := initTaskHubWorker(ctx, r)
+	defer worker.Shutdown(ctx)
+
+	id, err := client.ScheduleNewWorkflow(ctx, "Parent")
+	require.NoError(t, err)
+	childID := id + "_child"
+	require.Eventually(t, func() bool {
+		metadata, err := client.FetchWorkflowMetadata(ctx, childID)
+		return err == nil && metadata.RuntimeStatus == protos.OrchestrationStatus_ORCHESTRATION_STATUS_RUNNING
+	}, 10*time.Second, 100*time.Millisecond)
+
+	require.NoError(t, client.TerminateWorkflow(ctx, childID))
+
+	childMeta, err := client.WaitForWorkflowCompletion(ctx, childID)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_TERMINATED, childMeta.RuntimeStatus)
+
+	parentMeta, err := client.WaitForWorkflowCompletion(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, parentMeta.RuntimeStatus,
+		"the parent must not treat a terminated child as a success, output: %s", parentMeta.Output.GetValue())
+}
+
 func Test_PurgeCompletedWorkflow(t *testing.T) {
 	// Registration
 	r := task.NewTaskRegistry()
