@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -60,6 +61,10 @@ type ResumeOptions func(*protos.ResumeRequest) error
 type RerunOptions func(*protos.RerunWorkflowFromEventRequest) error
 
 type ListInstanceIDsOptions func(*protos.ListInstanceIDsRequest) error
+
+// ListInstancesOptions is a set of options for listing workflow instances
+// with their summaries.
+type ListInstancesOptions func(*protos.ListInstancesRequest) error
 
 type GetInstanceHistoryOptions func(*protos.GetInstanceHistoryRequest) error
 
@@ -297,6 +302,135 @@ func WithListInstanceIDsInstanceIDPrefix(prefix string) ListInstanceIDsOptions {
 		req.InstanceIdPrefix = &prefix
 		return nil
 	}
+}
+
+// WithListInstancesPageSize sets the maximum number of instances in one page.
+// The server can use a smaller maximum.
+func WithListInstancesPageSize(pageSize uint32) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		req.PageSize = &pageSize
+		return nil
+	}
+}
+
+// WithListInstancesContinuationToken continues a listing from the token of
+// the previous ListInstances response. A token from ListInstanceIDs is not
+// valid here.
+func WithListInstancesContinuationToken(token string) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		req.ContinuationToken = &token
+		return nil
+	}
+}
+
+// WithListInstancesInstanceIDPrefix lists only the instances whose ID starts
+// with prefix.
+func WithListInstancesInstanceIDPrefix(prefix string) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		req.InstanceIdPrefix = &prefix
+		return nil
+	}
+}
+
+// WithListInstancesRuntimeStatus lists only the instances whose runtime status
+// is one of statuses. Each use adds to the statuses of the earlier uses.
+func WithListInstancesRuntimeStatus(statuses ...OrchestrationStatus) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		for _, s := range statuses {
+			if _, ok := protos.OrchestrationStatus_name[int32(s)]; !ok {
+				return fmt.Errorf("unknown runtime status %d", int32(s))
+			}
+		}
+		f := listInstancesFilter(req)
+		f.RuntimeStatus = append(f.RuntimeStatus, statuses...)
+		return nil
+	}
+}
+
+// WithListInstancesCreatedTimeFrom lists only the instances created at or
+// after t. A zero t removes this bound.
+func WithListInstancesCreatedTimeFrom(t time.Time) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		listInstancesFilter(req).CreatedTimeFrom = timestampOrNil(t)
+		return nil
+	}
+}
+
+// WithListInstancesCreatedTimeTo lists only the instances created before t.
+// A zero t removes this bound.
+func WithListInstancesCreatedTimeTo(t time.Time) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		listInstancesFilter(req).CreatedTimeTo = timestampOrNil(t)
+		return nil
+	}
+}
+
+// WithListInstancesCompletedTimeFrom lists only the instances that completed
+// at or after t. An instance that has not completed does not match. A zero t
+// removes this bound.
+func WithListInstancesCompletedTimeFrom(t time.Time) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		listInstancesFilter(req).CompletedTimeFrom = timestampOrNil(t)
+		return nil
+	}
+}
+
+// WithListInstancesCompletedTimeTo lists only the instances that completed
+// before t. An instance that has not completed does not match. A zero t
+// removes this bound.
+func WithListInstancesCompletedTimeTo(t time.Time) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		listInstancesFilter(req).CompletedTimeTo = timestampOrNil(t)
+		return nil
+	}
+}
+
+// WithListInstancesMinDuration lists only the instances whose duration is at
+// least d. The duration is the completed time minus the created time. For an
+// instance that has not completed, the server uses its current time. A zero
+// or negative d removes this bound.
+func WithListInstancesMinDuration(d time.Duration) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		listInstancesFilter(req).MinDuration = durationOrNil(d)
+		return nil
+	}
+}
+
+// WithListInstancesMaxDuration lists only the instances whose duration is
+// less than d. The duration is the completed time minus the created time. For
+// an instance that has not completed, the server uses its current time. A
+// zero or negative d removes this bound.
+func WithListInstancesMaxDuration(d time.Duration) ListInstancesOptions {
+	return func(req *protos.ListInstancesRequest) error {
+		listInstancesFilter(req).MaxDuration = durationOrNil(d)
+		return nil
+	}
+}
+
+// listInstancesFilter returns the filter of req, and allocates it if it is
+// nil.
+func listInstancesFilter(req *protos.ListInstancesRequest) *protos.ListInstancesFilter {
+	if req.Filter == nil {
+		req.Filter = new(protos.ListInstancesFilter)
+	}
+	return req.Filter
+}
+
+// timestampOrNil returns nil for a zero t, so that the bound is unset.
+func timestampOrNil(t time.Time) *timestamppb.Timestamp {
+	if t.IsZero() {
+		return nil
+	}
+	return timestamppb.New(t)
+}
+
+// durationOrNil returns nil for a zero or negative d, so that the bound is
+// unset.
+func durationOrNil(d time.Duration) *durationpb.Duration {
+	if d <= 0 {
+		return nil
+	}
+	return durationpb.New(d)
 }
 
 // routerWithTargetAppID returns r (allocating if nil) with the target app ID set.

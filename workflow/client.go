@@ -236,6 +236,23 @@ func (c *Client) ListInstanceIDs(ctx context.Context, opts ...ListInstanceIDsOpt
 	return (*ListInstanceIDsResponse)(resp), nil
 }
 
+// ListInstances lists workflow instances with their summaries, filtered by
+// the server. A page can be short or empty while its continuation token is
+// not nil, so continue until the token is nil. A runtime without this API
+// returns an error with the gRPC code Unimplemented.
+func (c *Client) ListInstances(ctx context.Context, opts ...ListInstancesOptions) (*ListInstancesResponse, error) {
+	oops := make([]api.ListInstancesOptions, len(opts))
+	for i, o := range opts {
+		oops[i] = api.ListInstancesOptions(o)
+	}
+	resp, err := c.thgc.ListInstances(ctx, oops...)
+	if err != nil {
+		return nil, err
+	}
+
+	return (*ListInstancesResponse)(resp), nil
+}
+
 func (c *Client) GetInstanceHistory(ctx context.Context, id string, opts ...GetInstanceHistoryOptions) (*GetInstanceHistoryResponse, error) {
 	oops := make([]api.GetInstanceHistoryOptions, len(opts))
 	for i, o := range opts {

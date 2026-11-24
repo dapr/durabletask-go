@@ -18,6 +18,7 @@ type SuspendOptions api.SuspendOptions
 type ResumeOptions api.ResumeOptions
 type RerunOptions api.RerunOptions
 type ListInstanceIDsOptions api.ListInstanceIDsOptions
+type ListInstancesOptions api.ListInstancesOptions
 type GetInstanceHistoryOptions api.GetInstanceHistoryOptions
 
 // WithInstanceID configures an explicit workflow instance ID. If not
@@ -127,6 +128,70 @@ func WithListInstanceIDsContinuationToken(token string) ListInstanceIDsOptions {
 // with prefix, such as the runs of a workflow schedule ("<name>_").
 func WithListInstanceIDsInstanceIDPrefix(prefix string) ListInstanceIDsOptions {
 	return ListInstanceIDsOptions(api.WithListInstanceIDsInstanceIDPrefix(prefix))
+}
+
+// WithListInstancesPageSize sets the maximum number of instances in one page.
+// The server can use a smaller maximum.
+func WithListInstancesPageSize(pageSize uint32) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesPageSize(pageSize))
+}
+
+// WithListInstancesContinuationToken continues a listing from the token of
+// the previous ListInstances response.
+func WithListInstancesContinuationToken(token string) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesContinuationToken(token))
+}
+
+// WithListInstancesInstanceIDPrefix lists only the instances whose ID starts
+// with prefix.
+func WithListInstancesInstanceIDPrefix(prefix string) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesInstanceIDPrefix(prefix))
+}
+
+// WithListInstancesRuntimeStatus lists only the instances whose runtime status
+// is one of statuses, such as StatusRunning.
+func WithListInstancesRuntimeStatus(statuses ...api.OrchestrationStatus) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesRuntimeStatus(statuses...))
+}
+
+// WithListInstancesCreatedTimeFrom lists only the instances created at or
+// after t. A zero t removes this bound.
+func WithListInstancesCreatedTimeFrom(t time.Time) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesCreatedTimeFrom(t))
+}
+
+// WithListInstancesCreatedTimeTo lists only the instances created before t.
+// A zero t removes this bound.
+func WithListInstancesCreatedTimeTo(t time.Time) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesCreatedTimeTo(t))
+}
+
+// WithListInstancesCompletedTimeFrom lists only the instances that completed
+// at or after t. A zero t removes this bound.
+func WithListInstancesCompletedTimeFrom(t time.Time) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesCompletedTimeFrom(t))
+}
+
+// WithListInstancesCompletedTimeTo lists only the instances that completed
+// before t. A zero t removes this bound.
+func WithListInstancesCompletedTimeTo(t time.Time) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesCompletedTimeTo(t))
+}
+
+// WithListInstancesMinDuration lists only the instances whose duration is at
+// least d. The duration is the completed time minus the created time. For an
+// instance that has not completed, the server uses its current time. A zero
+// or negative d removes this bound.
+func WithListInstancesMinDuration(d time.Duration) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesMinDuration(d))
+}
+
+// WithListInstancesMaxDuration lists only the instances whose duration is
+// less than d. The duration is the completed time minus the created time. For
+// an instance that has not completed, the server uses its current time. A
+// zero or negative d removes this bound.
+func WithListInstancesMaxDuration(d time.Duration) ListInstancesOptions {
+	return ListInstancesOptions(api.WithListInstancesMaxDuration(d))
 }
 
 // WithAppID targets the new workflow at the app with the given app ID rather

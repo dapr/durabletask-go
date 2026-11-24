@@ -19,6 +19,7 @@ const (
 
 type WorkflowMetadata protos.WorkflowMetadata
 type ListInstanceIDsResponse protos.ListInstanceIDsResponse
+type ListInstancesResponse protos.ListInstancesResponse
 type GetInstanceHistoryResponse protos.GetInstanceHistoryResponse
 
 func (w WorkflowMetadata) String() string {
