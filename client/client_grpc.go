@@ -470,6 +470,7 @@ func makeWorkflowMetadata(resp *protos.GetInstanceResponse) (*backend.WorkflowMe
 		Output:           resp.GetWorkflowState().GetOutput(),
 		CreatedAt:        resp.GetWorkflowState().GetCreatedTimestamp(),
 		LastUpdatedAt:    resp.GetWorkflowState().GetLastUpdatedTimestamp(),
+		CompletedAt:      resp.GetWorkflowState().GetCompletedTimestamp(),
 		FailureDetails:   resp.GetWorkflowState().GetFailureDetails(),
 		Version:          resp.GetWorkflowState().GetVersion(),
 		StartedAt:        resp.GetWorkflowState().GetStartedAt(),
