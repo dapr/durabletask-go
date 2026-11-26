@@ -24,6 +24,14 @@ type WorkflowWorkItem struct {
 	IncomingHistory *protos.PropagatedHistory
 	// sent to each activity (child wf use state.PendingMessages)
 	OutgoingHistory map[int32]*protos.PropagatedHistory
+	// CompletionToken is the completion token of the dispatch the work
+	// item's result was computed from, so that a backend can tell which
+	// worker response it completes or abandons. A workflow that continues as
+	// new is dispatched again within the same work item, and only the token
+	// of the last dispatch is kept. The token is set only by an executor
+	// that delivers results by callback, such as the gRPC executor, and is
+	// empty otherwise.
+	CompletionToken string
 }
 
 // String implements core.WorkItem and fmt.Stringer
@@ -56,6 +64,10 @@ type ActivityWorkItem struct {
 	Properties     map[string]interface{}
 	// receive from caller
 	IncomingHistory *protos.PropagatedHistory
+	// CompletionToken is the completion token of the dispatch the work
+	// item's result was taken from. Like WorkflowWorkItem.CompletionToken,
+	// it is set only by an executor that delivers results by callback.
+	CompletionToken string
 }
 
 // String implements core.WorkItem and fmt.Stringer

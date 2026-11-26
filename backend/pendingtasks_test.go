@@ -92,7 +92,7 @@ func startActivity(t *testing.T, ctx context.Context, g *grpcExecutor) (*protos.
 	ended := make(chan error, 1)
 	g.executeActivityAsync(ctx, api.InstanceID("wf1"), &protos.HistoryEvent{
 		EventType: &protos.HistoryEvent_TaskScheduled{TaskScheduled: &protos.TaskScheduledEvent{Name: "act"}},
-	}, ExecuteOptions{}, func(_ *protos.HistoryEvent, err error) { ended <- err })
+	}, ExecuteOptions{}, func(_ *protos.HistoryEvent, _ string, err error) { ended <- err })
 	select {
 	case wi := <-g.workItemQueue:
 		return wi, ended
