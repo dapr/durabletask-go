@@ -16,10 +16,23 @@ import (
 
 type fakeCallbackBackend struct {
 	Backend
+	lock       sync.Mutex
+	activityCb func(*protos.ActivityResponse, error)
 }
 
-func (f *fakeCallbackBackend) OnActivityCompletion(*protos.ActivityRequest, func(*protos.ActivityResponse, error)) func() {
+func (f *fakeCallbackBackend) OnActivityCompletion(_ *protos.ActivityRequest, cb func(*protos.ActivityResponse, error)) func() {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	f.activityCb = cb
 	return func() {}
+}
+
+// deliverActivity hands resp to the last registered activity callback.
+func (f *fakeCallbackBackend) deliverActivity(resp *protos.ActivityResponse) {
+	f.lock.Lock()
+	cb := f.activityCb
+	f.lock.Unlock()
+	cb(resp, nil)
 }
 
 func (f *fakeCallbackBackend) OnWorkflowTaskCompletion(*protos.WorkflowRequest, func(*protos.WorkflowResponse, error)) func() {

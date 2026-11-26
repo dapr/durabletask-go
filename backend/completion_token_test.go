@@ -127,30 +127,8 @@ func Test_workflowTurn_recordsCompletionToken(t *testing.T) {
 	})
 }
 
-// callbackBackend hands the test the completion callback the executor
-// registers for an activity.
-type callbackBackend struct {
-	Backend
-	lock sync.Mutex
-	cb   func(*protos.ActivityResponse, error)
-}
-
-func (b *callbackBackend) OnActivityCompletion(_ *protos.ActivityRequest, cb func(*protos.ActivityResponse, error)) func() {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-	b.cb = cb
-	return func() {}
-}
-
-func (b *callbackBackend) deliver(resp *protos.ActivityResponse) {
-	b.lock.Lock()
-	cb := b.cb
-	b.lock.Unlock()
-	cb(resp, nil)
-}
-
 func Test_activityProcessor_recordsCompletionToken(t *testing.T) {
-	be := &callbackBackend{}
+	be := &fakeCallbackBackend{}
 	g := &grpcExecutor{
 		workItemQueue:     make(chan *protos.WorkItem, 1),
 		pendingWorkflows:  newPendingTasks(),
@@ -182,7 +160,7 @@ func Test_activityProcessor_recordsCompletionToken(t *testing.T) {
 		require.FailNow(t, "work item was not dispatched")
 	}
 
-	be.deliver(&protos.ActivityResponse{InstanceId: "wf1", TaskId: 1, CompletionToken: wi.GetCompletionToken()})
+	be.deliverActivity(&protos.ActivityResponse{InstanceId: "wf1", TaskId: 1, CompletionToken: wi.GetCompletionToken()})
 
 	select {
 	case err := <-ended:

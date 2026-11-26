@@ -27,7 +27,7 @@ type WorkflowWorkItem struct {
 	// CompletionToken is the completion token of the worker response the
 	// work item's result was computed from, so that a backend can tell which
 	// response it completes or abandons. It is empty when the worker sent no
-	// token or no response was applied.
+	// token or no response arrived.
 	CompletionToken string
 }
 
