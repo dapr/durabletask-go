@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -81,6 +82,7 @@ func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interf
 				ParentTraceContext:      tc,
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
 				Priority:                clonePriority(req.GetPriority()),
+				Tags:                    maps.Clone(req.GetTags()),
 			},
 		},
 		Router: req.GetRouter(),

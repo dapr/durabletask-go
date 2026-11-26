@@ -15,6 +15,7 @@ package runtimestate
 
 import (
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -139,6 +140,10 @@ func (a *Applier) Actions(s *protos.WorkflowRuntimeState, customStatus *wrappers
 								},
 								ParentTraceContext: newParentTraceContext,
 								Priority:           clonePriority(s.StartEvent.Priority),
+								// Tags describe the instance, not one
+								// execution of it, so the next execution
+								// keeps them.
+								Tags: maps.Clone(s.StartEvent.GetTags()),
 							},
 						},
 						Router: action.Router,
