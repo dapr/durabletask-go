@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -145,6 +146,15 @@ func WithStartTime(startTime time.Time) NewWorkflowOptions {
 func WithEnforceUniqueInstanceID() NewWorkflowOptions {
 	return func(req *protos.CreateInstanceRequest) error {
 		req.EnforceUniqueInstanceId = true
+		return nil
+	}
+}
+
+// WithTags sets tags on the workflow instance. They are recorded on its
+// ExecutionStarted event and carried across ContinueAsNew.
+func WithTags(tags map[string]string) NewWorkflowOptions {
+	return func(req *protos.CreateInstanceRequest) error {
+		req.Tags = maps.Clone(tags)
 		return nil
 	}
 }

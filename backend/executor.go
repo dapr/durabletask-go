@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"sync"
@@ -783,6 +784,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				ParentTraceContext:      helpers.TraceContextFromSpan(span),
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
 				Priority:                clonePriority(req.GetPriority()),
+				Tags:                    maps.Clone(req.GetTags()),
 			},
 		},
 		Router: req.GetRouter(),
