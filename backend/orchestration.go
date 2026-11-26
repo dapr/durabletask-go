@@ -189,6 +189,9 @@ func (t *workflowTurn) execute() {
 func (t *workflowTurn) applyResponse(results *protos.WorkflowResponse, err error, execOpts ExecuteOptions) {
 	w := t.processor
 	wi := t.wi
+	// Set before every finish, and again for each response of a
+	// continue-as-new loop, so the work item names the response it ends on.
+	wi.CompletionToken = results.GetCompletionToken()
 
 	if err != nil {
 		t.finish(fmt.Errorf("error executing workflow: %w", err))

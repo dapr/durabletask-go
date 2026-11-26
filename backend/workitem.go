@@ -24,6 +24,11 @@ type WorkflowWorkItem struct {
 	IncomingHistory *protos.PropagatedHistory
 	// sent to each activity (child wf use state.PendingMessages)
 	OutgoingHistory map[int32]*protos.PropagatedHistory
+	// CompletionToken is the completion token of the worker response the
+	// work item's result was computed from, so that a backend can tell which
+	// response it completes or abandons. It is empty when the worker sent no
+	// token or no response was applied.
+	CompletionToken string
 }
 
 // String implements core.WorkItem and fmt.Stringer
@@ -56,6 +61,9 @@ type ActivityWorkItem struct {
 	Properties     map[string]interface{}
 	// receive from caller
 	IncomingHistory *protos.PropagatedHistory
+	// CompletionToken is the completion token of the worker response the
+	// work item's result was taken from; see WorkflowWorkItem.CompletionToken.
+	CompletionToken string
 }
 
 // String implements core.WorkItem and fmt.Stringer

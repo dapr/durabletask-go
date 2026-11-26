@@ -28,7 +28,7 @@ type ActivityExecutor interface {
 // activity result through a callback instead of blocking in ExecuteActivity.
 type asyncActivityExecutor interface {
 	canExecuteAsync() bool
-	executeActivityAsync(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions, done func(*protos.HistoryEvent, error))
+	executeActivityAsync(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions, done func(result *protos.HistoryEvent, completionToken string, err error))
 }
 
 // NewActivityTaskWorker constructs an activity worker.
@@ -87,7 +87,8 @@ func (p *activityProcessor) ProcessWorkItemAsync(ctx context.Context, awi *Activ
 
 	execOpts := ExecuteOptions{PropagatedHistory: awi.IncomingHistory}
 
-	settle := func(result *protos.HistoryEvent, err error) {
+	settle := func(result *protos.HistoryEvent, completionToken string, err error) {
+		awi.CompletionToken = completionToken
 		if span != nil {
 			if err != nil {
 				span.RecordError(err)
@@ -115,10 +116,11 @@ func (p *activityProcessor) ProcessWorkItemAsync(ctx context.Context, awi *Activ
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				settle(nil, fmt.Errorf("%v: activity executor panicked: %v", awi.InstanceID, r))
+				settle(nil, "", fmt.Errorf("%v: activity executor panicked: %v", awi.InstanceID, r))
 			}
 		}()
-		settle(executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent, execOpts))
+		result, err := executor.ExecuteActivity(ctx, awi.InstanceID, awi.NewEvent, execOpts)
+		settle(result, "", err)
 	}()
 }
 

@@ -288,7 +288,7 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 
 // executeActivityAsync is the event-driven form of ExecuteActivity, with the
 // same contract as executeWorkflowAsync.
-func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions, done func(*protos.HistoryEvent, error)) {
+func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.InstanceID, e *protos.HistoryEvent, opts ExecuteOptions, done func(*protos.HistoryEvent, string, error)) {
 
 	key := GetActivityExecutionKey(string(iid), e.EventId)
 
@@ -327,14 +327,14 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 		untrack()
 		if err != nil {
 			if errors.Is(err, api.ErrTaskCancelled) {
-				done(nil, errors.New("operation aborted"))
+				done(nil, "", errors.New("operation aborted"))
 				return
 			}
 			g.logger.Warnf("%s/%s#%d: failed before receiving activity result", iid, task.Name, e.EventId)
-			done(nil, err)
+			done(nil, "", err)
 			return
 		}
-		done(activityResponseEvent(e, task, resp), nil)
+		done(activityResponseEvent(e, task, resp), resp.GetCompletionToken(), nil)
 	}
 	untrack = g.pendingActivities.add(key, workItem, iid, e.EventId, func() {
 		deliver(nil, api.ErrTaskCancelled)
@@ -396,7 +396,7 @@ func (executor *grpcExecutor) ExecuteActivity(ctx context.Context, iid api.Insta
 		err   error
 	}
 	resultCh := make(chan result, 1)
-	executor.executeActivityAsync(ctx, iid, e, opts, func(event *protos.HistoryEvent, err error) {
+	executor.executeActivityAsync(ctx, iid, e, opts, func(event *protos.HistoryEvent, _ string, err error) {
 		resultCh <- result{event: event, err: err}
 	})
 	r := <-resultCh
