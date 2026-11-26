@@ -39,6 +39,7 @@ const (
 	TaskHubSidecarService_CompleteWorkflowTask_FullMethodName      = "/TaskHubSidecarService/CompleteWorkflowTask"
 	TaskHubSidecarService_RerunWorkflowFromEvent_FullMethodName    = "/TaskHubSidecarService/RerunWorkflowFromEvent"
 	TaskHubSidecarService_ListInstanceIDs_FullMethodName           = "/TaskHubSidecarService/ListInstanceIDs"
+	TaskHubSidecarService_ListInstances_FullMethodName             = "/TaskHubSidecarService/ListInstances"
 	TaskHubSidecarService_GetInstanceHistory_FullMethodName        = "/TaskHubSidecarService/GetInstanceHistory"
 	TaskHubSidecarService_CreateWorkflowSchedule_FullMethodName    = "/TaskHubSidecarService/CreateWorkflowSchedule"
 	TaskHubSidecarService_GetWorkflowSchedule_FullMethodName       = "/TaskHubSidecarService/GetWorkflowSchedule"
@@ -80,6 +81,11 @@ type TaskHubSidecarServiceClient interface {
 	// Rerun a Workflow from a specific event ID of a workflow instance.
 	RerunWorkflowFromEvent(ctx context.Context, in *RerunWorkflowFromEventRequest, opts ...grpc.CallOption) (*RerunWorkflowFromEventResponse, error)
 	ListInstanceIDs(ctx context.Context, in *ListInstanceIDsRequest, opts ...grpc.CallOption) (*ListInstanceIDsResponse, error)
+	// Lists workflow instances with their summaries, filtered by the server.
+	// Reads every workflow instance of the app from the state store, then
+	// filters. The cost grows with the number of stored instances. Use it for
+	// periodic reports, not for frequent polling.
+	ListInstances(ctx context.Context, in *ListInstancesRequest, opts ...grpc.CallOption) (*ListInstancesResponse, error)
 	GetInstanceHistory(ctx context.Context, in *GetInstanceHistoryRequest, opts ...grpc.CallOption) (*GetInstanceHistoryResponse, error)
 	// Workflow schedules start a workflow on a cron schedule. See
 	// workflow_schedule.proto.
@@ -266,6 +272,15 @@ func (c *taskHubSidecarServiceClient) ListInstanceIDs(ctx context.Context, in *L
 	return out, nil
 }
 
+func (c *taskHubSidecarServiceClient) ListInstances(ctx context.Context, in *ListInstancesRequest, opts ...grpc.CallOption) (*ListInstancesResponse, error) {
+	out := new(ListInstancesResponse)
+	err := c.cc.Invoke(ctx, TaskHubSidecarService_ListInstances_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *taskHubSidecarServiceClient) GetInstanceHistory(ctx context.Context, in *GetInstanceHistoryRequest, opts ...grpc.CallOption) (*GetInstanceHistoryResponse, error) {
 	out := new(GetInstanceHistoryResponse)
 	err := c.cc.Invoke(ctx, TaskHubSidecarService_GetInstanceHistory_FullMethodName, in, out, opts...)
@@ -353,6 +368,11 @@ type TaskHubSidecarServiceServer interface {
 	// Rerun a Workflow from a specific event ID of a workflow instance.
 	RerunWorkflowFromEvent(context.Context, *RerunWorkflowFromEventRequest) (*RerunWorkflowFromEventResponse, error)
 	ListInstanceIDs(context.Context, *ListInstanceIDsRequest) (*ListInstanceIDsResponse, error)
+	// Lists workflow instances with their summaries, filtered by the server.
+	// Reads every workflow instance of the app from the state store, then
+	// filters. The cost grows with the number of stored instances. Use it for
+	// periodic reports, not for frequent polling.
+	ListInstances(context.Context, *ListInstancesRequest) (*ListInstancesResponse, error)
 	GetInstanceHistory(context.Context, *GetInstanceHistoryRequest) (*GetInstanceHistoryResponse, error)
 	// Workflow schedules start a workflow on a cron schedule. See
 	// workflow_schedule.proto.
@@ -415,6 +435,9 @@ func (UnimplementedTaskHubSidecarServiceServer) RerunWorkflowFromEvent(context.C
 }
 func (UnimplementedTaskHubSidecarServiceServer) ListInstanceIDs(context.Context, *ListInstanceIDsRequest) (*ListInstanceIDsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListInstanceIDs not implemented")
+}
+func (UnimplementedTaskHubSidecarServiceServer) ListInstances(context.Context, *ListInstancesRequest) (*ListInstancesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListInstances not implemented")
 }
 func (UnimplementedTaskHubSidecarServiceServer) GetInstanceHistory(context.Context, *GetInstanceHistoryRequest) (*GetInstanceHistoryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInstanceHistory not implemented")
@@ -738,6 +761,24 @@ func _TaskHubSidecarService_ListInstanceIDs_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaskHubSidecarService_ListInstances_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListInstancesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaskHubSidecarServiceServer).ListInstances(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TaskHubSidecarService_ListInstances_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaskHubSidecarServiceServer).ListInstances(ctx, req.(*ListInstancesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaskHubSidecarService_GetInstanceHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetInstanceHistoryRequest)
 	if err := dec(in); err != nil {
@@ -912,6 +953,10 @@ var TaskHubSidecarService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListInstanceIDs",
 			Handler:    _TaskHubSidecarService_ListInstanceIDs_Handler,
+		},
+		{
+			MethodName: "ListInstances",
+			Handler:    _TaskHubSidecarService_ListInstances_Handler,
 		},
 		{
 			MethodName: "GetInstanceHistory",

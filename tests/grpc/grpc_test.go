@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -15,11 +16,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/dapr/durabletask-go/api"
@@ -28,8 +33,10 @@ import (
 	"github.com/dapr/durabletask-go/backend/sqlite"
 	"github.com/dapr/durabletask-go/client"
 	"github.com/dapr/durabletask-go/task"
+	"github.com/dapr/durabletask-go/tests/mocks"
 	"github.com/dapr/durabletask-go/tests/utils"
 	"github.com/dapr/durabletask-go/workflow"
+	"github.com/dapr/kit/ptr"
 	"go.opentelemetry.io/otel"
 )
 
@@ -571,6 +578,203 @@ func Test_Grpc_ListInstanceIDs(t *testing.T) {
 	resp, err = grpcClient.ListInstanceIDs(ctx, api.WithListInstanceIDsInstanceIDPrefix("sched-"))
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"sched-a", "sched-b"}, resp.InstanceIds)
+}
+
+// newExecutorClients serves a gRPC executor over be. It returns a client and a
+// workflow client connected to the executor.
+func newExecutorClients(t *testing.T, be backend.Backend) (*client.TaskHubGrpcClient, *workflow.Client) {
+	t.Helper()
+	_, register := backend.NewGrpcExecutor(be, backend.DefaultLogger())
+	srv := grpc.NewServer()
+	register(srv)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	return client.NewTaskHubGrpcClient(conn, backend.DefaultLogger()), workflow.NewClientWithLogger(conn, backend.DefaultLogger())
+}
+
+// listerBackend is a mock backend that also implements
+// backend.InstanceLister. Its ListInstances calls go to the mock.
+type listerBackend struct {
+	*mocks.Backend
+}
+
+func (b listerBackend) ListInstances(ctx context.Context, req *protos.ListInstancesRequest) (*protos.ListInstancesResponse, error) {
+	ret := b.Called(ctx, req)
+	resp, _ := ret.Get(0).(*protos.ListInstancesResponse)
+	return resp, ret.Error(1)
+}
+
+// Test_Grpc_ListInstances checks that the client options reach a backend that
+// implements backend.InstanceLister unchanged through the executor, and that
+// the summaries and continuation token come back unchanged.
+func Test_Grpc_ListInstances(t *testing.T) {
+	be := mocks.NewBackend(t)
+	c, wc := newExecutorClients(t, listerBackend{be})
+
+	var got atomic.Pointer[protos.ListInstancesRequest]
+	expectListInstances := func(resp *protos.ListInstancesResponse, err error) {
+		be.On("ListInstances", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+			got.Store(args.Get(1).(*protos.ListInstancesRequest))
+		}).Return(resp, err).Once()
+	}
+
+	created := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	from, to := created.Add(-time.Hour), created.Add(time.Hour)
+
+	t.Run("filtered page", func(t *testing.T) {
+		page := &protos.ListInstancesResponse{
+			Instances: []*protos.WorkflowInstanceSummary{
+				{
+					InstanceId:           "order-1",
+					Name:                 "checkout",
+					RuntimeStatus:        api.RUNTIME_STATUS_COMPLETED,
+					CreatedTimestamp:     timestamppb.New(created),
+					StartedAt:            timestamppb.New(created.Add(time.Second)),
+					LastUpdatedTimestamp: timestamppb.New(created.Add(time.Minute)),
+					CompletedTimestamp:   timestamppb.New(created.Add(time.Minute)),
+					Version:              ptr.Of("v2"),
+					ParentInstanceId:     "parent-1",
+					ParentAppId:          ptr.Of("app-b"),
+				},
+				{
+					InstanceId:           "order-2",
+					Name:                 "checkout",
+					RuntimeStatus:        api.RUNTIME_STATUS_FAILED,
+					CreatedTimestamp:     timestamppb.New(created),
+					LastUpdatedTimestamp: timestamppb.New(created.Add(2 * time.Minute)),
+					CompletedTimestamp:   timestamppb.New(created.Add(2 * time.Minute)),
+				},
+			},
+			ContinuationToken: ptr.Of("next"),
+		}
+		expectListInstances(page, nil)
+
+		resp, err := c.ListInstances(ctx,
+			api.WithListInstancesPageSize(2),
+			api.WithListInstancesContinuationToken("prev"),
+			api.WithListInstancesInstanceIDPrefix("order-"),
+			api.WithListInstancesRuntimeStatus(api.RUNTIME_STATUS_COMPLETED, api.RUNTIME_STATUS_FAILED),
+			api.WithListInstancesCreatedTimeFrom(from),
+			api.WithListInstancesCreatedTimeTo(to),
+			api.WithListInstancesCompletedTimeFrom(from),
+			api.WithListInstancesCompletedTimeTo(to),
+			api.WithListInstancesMinDuration(time.Minute),
+			api.WithListInstancesMaxDuration(time.Hour),
+		)
+		require.NoError(t, err)
+
+		want := &protos.ListInstancesRequest{
+			PageSize:          ptr.Of(uint32(2)),
+			ContinuationToken: ptr.Of("prev"),
+			InstanceIdPrefix:  ptr.Of("order-"),
+			Filter: &protos.ListInstancesFilter{
+				CreatedTimeFrom:   timestamppb.New(from),
+				CreatedTimeTo:     timestamppb.New(to),
+				RuntimeStatus:     []protos.OrchestrationStatus{api.RUNTIME_STATUS_COMPLETED, api.RUNTIME_STATUS_FAILED},
+				CompletedTimeFrom: timestamppb.New(from),
+				CompletedTimeTo:   timestamppb.New(to),
+				MinDuration:       durationpb.New(time.Minute),
+				MaxDuration:       durationpb.New(time.Hour),
+			},
+		}
+		assert.True(t, proto.Equal(want, got.Load()), "want %v, got %v", want, got.Load())
+		assert.True(t, proto.Equal(page, resp), "want %v, got %v", page, resp)
+	})
+
+	t.Run("workflow client", func(t *testing.T) {
+		page := &protos.ListInstancesResponse{
+			Instances: []*protos.WorkflowInstanceSummary{{
+				InstanceId:           "slow-1",
+				Name:                 "checkout",
+				RuntimeStatus:        api.RUNTIME_STATUS_RUNNING,
+				CreatedTimestamp:     timestamppb.New(created),
+				StartedAt:            timestamppb.New(created),
+				LastUpdatedTimestamp: timestamppb.New(created.Add(time.Minute)),
+			}},
+		}
+		expectListInstances(page, nil)
+
+		resp, err := wc.ListInstances(ctx,
+			workflow.WithListInstancesRuntimeStatus(workflow.StatusRunning, workflow.StatusSuspended),
+			workflow.WithListInstancesMinDuration(30*time.Minute),
+		)
+		require.NoError(t, err)
+
+		// The client sends its default page size.
+		want := &protos.ListInstancesRequest{
+			PageSize: ptr.Of(uint32(1024)),
+			Filter: &protos.ListInstancesFilter{
+				RuntimeStatus: []protos.OrchestrationStatus{api.RUNTIME_STATUS_RUNNING, api.RUNTIME_STATUS_SUSPENDED},
+				MinDuration:   durationpb.New(30 * time.Minute),
+			},
+		}
+		assert.True(t, proto.Equal(want, got.Load()), "want %v, got %v", want, got.Load())
+		assert.Nil(t, resp.ContinuationToken)
+		assert.True(t, proto.Equal(page, (*protos.ListInstancesResponse)(resp)), "want %v, got %v", page, resp)
+	})
+
+	t.Run("backend error keeps its gRPC code", func(t *testing.T) {
+		expectListInstances(nil, status.Error(codes.InvalidArgument, "bad token"))
+		_, err := c.ListInstances(ctx, api.WithListInstancesContinuationToken("bad"))
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
+	t.Run("option error stops the call", func(t *testing.T) {
+		// The mock has no expectation, so a call to the backend fails the test.
+		_, err := c.ListInstances(ctx, api.WithListInstancesRuntimeStatus(api.OrchestrationStatus(99)))
+		require.ErrorContains(t, err, "unknown runtime status 99")
+	})
+
+	t.Run("cancelled context returns the context error", func(t *testing.T) {
+		cctx, cancel := context.WithCancel(ctx)
+		cancel()
+		_, err := c.ListInstances(cctx)
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+// Test_Grpc_ListInstances_Unimplemented checks that callers get the gRPC code
+// Unimplemented, which tells them to fall back to ListInstanceIDs, from a
+// backend that does not implement backend.InstanceLister and from a server
+// older than the RPC.
+func Test_Grpc_ListInstances_Unimplemented(t *testing.T) {
+	t.Run("backend without InstanceLister", func(t *testing.T) {
+		// The mock has no expectations, so a call to the backend fails the test.
+		c, _ := newExecutorClients(t, mocks.NewBackend(t))
+		_, err := c.ListInstances(ctx)
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
+	})
+
+	t.Run("sqlite backend", func(t *testing.T) {
+		_, err := grpcClient.ListInstances(ctx)
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
+		_, err = workflowClient.ListInstances(ctx, workflow.WithListInstancesMaxDuration(time.Hour))
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
+	})
+
+	t.Run("server without the RPC", func(t *testing.T) {
+		desc := protos.TaskHubSidecarService_ServiceDesc
+		desc.Methods = slices.DeleteFunc(slices.Clone(desc.Methods), func(m grpc.MethodDesc) bool {
+			return m.MethodName == "ListInstances"
+		})
+		srv := grpc.NewServer()
+		srv.RegisterService(&desc, protos.UnimplementedTaskHubSidecarServiceServer{})
+		lis, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		go func() { _ = srv.Serve(lis) }()
+		t.Cleanup(srv.Stop)
+		conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+
+		_, err = client.NewTaskHubGrpcClient(conn, backend.DefaultLogger()).ListInstances(ctx)
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
+	})
 }
 
 // Test_Grpc_WorkflowSchedulesUnimplemented checks that a runtime with no

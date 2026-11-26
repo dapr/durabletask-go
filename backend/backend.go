@@ -21,6 +21,7 @@ type (
 	WorkflowMetadata              = protos.WorkflowMetadata
 	OrchestrationStatus           = protos.OrchestrationStatus
 	BackendWorkflowStateMetadata  = protos.BackendWorkflowStateMetadata
+	BackendWorkflowSummary        = protos.BackendWorkflowSummary
 	DurableTimer                  = protos.DurableTimer
 	WorkflowRuntimeState          = protos.WorkflowRuntimeState
 	WorkflowRuntimeStateMessage   = protos.WorkflowRuntimeStateMessage
@@ -32,6 +33,10 @@ type (
 	RerunWorkflowFromEventRequest = protos.RerunWorkflowFromEventRequest
 	ListInstanceIDsRequest        = protos.ListInstanceIDsRequest
 	ListInstanceIDsResponse       = protos.ListInstanceIDsResponse
+	ListInstancesRequest          = protos.ListInstancesRequest
+	ListInstancesResponse         = protos.ListInstancesResponse
+	ListInstancesFilter           = protos.ListInstancesFilter
+	WorkflowInstanceSummary       = protos.WorkflowInstanceSummary
 	GetInstanceHistoryRequest     = protos.GetInstanceHistoryRequest
 	GetInstanceHistoryResponse    = protos.GetInstanceHistoryResponse
 )
@@ -164,6 +169,16 @@ type Backend interface {
 
 	// GetInstanceHistory returns the full current history of a workflow instance.
 	GetInstanceHistory(ctx context.Context, req *protos.GetInstanceHistoryRequest) (*protos.GetInstanceHistoryResponse, error)
+}
+
+// InstanceLister is an optional interface for a [Backend] that can list
+// workflow instances with their summaries. The gRPC executor serves
+// ListInstances calls with it. When the backend does not implement it, the
+// executor returns an error with the gRPC code Unimplemented.
+type InstanceLister interface {
+	// ListInstances lists workflow instances with their summaries, filtered
+	// by the request.
+	ListInstances(ctx context.Context, req *protos.ListInstancesRequest) (*protos.ListInstancesResponse, error)
 }
 
 // Completion registration contract for OnWorkflowTaskCompletion and

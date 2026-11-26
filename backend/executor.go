@@ -835,6 +835,19 @@ func (g *grpcExecutor) ListInstanceIDs(ctx context.Context, req *protos.ListInst
 	return g.backend.ListInstanceIDs(ctx, req)
 }
 
+var errListInstancesUnimplemented = status.Error(codes.Unimplemented, "listing workflow instances is not supported by this backend")
+
+// ListInstances implements protos.TaskHubSidecarServiceServer. It returns an
+// error with the gRPC code Unimplemented when the backend does not implement
+// [InstanceLister].
+func (g *grpcExecutor) ListInstances(ctx context.Context, req *protos.ListInstancesRequest) (*protos.ListInstancesResponse, error) {
+	lister, ok := g.backend.(InstanceLister)
+	if !ok {
+		return nil, errListInstancesUnimplemented
+	}
+	return lister.ListInstances(ctx, req)
+}
+
 func (g *grpcExecutor) GetInstanceHistory(ctx context.Context, req *protos.GetInstanceHistoryRequest) (*protos.GetInstanceHistoryResponse, error) {
 	return g.backend.GetInstanceHistory(ctx, req)
 }
@@ -973,6 +986,7 @@ func createGetInstanceResponse(req *protos.GetInstanceRequest, metadata *Workflo
 		WorkflowStatus:       metadata.RuntimeStatus,
 		CreatedTimestamp:     metadata.CreatedAt,
 		LastUpdatedTimestamp: metadata.LastUpdatedAt,
+		CompletedTimestamp:   metadata.CompletedAt,
 		Version:              metadata.Version,
 		StartedAt:            metadata.StartedAt,
 	}

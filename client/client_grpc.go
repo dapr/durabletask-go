@@ -420,6 +420,34 @@ func (c *TaskHubGrpcClient) ListInstanceIDs(ctx context.Context, opts ...api.Lis
 	return resp, nil
 }
 
+// ListInstances lists workflow instances with their summaries, filtered by
+// the server. The default page size is 1024. A page can be short or empty
+// while its continuation token is not nil, so continue until the token is
+// nil.
+//
+// A server without this RPC, or with a backend that cannot list instances,
+// returns an error with the gRPC code Unimplemented.
+func (c *TaskHubGrpcClient) ListInstances(ctx context.Context, opts ...api.ListInstancesOptions) (*backend.ListInstancesResponse, error) {
+	req := &protos.ListInstancesRequest{
+		PageSize: ptr.Of(uint32(1024)),
+	}
+	for _, configure := range opts {
+		if err := configure(req); err != nil {
+			return nil, fmt.Errorf("failed to configure list instances request: %w", err)
+		}
+	}
+
+	resp, err := c.client.ListInstances(ctx, req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("failed to list instances: %w", err)
+	}
+
+	return resp, nil
+}
+
 func (c *TaskHubGrpcClient) GetInstanceHistory(ctx context.Context, id api.InstanceID, opts ...api.GetInstanceHistoryOptions) (*backend.GetInstanceHistoryResponse, error) {
 	req := protos.GetInstanceHistoryRequest{
 		InstanceId: id.String(),
@@ -470,6 +498,7 @@ func makeWorkflowMetadata(resp *protos.GetInstanceResponse) (*backend.WorkflowMe
 		Output:           resp.GetWorkflowState().GetOutput(),
 		CreatedAt:        resp.GetWorkflowState().GetCreatedTimestamp(),
 		LastUpdatedAt:    resp.GetWorkflowState().GetLastUpdatedTimestamp(),
+		CompletedAt:      resp.GetWorkflowState().GetCompletedTimestamp(),
 		FailureDetails:   resp.GetWorkflowState().GetFailureDetails(),
 		Version:          resp.GetWorkflowState().GetVersion(),
 		StartedAt:        resp.GetWorkflowState().GetStartedAt(),
