@@ -221,7 +221,7 @@ func (g *grpcExecutor) canExecuteAsync() bool {
 // exactly once, with the same result ExecuteWorkflow would have returned, on
 // the goroutine that delivers the completion, the cancellation, the context
 // error, or the dispatch failure.
-func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions, done func(*protos.WorkflowResponse, error)) {
+func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions, done func(*protos.WorkflowResponse, string, error)) {
 
 	req := &protos.WorkflowRequest{
 		InstanceId:        string(iid),
@@ -262,14 +262,14 @@ func (g *grpcExecutor) executeWorkflowAsync(ctx context.Context, iid api.Instanc
 		untrack()
 		if err != nil {
 			if errors.Is(err, api.ErrTaskCancelled) {
-				done(nil, errors.New("operation aborted"))
+				done(nil, token, errors.New("operation aborted"))
 				return
 			}
 			g.logger.Warnf("%s: failed before receiving workflow result", iid)
-			done(nil, err)
+			done(nil, token, err)
 			return
 		}
-		done(resp, nil)
+		done(resp, token, nil)
 	}
 	untrack = g.pendingWorkflows.add(string(iid), workItem, iid, 0, func() {
 		deliver(nil, api.ErrTaskCancelled)
@@ -327,14 +327,14 @@ func (g *grpcExecutor) executeActivityAsync(ctx context.Context, iid api.Instanc
 		untrack()
 		if err != nil {
 			if errors.Is(err, api.ErrTaskCancelled) {
-				done(nil, "", errors.New("operation aborted"))
+				done(nil, token, errors.New("operation aborted"))
 				return
 			}
 			g.logger.Warnf("%s/%s#%d: failed before receiving activity result", iid, task.Name, e.EventId)
-			done(nil, "", err)
+			done(nil, token, err)
 			return
 		}
-		done(activityResponseEvent(e, task, resp), resp.GetCompletionToken(), nil)
+		done(activityResponseEvent(e, task, resp), token, nil)
 	}
 	untrack = g.pendingActivities.add(key, workItem, iid, e.EventId, func() {
 		deliver(nil, api.ErrTaskCancelled)
@@ -382,7 +382,7 @@ func (executor *grpcExecutor) ExecuteWorkflow(ctx context.Context, iid api.Insta
 		err  error
 	}
 	resultCh := make(chan result, 1)
-	executor.executeWorkflowAsync(ctx, iid, oldEvents, newEvents, opts, func(resp *protos.WorkflowResponse, err error) {
+	executor.executeWorkflowAsync(ctx, iid, oldEvents, newEvents, opts, func(resp *protos.WorkflowResponse, _ string, err error) {
 		resultCh <- result{resp: resp, err: err}
 	})
 	r := <-resultCh

@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -19,19 +20,41 @@ import (
 	"github.com/dapr/durabletask-go/backend/runtimestate"
 )
 
-// responsesExecutor answers each ExecuteWorkflow call with the next response.
-type responsesExecutor struct {
+// dispatchExecutor stands in for the workflow executor. Each dispatch gets
+// a new completion token and is answered with the next of responses, or with
+// a continue-as-new once they run out. With async set it delivers by
+// callback, like the gRPC executor; otherwise through ExecuteWorkflow.
+type dispatchExecutor struct {
 	Executor
-	responses []*protos.WorkflowResponse
+	async      bool
+	responses  []*protos.WorkflowResponse
+	err        error
+	dispatches int
 }
 
-func (e *responsesExecutor) ExecuteWorkflow(context.Context, api.InstanceID, []*protos.HistoryEvent, []*protos.HistoryEvent, ExecuteOptions) (*protos.WorkflowResponse, error) {
+func (e *dispatchExecutor) next() (*protos.WorkflowResponse, string, error) {
+	e.dispatches++
+	token := fmt.Sprintf("d%d", e.dispatches)
+	if e.err != nil {
+		return nil, token, e.err
+	}
 	if len(e.responses) == 0 {
-		return nil, errors.New("no response left")
+		return &protos.WorkflowResponse{Actions: completeAction(protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW)}, token, nil
 	}
 	resp := e.responses[0]
 	e.responses = e.responses[1:]
-	return resp, nil
+	return resp, token, nil
+}
+
+func (e *dispatchExecutor) canExecuteAsync() bool { return e.async }
+
+func (e *dispatchExecutor) executeWorkflowAsync(_ context.Context, _ api.InstanceID, _ []*protos.HistoryEvent, _ []*protos.HistoryEvent, _ ExecuteOptions, done func(*protos.WorkflowResponse, string, error)) {
+	done(e.next())
+}
+
+func (e *dispatchExecutor) ExecuteWorkflow(context.Context, api.InstanceID, []*protos.HistoryEvent, []*protos.HistoryEvent, ExecuteOptions) (*protos.WorkflowResponse, error) {
+	resp, _, err := e.next()
+	return resp, err
 }
 
 func newTokenTurn(t *testing.T, executor Executor, done func(error)) (*workflowTurn, *WorkflowWorkItem) {
@@ -81,93 +104,113 @@ func completeAction(status protos.OrchestrationStatus) []*protos.WorkflowAction 
 	}}
 }
 
-// The work item carries the completion token of the response it finishes
-// with, so the backend can tell which response it completes.
+// The work item carries the completion token of the dispatch it finishes
+// with, so the backend can tell which worker response it completes.
 func Test_workflowTurn_recordsCompletionToken(t *testing.T) {
-	t.Run("completed", func(t *testing.T) {
-		var doneErr error
-		turn, wi := newTokenTurn(t, nil, func(err error) { doneErr = err })
+	completed := &protos.WorkflowResponse{Actions: completeAction(protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED)}
 
-		turn.applyResponse(&protos.WorkflowResponse{
-			CompletionToken: "t1",
-			Actions:         completeAction(protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED),
-		}, nil, ExecuteOptions{})
-
-		require.NoError(t, doneErr)
-		assert.Equal(t, "t1", wi.CompletionToken)
-	})
-
-	t.Run("continue-as-new ends on the last response", func(t *testing.T) {
-		var doneErr error
-		executor := &responsesExecutor{responses: []*protos.WorkflowResponse{{
-			CompletionToken: "t2",
-			Actions:         completeAction(protos.OrchestrationStatus_ORCHESTRATION_STATUS_COMPLETED),
-		}}}
-		turn, wi := newTokenTurn(t, executor, func(err error) { doneErr = err })
-
-		turn.applyResponse(&protos.WorkflowResponse{
-			CompletionToken: "t1",
-			Actions:         completeAction(protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW),
-		}, nil, ExecuteOptions{})
-
-		require.NoError(t, doneErr)
-		assert.Empty(t, executor.responses)
-		assert.Equal(t, "t2", wi.CompletionToken)
-	})
-
-	t.Run("no response", func(t *testing.T) {
-		var doneErr error
-		turn, wi := newTokenTurn(t, nil, func(err error) { doneErr = err })
-		wi.CompletionToken = "stale"
-
-		turn.applyResponse(nil, errors.New("boom"), ExecuteOptions{})
-
-		require.Error(t, doneErr)
-		assert.Empty(t, wi.CompletionToken)
-	})
-}
-
-func Test_activityProcessor_recordsCompletionToken(t *testing.T) {
-	be := &fakeCallbackBackend{}
-	g := &grpcExecutor{
-		workItemQueue:     make(chan *protos.WorkItem, 1),
-		pendingWorkflows:  newPendingTasks(),
-		pendingActivities: newPendingTasks(),
-		streams:           &sync.Map{},
-		backend:           be,
-		logger:            DefaultLogger(),
-	}
-	p := newActivityProcessor(nil, g, nil, "")
-
-	awi := &ActivityWorkItem{
-		InstanceID: "wf1",
-		NewEvent: &protos.HistoryEvent{
-			EventId:   1,
-			Timestamp: timestamppb.New(time.Now()),
-			EventType: &protos.HistoryEvent_TaskScheduled{
-				TaskScheduled: &protos.TaskScheduledEvent{Name: "act"},
-			},
+	tests := map[string]struct {
+		executor  *dispatchExecutor
+		wantToken string
+		wantErr   bool
+	}{
+		"completed": {
+			executor:  &dispatchExecutor{async: true, responses: []*protos.WorkflowResponse{completed}},
+			wantToken: "d1",
+		},
+		"continue-as-new keeps the last dispatch": {
+			executor: &dispatchExecutor{async: true, responses: []*protos.WorkflowResponse{
+				{Actions: completeAction(protos.OrchestrationStatus_ORCHESTRATION_STATUS_CONTINUED_AS_NEW)},
+				completed,
+			}},
+			wantToken: "d2",
+		},
+		"a turn that fails after a response keeps its dispatch": {
+			// Continues as new until the tight-loop limit fails the turn.
+			executor:  &dispatchExecutor{async: true},
+			wantToken: fmt.Sprintf("d%d", maxContinueAsNewCount+1),
+			wantErr:   true,
+		},
+		"a dispatch that failed keeps its token": {
+			executor:  &dispatchExecutor{async: true, err: errors.New("boom")},
+			wantToken: "d1",
+			wantErr:   true,
+		},
+		"an executor without callbacks records no token": {
+			executor:  &dispatchExecutor{responses: []*protos.WorkflowResponse{completed}},
+			wantToken: "",
 		},
 	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var doneErr error
+			turn, wi := newTokenTurn(t, tc.executor, func(err error) { doneErr = err })
+			wi.CompletionToken = "stale"
 
-	ended := make(chan error, 1)
-	p.ProcessWorkItemAsync(context.Background(), awi, func(err error) { ended <- err })
+			turn.execute()
 
-	var wi *protos.WorkItem
-	select {
-	case wi = <-g.workItemQueue:
-	case <-time.After(5 * time.Second):
-		require.FailNow(t, "work item was not dispatched")
+			if tc.wantErr {
+				require.Error(t, doneErr)
+			} else {
+				require.NoError(t, doneErr)
+			}
+			assert.Equal(t, tc.wantToken, wi.CompletionToken)
+		})
 	}
+}
 
-	be.deliverActivity(&protos.ActivityResponse{InstanceId: "wf1", TaskId: 1, CompletionToken: wi.GetCompletionToken()})
+// The activity work item carries the token of its dispatch, whether or not
+// the worker echoes it.
+func Test_activityProcessor_recordsCompletionToken(t *testing.T) {
+	for name, echo := range map[string]bool{"echoed": true, "not echoed": false} {
+		t.Run(name, func(t *testing.T) {
+			be := &fakeCallbackBackend{}
+			g := &grpcExecutor{
+				workItemQueue:     make(chan *protos.WorkItem, 1),
+				pendingWorkflows:  newPendingTasks(),
+				pendingActivities: newPendingTasks(),
+				streams:           &sync.Map{},
+				backend:           be,
+				logger:            DefaultLogger(),
+			}
+			p := newActivityProcessor(nil, g, nil, "")
 
-	select {
-	case err := <-ended:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		require.FailNow(t, "activity did not end")
+			awi := &ActivityWorkItem{
+				InstanceID: "wf1",
+				NewEvent: &protos.HistoryEvent{
+					EventId:   1,
+					Timestamp: timestamppb.New(time.Now()),
+					EventType: &protos.HistoryEvent_TaskScheduled{
+						TaskScheduled: &protos.TaskScheduledEvent{Name: "act"},
+					},
+				},
+			}
+
+			ended := make(chan error, 1)
+			p.ProcessWorkItemAsync(context.Background(), awi, func(err error) { ended <- err })
+
+			var wi *protos.WorkItem
+			select {
+			case wi = <-g.workItemQueue:
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "work item was not dispatched")
+			}
+			require.NotEmpty(t, wi.GetCompletionToken())
+
+			resp := &protos.ActivityResponse{InstanceId: "wf1", TaskId: 1}
+			if echo {
+				resp.CompletionToken = wi.GetCompletionToken()
+			}
+			be.deliverActivity(resp)
+
+			select {
+			case err := <-ended:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "activity did not end")
+			}
+			assert.Equal(t, wi.GetCompletionToken(), awi.CompletionToken)
+			assert.NotNil(t, awi.Result.GetTaskCompleted())
+		})
 	}
-	assert.Equal(t, wi.GetCompletionToken(), awi.CompletionToken)
-	assert.NotNil(t, awi.Result.GetTaskCompleted())
 }

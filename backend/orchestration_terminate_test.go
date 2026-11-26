@@ -81,7 +81,7 @@ func Test_workflowTurn_applyResponse_forcesTerminateWhenExecutorIgnoresIt(t *tes
 				},
 			},
 		}},
-	}, nil, ExecuteOptions{})
+	}, "", nil, ExecuteOptions{})
 
 	require.NoError(t, doneErr)
 	require.True(t, runtimestate.IsCompleted(wi.State))
@@ -108,7 +108,7 @@ func Test_workflowTurn_applyResponse_terminateBeatsContinueAsNew(t *testing.T) {
 				},
 			},
 		}},
-	}, nil, ExecuteOptions{})
+	}, "", nil, ExecuteOptions{})
 
 	require.NoError(t, doneErr)
 	require.True(t, runtimestate.IsCompleted(wi.State),

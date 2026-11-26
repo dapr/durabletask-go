@@ -69,7 +69,7 @@ func Test_executeWorkflowAsync_carriesExecutionID(t *testing.T) {
 		},
 	}}
 
-	g.executeWorkflowAsync(context.Background(), api.InstanceID("wf1"), nil, newEvents, ExecuteOptions{}, func(*protos.WorkflowResponse, error) {})
+	g.executeWorkflowAsync(context.Background(), api.InstanceID("wf1"), nil, newEvents, ExecuteOptions{}, func(*protos.WorkflowResponse, string, error) {})
 
 	select {
 	case wi := <-g.workItemQueue:

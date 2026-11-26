@@ -31,7 +31,7 @@ type WorkflowExecutor interface {
 // workflow response through a callback instead of blocking in ExecuteWorkflow.
 type asyncWorkflowExecutor interface {
 	canExecuteAsync() bool
-	executeWorkflowAsync(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions, done func(*protos.WorkflowResponse, error))
+	executeWorkflowAsync(ctx context.Context, iid api.InstanceID, oldEvents []*protos.HistoryEvent, newEvents []*protos.HistoryEvent, opts ExecuteOptions, done func(resp *protos.WorkflowResponse, completionToken string, err error))
 }
 
 // maxContinueAsNewCount bounds the tight continue-as-new re-execution loop.
@@ -167,8 +167,8 @@ func (t *workflowTurn) execute() {
 	// which runs the workflow code inline) is invoked synchronously on the
 	// current goroutine.
 	if asyncExecutor, ok := executor.(asyncWorkflowExecutor); ok && asyncExecutor.canExecuteAsync() {
-		asyncExecutor.executeWorkflowAsync(t.ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts, func(results *protos.WorkflowResponse, err error) {
-			t.applyResponse(results, err, execOpts)
+		asyncExecutor.executeWorkflowAsync(t.ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts, func(results *protos.WorkflowResponse, completionToken string, err error) {
+			t.applyResponse(results, completionToken, err, execOpts)
 		})
 		return
 	}
@@ -183,15 +183,17 @@ func (t *workflowTurn) execute() {
 		}()
 		results, err = executor.ExecuteWorkflow(t.ctx, wi.InstanceID, wi.State.OldEvents, wi.State.NewEvents, execOpts)
 	}()
-	t.applyResponse(results, err, execOpts)
+	t.applyResponse(results, "", err, execOpts)
 }
 
-func (t *workflowTurn) applyResponse(results *protos.WorkflowResponse, err error, execOpts ExecuteOptions) {
+// applyResponse applies the response of the dispatch with the given
+// completion token, empty when the executor has none.
+func (t *workflowTurn) applyResponse(results *protos.WorkflowResponse, completionToken string, err error, execOpts ExecuteOptions) {
 	w := t.processor
 	wi := t.wi
-	// Set before every finish, and again for each response of a
-	// continue-as-new loop, so the work item names the response it ends on.
-	wi.CompletionToken = results.GetCompletionToken()
+	// Set before every finish, and again for each dispatch of a
+	// continue-as-new loop, so the work item names the dispatch it ends on.
+	wi.CompletionToken = completionToken
 
 	if err != nil {
 		t.finish(fmt.Errorf("error executing workflow: %w", err))
