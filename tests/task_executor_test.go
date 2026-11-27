@@ -1284,3 +1284,78 @@ func Test_Executor_ActionsDeterministicOrder(t *testing.T) {
 		require.NotNil(t, a.GetScheduleTask())
 	}
 }
+
+// Verifies that a ChildWorkflowInstanceFailed event without failure details, which is
+// what a parent receives when its child is terminated, fails the parent's task for it.
+func Test_Executor_ChildFailedWithoutDetailsFailsTask(t *testing.T) {
+	r := task.NewTaskRegistry()
+	r.AddWorkflowN("Parent", func(ctx *task.WorkflowContext) (any, error) {
+		if err := ctx.CallChildWorkflow("Child").Await(nil); err != nil {
+			return nil, err
+		}
+		return "child succeeded", nil
+	})
+
+	iid := api.InstanceID("abc123")
+	oldEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ExecutionStarted{
+				ExecutionStarted: &protos.ExecutionStartedEvent{
+					Name: "Parent",
+					WorkflowInstance: &protos.WorkflowInstance{
+						InstanceId:  string(iid),
+						ExecutionId: wrapperspb.String(uuid.New().String()),
+					},
+				},
+			},
+		},
+		{
+			EventId:   0,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ChildWorkflowInstanceCreated{
+				ChildWorkflowInstanceCreated: &protos.ChildWorkflowInstanceCreatedEvent{
+					Name:       "Child",
+					InstanceId: string(iid) + ":0000",
+				},
+			},
+		},
+	}
+	newEvents := []*protos.HistoryEvent{
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_WorkflowStarted{
+				WorkflowStarted: &protos.WorkflowStartedEvent{},
+			},
+		},
+		{
+			EventId:   -1,
+			Timestamp: timestamppb.Now(),
+			EventType: &protos.HistoryEvent_ChildWorkflowInstanceFailed{
+				ChildWorkflowInstanceFailed: &protos.ChildWorkflowInstanceFailedEvent{
+					TaskScheduledId: 0,
+				},
+			},
+		},
+	}
+
+	executor := task.NewTaskExecutor(r)
+	results, err := executor.ExecuteWorkflow(ctx, iid, oldEvents, newEvents, backend.ExecuteOptions{})
+	require.NoError(t, err)
+	require.Len(t, results.Actions, 1)
+	complete := results.Actions[0].GetCompleteWorkflow()
+	require.NotNil(t, complete)
+	require.Equal(t, protos.OrchestrationStatus_ORCHESTRATION_STATUS_FAILED, complete.WorkflowStatus,
+		"a child that ended without failure details must not resolve as a success, result: %s", complete.Result.GetValue())
+	require.NotNil(t, complete.FailureDetails)
+	require.Contains(t, complete.FailureDetails.ErrorMessage, "the child workflow did not complete successfully")
+}

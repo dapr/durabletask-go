@@ -1012,8 +1012,19 @@ func (ctx *WorkflowContext) onChildWorkflowFailed(sof *protos.ChildWorkflowInsta
 	}
 	delete(ctx.pendingTasks, taskID)
 
+	// A terminated child reports its end with no failure details. The task
+	// must still fail: with nil details Await would return a nil error, as if
+	// the child had completed.
+	fd := sof.FailureDetails
+	if fd == nil {
+		fd = &protos.TaskFailureDetails{
+			ErrorType:    "ChildWorkflowFailed",
+			ErrorMessage: "the child workflow did not complete successfully, for example because it was terminated",
+		}
+	}
+
 	// completing a task will resume the corresponding Await() call
-	task.fail(sof.FailureDetails)
+	task.fail(fd)
 	return nil
 }
 
