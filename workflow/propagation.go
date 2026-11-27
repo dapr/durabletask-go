@@ -41,9 +41,19 @@ func PropagateLineage() PropagationOption {
 	return api.PropagateLineage()
 }
 
+// PropagateStartEventOnly configures propagation to include only the caller's
+// ExecutionStarted event: its name, input, instance and tags. The child sees
+// which run called it, but none of the events that followed and no ancestor
+// chain. An engine that predates this scope propagates the caller's own
+// history instead.
+func PropagateStartEventOnly() PropagationOption {
+	return api.PropagateStartEventOnly()
+}
+
 // WithHistoryPropagation creates an option that configures history propagation
 // for a child workflow or activity call. It can be passed to both CallActivity
-// and CallChildWorkflow. Pass one of PropagateOwnHistory() or PropagateLineage().
+// and CallChildWorkflow. Pass one of PropagateOwnHistory(), PropagateLineage()
+// or PropagateStartEventOnly().
 //
 // Usage:
 //

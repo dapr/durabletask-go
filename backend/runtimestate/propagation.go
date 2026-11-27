@@ -34,6 +34,10 @@ func canForwardScope(receivedHistory *protos.PropagatedHistory) protos.HistoryPr
 // own parent — used when scope is LINEAGE. appID is the current app's Dapr
 // app ID, used to tag the chunk of events produced by this workflow.
 //
+// START_EVENT_ONLY puts only this workflow's ExecutionStarted event in its
+// chunk. Any other value that is not NONE or LINEAGE, including one this
+// build does not know, is treated as OWN_HISTORY.
+//
 // Each chunk owns its own rawEvents bytes. For the current workflow's own
 // chunk, events are marshaled deterministically here (same encoding as
 // historysigning.MarshalEvent) so the bytes the producer signs match the
@@ -65,15 +69,21 @@ func AssembleProtoPropagatedHistory(
 	ownEvents = append(ownEvents, state.GetOldEvents()...)
 	ownEvents = append(ownEvents, state.GetNewEvents()...)
 
-	if len(ownEvents) > 0 {
-		var workflowName string
-		for _, e := range ownEvents {
-			if es := e.GetExecutionStarted(); es != nil {
-				workflowName = es.GetName()
-				break
-			}
+	var startEvent *protos.HistoryEvent
+	for _, e := range ownEvents {
+		if e.GetExecutionStarted() != nil {
+			startEvent = e
+			break
 		}
+	}
+	if scope == protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_START_EVENT_ONLY {
+		ownEvents = nil
+		if startEvent != nil {
+			ownEvents = []*protos.HistoryEvent{startEvent}
+		}
+	}
 
+	if len(ownEvents) > 0 {
 		rawEvents := make([][]byte, len(ownEvents))
 		for i, e := range ownEvents {
 			b, err := historysigning.MarshalEvent(e)
@@ -86,7 +96,7 @@ func AssembleProtoPropagatedHistory(
 		chunks = append(chunks, &protos.PropagatedHistoryChunk{
 			AppId:        appID,
 			InstanceId:   state.GetInstanceId(),
-			WorkflowName: workflowName,
+			WorkflowName: startEvent.GetExecutionStarted().GetName(),
 			RawEvents:    rawEvents,
 		})
 	}

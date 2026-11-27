@@ -27,7 +27,8 @@ import (
 var ErrPropagationNotFound = errors.New("propagated history: not found")
 
 // PropagationOption is a functional option for configuring history propagation.
-// Pass one of PropagateOwnHistory() or PropagateLineage().
+// Pass one of PropagateOwnHistory(), PropagateLineage() or
+// PropagateStartEventOnly().
 type PropagationOption func(*protos.HistoryPropagationScope)
 
 // PropagateOwnHistory configures propagation to include the caller's own
@@ -46,6 +47,17 @@ func PropagateOwnHistory() PropagationOption {
 func PropagateLineage() PropagationOption {
 	return func(s *protos.HistoryPropagationScope) {
 		*s = protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE
+	}
+}
+
+// PropagateStartEventOnly configures propagation to include only the caller's
+// ExecutionStarted event: its name, input, instance and tags. The child sees
+// which run called it, but none of the events that followed and no ancestor
+// chain. An engine that predates this scope propagates the caller's own
+// history instead.
+func PropagateStartEventOnly() PropagationOption {
+	return func(s *protos.HistoryPropagationScope) {
+		*s = protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_START_EVENT_ONLY
 	}
 }
 
