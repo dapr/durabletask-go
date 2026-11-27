@@ -83,6 +83,7 @@ func (c *backendClient) ScheduleNewWorkflow(ctx context.Context, workflow interf
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
 				Priority:                clonePriority(req.GetPriority()),
 				Tags:                    maps.Clone(req.GetTags()),
+				Ordering:                req.GetOrdering(),
 			},
 		},
 		Router: req.GetRouter(),

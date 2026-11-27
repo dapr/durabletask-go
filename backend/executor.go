@@ -785,6 +785,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 				ScheduledStartTimestamp: req.ScheduledStartTimestamp,
 				Priority:                clonePriority(req.GetPriority()),
 				Tags:                    maps.Clone(req.GetTags()),
+				Ordering:                req.GetOrdering(),
 			},
 		},
 		Router: req.GetRouter(),
@@ -800,7 +801,7 @@ func (g *grpcExecutor) StartInstance(ctx context.Context, req *protos.CreateInst
 		return nil, fmt.Errorf("failed to create workflow instance: %w", err)
 	}
 
-	if req.ScheduledStartTimestamp == nil && !g.skipWaitForInstanceStart && !staged {
+	if req.ScheduledStartTimestamp == nil && req.GetOrdering() == nil && !g.skipWaitForInstanceStart && !staged {
 		_, err := g.WaitForInstanceStart(ctx, &protos.GetInstanceRequest{InstanceId: instanceID, Router: req.GetRouter()})
 		if err != nil {
 			return nil, err
