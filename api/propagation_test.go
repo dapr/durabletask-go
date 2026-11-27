@@ -511,6 +511,9 @@ func TestNewHistoryPropagationScope_Options(t *testing.T) {
 	assert.Equal(t,
 		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_LINEAGE,
 		NewHistoryPropagationScope(PropagateLineage()))
+	assert.Equal(t,
+		protos.HistoryPropagationScope_HISTORY_PROPAGATION_SCOPE_START_EVENT_ONLY,
+		NewHistoryPropagationScope(PropagateStartEventOnly()))
 }
 
 // TestChunkEvents_Bounds verifies bounds-checking against malformed or

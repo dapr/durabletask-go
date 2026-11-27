@@ -27,7 +27,8 @@ type HistoryPropagation struct {
 
 // WithHistoryPropagation creates an option that configures history propagation
 // for a child workflow or activity call. It can be passed to both CallActivity
-// and CallChildWorkflow. Pass one of PropagateOwnHistory() or PropagateLineage().
+// and CallChildWorkflow. Pass one of PropagateOwnHistory(), PropagateLineage()
+// or PropagateStartEventOnly().
 //
 // Usage:
 //
